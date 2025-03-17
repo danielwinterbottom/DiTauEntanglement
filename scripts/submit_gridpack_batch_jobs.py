@@ -21,7 +21,7 @@ def Submit(job, jobname, N):
    job_file_out_name = 'jobs/job_%(jobname)s_$(CLUSTER)_$(PROCESS).job' % vars()
 
    out_str =  'executable = %s\n' % job
-   out_str += 'getenv = True"\n'
+   out_str += 'getenv = True\n'
    out_str += 'arguments = \"$(CLUSTER) $(PROCESS)\"\n' % vars()
    out_str += 'output = %(job_file_out_name)s.out\n' % vars()
    out_str += 'error = %(job_file_out_name)s.err\n' % vars()
@@ -43,13 +43,12 @@ cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
 rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
 tar -xvf %(current_dir)s/%(gridpackname)s\n\
 ./run.sh %(nevents)i $2\n\
-'
-#mv cmsgrid_final.lhe cmsgrid_final_$2.lhe\n\
-#ls | grep -v ".lhe" | xargs rm -r' % vars()
+mv events.lhe.gz events_$2.lhe.gz\n\
+rm -r madevent run.sh' % vars()
 
 # make an output directory
 os.system('mkdir -p batch_job_outputs/%(name)s' % vars())
-os.system.('mkdir jobs')
+os.system('mkdir jobs')
 
 for i in range(0,int(args.total_events/args.events_per_job)):
     # make an directory for each job where the gridpack will be untarred and the output will be stored
@@ -62,4 +61,4 @@ os.system('chmod +x jobs/parajob_%(name)s.sh' % vars())
 
 total = int(args.total_events/args.events_per_job)
 print('Submitting jobs')
-#Submit('jobs/parajob_%(name)s.sh' % vars(), name, total)
+Submit('jobs/parajob_%(name)s.sh' % vars(), name, total)
