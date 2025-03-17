@@ -1,5 +1,11 @@
 # DiTauEntanglement
 
+
+# Setup environment
+
+        conda env create -f env.yml
+        conda activate DiTauEntanglement
+
 # Setup Madgraph
 
 Download and untar madgraph:
@@ -8,6 +14,33 @@ Download and untar madgraph:
 	tar -xvf MG5_aMC_v3.5.7.tar.gz
 
 Note you may need to update the version
+
+# Install HEPMC3
+
+	wget http://hepmc.web.cern.ch/hepmc/releases/HepMC3-3.2.6.tar.gz
+	tar -xzf HepMC3-3.2.6.tar.gz
+	mkdir hepmc3-build
+	cd hepmc3-build
+        cmake -DHEPMC3_ENABLE_ROOTIO=OFF -DCMAKE_INSTALL_PREFIX=../hepmc3-install ../HepMC3-3.2.6 -DHEPMC3_PYTHON_VERSIONS=3.9
+	make -j8 install
+        cd -
+
+# Install Pythia8
+
+clone the repo:
+
+	git clone git@gitlab.com:Pythia8/releases.git --branch pythia8313 --single-branch pythia8
+
+Install pythia8:
+
+        wget https://pythia.org/download/pythia83/pythia8310.tar
+	cd pythia8310
+	./configure --with-hepmc3=$CONDA_PREFIX --prefix=$CONDA_PREFIX --arch=LINUX --with-python-include=$CONDA_PREFIX/include/python3.9/ --with-python-bin=$CONDA_PREFIX/bin/
+        make -j8
+	make -j8 install
+        ln -s $CONDA_PREFIX/lib/pythia8.so $CONDA_PREFIX/lib/python3.9/site-packages/pythia8.so
+	cd -
+
 
 # Generate events with Madgraph
 
