@@ -34,10 +34,32 @@ def Submit(job, jobname, N):
 
    os.system('condor_submit %(job_file_name)s' % vars())
 
+command = None
+## untar the gridpack once and make sure it can be executed multiple times in parallel
+## following instructions here: https://cp3.irmp.ucl.ac.be/projects/madgraph/wiki/GridDevelopment
+## This doesn't seem to work (no events are produced)
+#command = f'cd {current_dir}/batch_job_outputs/{name}\n\
+#chmod -R 744 madevent\n\
+#rm -rf madevent run.sh\n\
+#tar -xvf {current_dir}/{gridpackname}\n\
+#cd madevent\n\
+#./bin/internal/restore_data default\n\
+#cd ../\n\
+#chmod -R 555 madevent\n\
+#'
 
-# first we need to make a gridpack
+if command is not None: 
+    os.system(command)
 
-out_string = '#!/bin/sh\n\
+    out_string = '#!/bin/sh\n\
+echo \"Cluster = $1 Process = $2\"\n\
+cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
+rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
+./../run.sh %(nevents)i $2\n\
+mv events.lhe.gz events_$2.lhe.gz' % vars()
+elif False:
+    # the old version that was creating issues for vols
+    out_string = '#!/bin/sh\n\
 echo \"Cluster = $1 Process = $2\"\n\
 cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
 rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
@@ -45,10 +67,19 @@ tar -xvf %(current_dir)s/%(gridpackname)s\n\
 ./run.sh %(nevents)i $2\n\
 mv events.lhe.gz events_$2.lhe.gz\n\
 rm -r madevent run.sh' % vars()
+else:
+    out_string = '#!/bin/sh\n\
+echo \"Cluster = $1 Process = $2\"\n\
+cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
+rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
+tar -xvf %(current_dir)s/%(gridpackname)s -C $_CONDOR_SCRATCH_DIR\n\
+./$_CONDOR_SCRATCH_DIR/run.sh %(nevents)i $2\n\
+mv events.lhe.gz events_$2.lhe.gz\n\
+rm -r madevent run.sh' % vars()
 
 # make an output directory
 os.system('mkdir -p batch_job_outputs/%(name)s' % vars())
-os.system('mkdir jobs')
+os.system('mkdir -p jobs')
 
 for i in range(0,int(args.total_events/args.events_per_job)):
     # make an directory for each job where the gridpack will be untarred and the output will be stored

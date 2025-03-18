@@ -14,6 +14,7 @@ parser.add_argument('--output', '-o', help= 'Name of output file',default='pythi
 parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--n_events', '-n', help= 'Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, type=int)
+parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
 
 args = parser.parse_args()
 
@@ -135,6 +136,9 @@ else:
     pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
     pythia.readString("23:onMode = off")  # Turn off all Z decays
     pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
+
+pythia.readString("Random:setSeed = on")
+pythia.readString(f"Random:seed = {args.seed}")  # Set random seed for reproducibility
 
 pythia.init()
 

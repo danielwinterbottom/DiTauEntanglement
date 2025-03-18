@@ -75,3 +75,9 @@ For larger submission the lhe files can be produced as batch jobs, e.g to produc
 
 	python scripts/submit_gridpack_batch_jobs.py --events_per_job 10000 --total_events 10000000 -i ee_to_tauhtauh_inc_entanglement/run_01_gridpack.tar.gz -o ee_to_tauhtauh_inc_entanglement
 	python scripts/submit_gridpack_batch_jobs.py --events_per_job 10000 --total_events 10000000 -i ee_to_tauhtauh_no_entanglement/run_01_gridpack.tar.gz -o ee_to_tauhtauh_no_entanglement
+
+To run the parton shower (pythia) locally use:
+
+	python scripts/shower_events.py -c scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_2000_Njob_1000/job_output_0/events_0.lhe -n -1
+
+To submit these as batch jobs use
