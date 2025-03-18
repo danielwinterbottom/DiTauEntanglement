@@ -17,19 +17,14 @@ Note you may need to update the version
 
 # Install HEPMC3
 
-	wget http://hepmc.web.cern.ch/hepmc/releases/HepMC3-3.2.6.tar.gz
-	tar -xzf HepMC3-3.2.6.tar.gz
-	mkdir hepmc3-build
-	cd hepmc3-build
-        cmake -DHEPMC3_ENABLE_ROOTIO=OFF -DCMAKE_INSTALL_PREFIX=../hepmc3-install ../HepMC3-3.2.6 -DHEPMC3_PYTHON_VERSIONS=3.9
-	make -j8 install
+        git clone https://gitlab.cern.ch/hepmc/HepMC3.git
+        cd HepMC3
+	cmake -DCMAKE_INSTALL_PREFIX=../hepmc3-install ./
+	make -j8 
+        make -j8 install
         cd -
 
 # Install Pythia8
-
-clone the repo:
-
-	git clone git@gitlab.com:Pythia8/releases.git --branch pythia8313 --single-branch pythia8
 
 Install pythia8:
 
