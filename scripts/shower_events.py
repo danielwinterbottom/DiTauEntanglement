@@ -169,8 +169,11 @@ def GetPiDaughters(part, event):
     # Retrieve the charge of the parent tau
     tau_charge = part.charge()
 
+    daughter_pdgids = []
+
     for d in part.daughterList():
         daughter = event[d]
+        daughter_pdgids.append(daughter.id())
         if abs(daughter.id()) == 211:
             pis.append(daughter)
         if abs(daughter.id()) == 111:
@@ -200,9 +203,9 @@ def GetPiDaughters(part, event):
 #            if i>0:
 #                print('mass = %.4f, mass diff = %.4f' % ((sorted_pis[0].p() + pi.p()).mCalc(), abs((sorted_pis[0].p() + pi.p()).mCalc() - rho0_mass)))
 
-        return (sorted_pis, pi0s, nus)
+        return (sorted_pis, pi0s, nus, daughter_pdgids)
 
-    return (pis, pi0s, nus)
+    return (pis, pi0s, nus, daughter_pdgids)
 
 stopGenerating = False
 count = 0
@@ -237,7 +240,7 @@ while not stopGenerating:
             branch_vals['z_y' % vars()][0] = z_y
             branch_vals['z_z' % vars()][0] = z_z
         if abs(pdgid) == 15 and LastCopy:
-            pis, pi0s, nus = GetPiDaughters(part,pythia.event)
+            pis, pi0s, nus, daughter_pdgids = GetPiDaughters(part,pythia.event)
             tau_name = 'taun' if pdgid == 15 else 'taup'
             branch_vals['%(tau_name)s_px' % vars()][0] = part.px()
             branch_vals['%(tau_name)s_py' % vars()][0] = part.py()
@@ -245,18 +248,30 @@ while not stopGenerating:
             branch_vals['%(tau_name)s_e' % vars()][0]  = part.e()
             branch_vals['%(tau_name)s_npi' % vars()][0]  = len(pis)
             branch_vals['%(tau_name)s_npizero' % vars()][0]  = len(pi0s)
-            branch_vals['%(tau_name)s_pi1_px' % vars()][0] = pis[0].px()
-            branch_vals['%(tau_name)s_pi1_py' % vars()][0] = pis[0].py()
-            branch_vals['%(tau_name)s_pi1_pz' % vars()][0] = pis[0].pz()
-            branch_vals['%(tau_name)s_pi1_e' % vars()][0]  = pis[0].e()
-            branch_vals['%(tau_name)s_pi1_vx' % vars()][0] = pis[0].xProd() # mm units
-            branch_vals['%(tau_name)s_pi1_vy' % vars()][0] = pis[0].yProd()
-            branch_vals['%(tau_name)s_pi1_vz' % vars()][0] = pis[0].zProd()
 
-            branch_vals['%(tau_name)s_nu_px' % vars()][0] = nus[0].px()
-            branch_vals['%(tau_name)s_nu_py' % vars()][0] = nus[0].py()
-            branch_vals['%(tau_name)s_nu_pz' % vars()][0] = nus[0].pz()
-            branch_vals['%(tau_name)s_nu_e' % vars()][0]  = nus[0].e()
+            if len(pis) == 0:
+                print('Warning: no pions found for tau %i' % part.id())
+                print('daughter pdgids:')
+                print(daughter_pdgids)
+                # print the mothers of this tau
+                print('mothers:')
+                for m in part.motherList():
+                    print(pythia.event[m].id())
+
+            if len(pis) > 0:
+                branch_vals['%(tau_name)s_pi1_px' % vars()][0] = pis[0].px()
+                branch_vals['%(tau_name)s_pi1_py' % vars()][0] = pis[0].py()
+                branch_vals['%(tau_name)s_pi1_pz' % vars()][0] = pis[0].pz()
+                branch_vals['%(tau_name)s_pi1_e' % vars()][0]  = pis[0].e()
+                branch_vals['%(tau_name)s_pi1_vx' % vars()][0] = pis[0].xProd() # mm units
+                branch_vals['%(tau_name)s_pi1_vy' % vars()][0] = pis[0].yProd()
+                branch_vals['%(tau_name)s_pi1_vz' % vars()][0] = pis[0].zProd()
+
+            if len(nus) > 0:
+                branch_vals['%(tau_name)s_nu_px' % vars()][0] = nus[0].px()
+                branch_vals['%(tau_name)s_nu_py' % vars()][0] = nus[0].py()
+                branch_vals['%(tau_name)s_nu_pz' % vars()][0] = nus[0].pz()
+                branch_vals['%(tau_name)s_nu_e' % vars()][0]  = nus[0].e()
 
             if len(pis) > 1:
                 branch_vals['%(tau_name)s_pi2_px' % vars()][0] = pis[1].px()
@@ -286,13 +301,22 @@ while not stopGenerating:
                 branch_vals['%(tau_name)s_pizero2_pz' % vars()][0] = pi0s[1].pz()            
                 branch_vals['%(tau_name)s_pizero2_e' % vars()][0]  = pi0s[1].e()
 
+
+
     hepmc_event = HepMC3.GenEvent()
     hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
     hepmc_writer.write_event(hepmc_event)
 
     tree.Fill()
+
+    if count % 1000 == 0:
+        print('Processed %i events' % count)
+        tree.AutoSave("SaveSelf")
+
     count+=1
-    if not stopGenerating: pythia.next()
+    if not stopGenerating:
+        # make sure next event is valid 
+        pythia.next()
 
 # Finalize
 #pythia.stat()
