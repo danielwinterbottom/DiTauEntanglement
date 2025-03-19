@@ -80,4 +80,8 @@ To run the parton shower (pythia) locally use:
 
 	python scripts/shower_events.py -c scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_2000_Njob_1000/job_output_0/events_0.lhe -n -1
 
+Then to smear the gen-level quantities and compute the spin observables used to test entanglement you can run
+
+	python scripts/compute_spin_vars.py -i pythia_output.root -o pythia_events_extravars.root
+
 To submit these as batch jobs use
