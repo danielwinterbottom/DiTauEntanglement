@@ -4,7 +4,6 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', '-i', help= 'Name of input directory which should contain subdirectories named job_output_0, job_output_1, etc. with the LHE files in them that are named events_0.lhe, events_1.lhe, etc.')
 parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
-parser.add_argument('--output', '-o', help= 'Name of output directory')
 parser.add_argument('--N_jobs', '-n', help= 'Number of job to submit', default=-1, type=int)
 parser.add_argument('--job_name', '-j', help= 'Name of job to submit', default='pythia')
 args = parser.parse_args()
@@ -37,6 +36,7 @@ echo \"Cluster = $1 Process = $2\"\n\
 cd {current_dir}/\n\
 gunzip {args.input}/job_output_$2/events_$2.lhe.gz\n\
 python scripts/shower_events.py -c {args.cmnd_file}  -i {args.input}/job_output_$2/events_$2.lhe -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1\n\
+python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
 ' % vars()
 
 os.system('mkdir -p jobs')
