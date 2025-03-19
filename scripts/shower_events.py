@@ -210,6 +210,8 @@ def GetPiDaughters(part, event):
 stopGenerating = False
 count = 0
 
+pythia.next() # generate first event
+
 while not stopGenerating:
 
     stopGenerating = pythia.infoPython().atEndOfFile()
@@ -307,7 +309,7 @@ while not stopGenerating:
     hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
     hepmc_writer.write_event(hepmc_event)
 
-    tree.Fill()
+    if not stopGenerating: tree.Fill()
 
     if count % 1000 == 0:
         print('Processed %i events' % count)
@@ -324,3 +326,4 @@ hepmc_writer.close()
 
 tree.Write()
 fout.Close()
+print('Finished running pythia')

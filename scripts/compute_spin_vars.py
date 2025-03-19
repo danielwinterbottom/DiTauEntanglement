@@ -64,6 +64,8 @@ branches = [
         'taup_npi',
         'taup_npizero',
 
+        'taup_vz',
+
         'reco_taup_vx',    
         'reco_taup_vy',    
         'reco_taup_vz', 
@@ -125,7 +127,7 @@ for b in branches:
 
 # Determine the range of entries to process
 n_entries = tree.GetEntries()
-start_entry = args.n_skip * args.n_events + 1 if args.n_events > 0 else 1
+start_entry = args.n_skip * args.n_events if args.n_events > 0 else 0
 end_entry = start_entry + args.n_events if args.n_events > 0 else n_entries
 
 if start_entry >= n_entries:
@@ -324,15 +326,23 @@ for i in range(start_entry, end_entry):
         taupvis_reco = taup_pi1_reco.Clone()
     elif tree.taup_npizero == 1 and tree.taup_npi == 1:   
         taupvis_reco = taup_pi1_reco + taup_pizero1_reco
+    elif tree.taup_npizero == 2 and tree.taup_npi == 1:   
+        taupvis_reco = taup_pi1_reco + taup_pizero1_reco + taup_pizero2_reco
     elif tree.taup_npizero == 0 and tree.taup_npi == 3:
         taupvis_reco = taup_pi1_reco + taup_pi2_reco + taup_pi3_reco
+    else: 
+        taupvis_reco = taup_pi1_reco.Clone()
 
     if tree.taun_npizero == 0 and tree.taun_npi == 1:
         taunvis_reco = taun_pi1_reco.Clone()
     elif tree.taun_npizero == 1 and tree.taun_npi == 1:
         taunvis_reco = taun_pi1_reco + taun_pizero1_reco 
+    elif tree.taun_npizero == 2 and tree.taun_npi == 1:
+        taunvis_reco = taun_pi1_reco + taun_pizero1_reco + taun_pizero2_reco
     elif tree.taun_npizero == 0 and tree.taun_npi == 3:
         taunvis_reco = taun_pi1_reco + taun_pi2_reco + taun_pi3_reco
+    else:
+        taunvis_reco = taun_pi1_reco.Clone()
 
     mode=1
     if (tree.taup_npi == 1 and tree.taup_npizero == 1) or (tree.taun_npi == 1 and tree.taun_npizero == 1):
@@ -368,6 +378,8 @@ for i in range(start_entry, end_entry):
         branch_vals['reco_taun_vx'][0] = taun_SV_reco.X()
         branch_vals['reco_taun_vy'][0] = taun_SV_reco.Y()
         branch_vals['reco_taun_vz'][0] = taun_SV_reco.Z()
+
+    branch_vals['taup_vz'][0] = tree.taup_pi1_vz # use this to check the events match the friend tree
 
     branch_vals['mass'][0] = P_Z.M()
     branch_vals['reco_mass'][0] = P_Z_reco.M()
@@ -506,6 +518,11 @@ print('mean d_sol = %g' % mean_dsol)
 # Write the new tree to the output file
 new_tree.Write()
 
+if new_tree.GetEntries() != tree.GetEntries():
+    print("Warning: The number of entries in the new tree does not match the original tree.")
+    print(f"Original tree entries: {tree.GetEntries()}, New tree entries: {new_tree.GetEntries()}")
+
 # Close the files
 input_root.Close()
 output_root.Close()
+print('Finished running smearing and reconstruction')
