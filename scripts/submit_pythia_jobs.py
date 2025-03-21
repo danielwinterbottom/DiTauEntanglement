@@ -23,7 +23,7 @@ def Submit(job, jobname, N):
    out_str += 'output = %(job_file_out_name)s.out\n' % vars()
    out_str += 'error = %(job_file_out_name)s.err\n' % vars()
    out_str += 'log = %(job_file_out_name)s.log\n' % vars()
-   out_str += '+MaxRuntime = 10000\n'
+   out_str += '+MaxRuntime = 10800\n'
    out_str += 'queue %i' % N
    job_file = open(job_file_name,'w')
    job_file.write(out_str)

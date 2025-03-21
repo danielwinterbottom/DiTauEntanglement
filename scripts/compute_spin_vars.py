@@ -118,6 +118,13 @@ branches = [
         'reco_taun_pizero2_py',
         'reco_taun_pizero2_pz',
         'reco_taun_pizero2_e', 
+        'reco_Z_px',
+        'reco_Z_py',
+        'reco_Z_pz',
+        'reco_Z_e',
+        'BS_x',
+        'BS_y',
+        'BS_z',
 
 ]
 branch_vals = {}
@@ -298,13 +305,7 @@ for i in range(start_entry, end_entry):
     else:
         d_min_point_n_reco = d_min_point_n.Clone()
         d_min_point_p_reco = d_min_point_p.Clone()
-
-    branch_vals['reco_taup_pi1_ipx'][0] = d_min_point_p_reco.X()
-    branch_vals['reco_taup_pi1_ipy'][0] = d_min_point_p_reco.Y()
-    branch_vals['reco_taup_pi1_ipz'][0] = d_min_point_p_reco.Z()
-    branch_vals['reco_taun_pi1_ipx'][0] = d_min_point_n_reco.X()
-    branch_vals['reco_taun_pi1_ipy'][0] = d_min_point_n_reco.Y()
-    branch_vals['reco_taun_pi1_ipz'][0] = d_min_point_n_reco.Z()
+   
 
     #d_min_reco = d_min_point_p_reco-d_min_point_n_reco
     d_min_reco = FindDMin(d_min_point_n_reco, taun_pi1.Vect().Unit(), d_min_point_p_reco, taup_pi1.Vect().Unit())
@@ -321,6 +322,21 @@ for i in range(start_entry, end_entry):
         BS_reco = smearing.SmearBS(BS)
     else:
         BS_reco = BS.Clone()
+
+    branch_vals['BS_x'][0] = BS_reco.X()
+    branch_vals['BS_y'][0] = BS_reco.Y()
+    branch_vals['BS_z'][0] = BS_reco.Z()
+
+    # define ips wrt to the beam spot
+    d_min_point_p_reco_wrt_bs = d_min_point_p_reco - BS_reco
+    d_min_point_n_reco_wrt_bs = d_min_point_n_reco - BS_reco
+
+    branch_vals['reco_taup_pi1_ipx'][0] = d_min_point_p_reco_wrt_bs.X()
+    branch_vals['reco_taup_pi1_ipy'][0] = d_min_point_p_reco_wrt_bs.Y()
+    branch_vals['reco_taup_pi1_ipz'][0] = d_min_point_p_reco_wrt_bs.Z()
+    branch_vals['reco_taun_pi1_ipx'][0] = d_min_point_n_reco_wrt_bs.X()
+    branch_vals['reco_taun_pi1_ipy'][0] = d_min_point_n_reco_wrt_bs.Y()
+    branch_vals['reco_taun_pi1_ipz'][0] = d_min_point_n_reco_wrt_bs.Z()
 
     if tree.taup_npizero == 0 and tree.taup_npi == 1:
         taupvis_reco = taup_pi1_reco.Clone()
@@ -356,6 +372,11 @@ for i in range(start_entry, end_entry):
     if args.smear_mode in [1,6] : P_Z_reco = smearing.SmearQ(P_Z) 
     else: P_Z_reco = P_Z.Clone()
 
+    branch_vals['reco_Z_px'][0] = P_Z_reco.Px()
+    branch_vals['reco_Z_py'][0] = P_Z_reco.Py()
+    branch_vals['reco_Z_pz'][0] = P_Z_reco.Pz()
+    branch_vals['reco_Z_e'][0] = P_Z_reco.E()
+
     if args.smear_mode in [1,7]:
         taup_SV_reco = smearing.SmearSV(taup_SV)
         taun_SV_reco = smearing.SmearSV(taun_SV)
@@ -371,13 +392,21 @@ for i in range(start_entry, end_entry):
     else: sv_delta = None
 
     if taup_SV_reco is not None:
-        branch_vals['reco_taup_vx'][0] = taup_SV_reco.X()
-        branch_vals['reco_taup_vy'][0] = taup_SV_reco.Y()
-        branch_vals['reco_taup_vz'][0] = taup_SV_reco.Z()
+
+        # define the sv wrt the beamspot
+        taup_SV_reco_wrt_bs = taup_SV_reco - BS_reco
+
+        branch_vals['reco_taup_vx'][0] = taup_SV_reco_wrt_bs.X()
+        branch_vals['reco_taup_vy'][0] = taup_SV_reco_wrt_bs.Y()
+        branch_vals['reco_taup_vz'][0] = taup_SV_reco_wrt_bs.Z()
     if taun_SV_reco is not None:
-        branch_vals['reco_taun_vx'][0] = taun_SV_reco.X()
-        branch_vals['reco_taun_vy'][0] = taun_SV_reco.Y()
-        branch_vals['reco_taun_vz'][0] = taun_SV_reco.Z()
+
+        # define the sv wrt the beamspot
+        taun_SV_reco_wrt_bs = taun_SV_reco - BS_reco
+
+        branch_vals['reco_taun_vx'][0] = taun_SV_reco_wrt_bs.X()
+        branch_vals['reco_taun_vy'][0] = taun_SV_reco_wrt_bs.Y()
+        branch_vals['reco_taun_vz'][0] = taun_SV_reco_wrt_bs.Z()
 
     branch_vals['taup_vz'][0] = tree.taup_pi1_vz # use this to check the events match the friend tree
 
@@ -432,7 +461,11 @@ for i in range(start_entry, end_entry):
         pv = -PolarimetricA1(taup_reco, taup_pi1_reco, taup_pi2_reco, taup_pi3_reco, +1).PVC()
         pv.Boost(-taup_reco.BoostVector())
         taup_s_reco = pv.Vect().Unit()
-    else: raise Exception("Number of pions not equal to 1 or 3") 
+    else: 
+        print("WARNING: Number of pions not equal to 1 or 3")
+        new_tree.Fill() # any missing variables will be filled with 0
+        continue
+
     if tree.taun_npi == 1 and tree.taun_npizero == 0:   
         taun_pi1.Boost(-taun.BoostVector())
         taun_s = taun_pi1.Vect().Unit()
@@ -461,7 +494,10 @@ for i in range(start_entry, end_entry):
         pv = -PolarimetricA1(taun_reco, taun_pi1_reco, taun_pi2_reco, taun_pi3_reco, +1).PVC()
         pv.Boost(-taun_reco.BoostVector())
         taun_s_reco = pv.Vect().Unit()
-    else: raise Exception("Number of pions not equal to 1 or 3")
+    else: 
+        print("WARNING: Number of pions not equal to 1 or 3")
+        new_tree.Fill() # any missing variables will be filled with 0
+        continue
 
     # compute coordinate vectors here (n,r,k)
     # p is direction of e+ beam - this will be known also for reco variables!
@@ -478,13 +514,6 @@ for i in range(start_entry, end_entry):
     n_reco = (p.Cross(k_reco)).Unit()
     cosTheta_reco = p.Dot(k_reco)
     r_reco = (p - (k_reco*cosTheta_reco)).Unit()    
-
-    #print('n:', n.X(), n.Y(), n.Z())
-    #print('n_reco:', n_reco.X(), n_reco.Y(), n_reco.Z())
-    #print('r:', r.X(), r.Y(), r.Z())
-    #print('r_reco:', r_reco.X(), r_reco.Y(), r_reco.Z())
-    #print('k:', k.X(), k.Y(), k.Z())
-    #print('k_reco:', k_reco.X(), k_reco.Y(), k_reco.Z())
 
     branch_vals['cosn_plus'][0] = taup_s.Dot(n)
     branch_vals['cosr_plus'][0] = taup_s.Dot(r)
