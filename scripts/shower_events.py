@@ -214,6 +214,10 @@ pythia.next() # generate first event
 
 while not stopGenerating:
 
+    # initialize the branch values to zero
+    for b in branches:
+        branch_vals[b][0] = 0
+
     stopGenerating = pythia.infoPython().atEndOfFile()
     if args.n_events>0 and count+1 >= args.n_events: stopGenerating = True
 
