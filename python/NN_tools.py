@@ -174,6 +174,22 @@ class RegressionDataset(Dataset):
         self.X = torch.tensor(dataframe[input_features].values, dtype=torch.float32)
         self.y = torch.tensor(dataframe[output_features].values, dtype=torch.float32)
 
+    def get_input_means_stds(self):
+        """
+        Compute the means and standard deviations of the input features.
+        """
+        means = self.X.mean(dim=0)
+        stds = self.X.std(dim=0)
+        return means, stds
+
+    def get_output_means_stds(self):
+        """
+        Compute the means and standard deviations of the output features.
+        """
+        means = self.y.mean(dim=0)
+        stds = self.y.std(dim=0)
+        return means, stds
+
     def __len__(self):
         return len(self.X)
 
@@ -205,20 +221,26 @@ class SimpleNN(nn.Module):
         #self.input_layer = nn.Linear(input_dim, 128)
         #self.hidden_layer = nn.Linear(128, 64)
         #self.output_layer = nn.Linear(64, output_dim)
-        n_nodes = int(2./3*input_dim + output_dim)
         n_nodes = 2*input_dim
-        print(input_dim, output_dim, n_nodes)
         self.input_layer = nn.Linear(input_dim, input_dim)
+        self.dropout1 = nn.Dropout(0.2)
         self.hidden_layer_1 = nn.Linear(input_dim, n_nodes)
+        self.dropout2 = nn.Dropout(0.2)
         self.hidden_layer_2 = nn.Linear(n_nodes, n_nodes)
+        self.dropout3 = nn.Dropout(0.2)
         self.hidden_layer_3 = nn.Linear(n_nodes, n_nodes)
+        self.dropout4 = nn.Dropout(0.2)
         self.output_layer = nn.Linear(n_nodes, output_dim)
 
     def forward(self, x):
         x = torch.relu(self.input_layer(x))
+        self.dropout1(x)
         x = torch.relu(self.hidden_layer_1(x))
+        self.dropout2(x)
         x = torch.relu(self.hidden_layer_2(x))
+        self.dropout3(x)
         x = torch.relu(self.hidden_layer_3(x))
+        self.dropout4(x)
         x = self.output_layer(x)
         return x
 
@@ -311,6 +333,8 @@ if __name__ == '__main__':
     treename1 = "tree"
     treename2 = "new_tree"
 
+    standardize = True
+
     # stage 1: prepare dataframes
     if 1 in args.stages:
         PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=20, verbosity=1)
@@ -342,13 +366,34 @@ if __name__ == '__main__':
     test_df = pd.concat(dataframes[2:], ignore_index=True)
 
     # stage 2: train the model
+
+    train_dataset = RegressionDataset(train_df, input_features, output_features)
+
+    train_in_means, train_in_stds = train_dataset.get_input_means_stds()
+    train_out_means, train_out_stds = train_dataset.get_output_means_stds()
+
     if 2 in args.stages:
 
 
-        train_dataset = RegressionDataset(train_df, input_features, output_features)
+        #train_dataset = RegressionDataset(train_df, input_features, output_features)
+
+        #train_in_means, train_in_stds = train_dataset.get_input_means_stds()
+        #train_out_means, train_out_stds = train_dataset.get_output_means_stds()
+
+        if standardize:
+            # normalize the input features
+            train_dataset.X = (train_dataset.X - train_in_means) / train_in_stds
+            # normalize the output features
+            train_dataset.y = (train_dataset.y - train_out_means) / train_out_stds
+
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
         test_dataset = RegressionDataset(test_df, input_features, output_features)
+        if standardize:
+            # normalize the input features
+            test_dataset.X = (test_dataset.X - train_in_means) / train_in_stds
+            # normalize the output features
+            test_dataset.y = (test_dataset.y - train_out_means) / train_out_stds
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
         model = SimpleNN(len(input_features), len(output_features))
@@ -416,15 +461,24 @@ if __name__ == '__main__':
 
         # apply the model to the test set
         test_dataset = RegressionDataset(test_df, input_features, output_features)
+        if standardize:
+            # apply the same normalization as for the training set
+            test_dataset.X = (test_dataset.X - train_in_means) / train_in_stds
+            # normalize the output features
+            test_dataset.y = (test_dataset.y - train_out_means) / train_out_stds
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         # get the predictions
         predictions = []
         with torch.no_grad():
             for i, (X, y) in enumerate(test_dataloader):
                 outputs = model(X)
+                if standardize:
+                    # convert predictions back to original scale
+                    outputs = outputs * train_out_stds + train_out_means
                 predictions.append(outputs.numpy())
         predictions = np.concatenate(predictions, axis=0)
         # get the true values
+
         true_values = test_df[output_features].values
         # calculate the mean squared error
         mse = np.mean((predictions - true_values)**2)
