@@ -125,6 +125,12 @@ branches = [
         'BS_x',
         'BS_y',
         'BS_z',
+        'reco_taup_nu_px',
+        'reco_taup_nu_py',
+        'reco_taup_nu_pz',
+        'reco_taun_nu_px',
+        'reco_taun_nu_py',
+        'reco_taun_nu_pz',
 
 ]
 branch_vals = {}
@@ -308,7 +314,7 @@ for i in range(start_entry, end_entry):
    
 
     #d_min_reco = d_min_point_p_reco-d_min_point_n_reco
-    d_min_reco = FindDMin(d_min_point_n_reco, taun_pi1.Vect().Unit(), d_min_point_p_reco, taup_pi1.Vect().Unit())
+    d_min_reco, pca_n_reco, pca_p_reco = FindDMin(d_min_point_n_reco, taun_pi1.Vect().Unit(), d_min_point_p_reco, taup_pi1.Vect().Unit(), return_points=True)
 
     # old d_min smearing smears d_min directly
     if args.smear_mode in [1,4]: 
@@ -328,15 +334,16 @@ for i in range(start_entry, end_entry):
     branch_vals['BS_z'][0] = BS_reco.Z()
 
     # define ips wrt to the beam spot
-    d_min_point_p_reco_wrt_bs = d_min_point_p_reco - BS_reco
-    d_min_point_n_reco_wrt_bs = d_min_point_n_reco - BS_reco
+    pca_p_reco_wrt_bs = pca_p_reco - BS_reco
+    pca_n_reco_wrt_bs = pca_n_reco - BS_reco
 
-    branch_vals['reco_taup_pi1_ipx'][0] = d_min_point_p_reco_wrt_bs.X()
-    branch_vals['reco_taup_pi1_ipy'][0] = d_min_point_p_reco_wrt_bs.Y()
-    branch_vals['reco_taup_pi1_ipz'][0] = d_min_point_p_reco_wrt_bs.Z()
-    branch_vals['reco_taun_pi1_ipx'][0] = d_min_point_n_reco_wrt_bs.X()
-    branch_vals['reco_taun_pi1_ipy'][0] = d_min_point_n_reco_wrt_bs.Y()
-    branch_vals['reco_taun_pi1_ipz'][0] = d_min_point_n_reco_wrt_bs.Z()
+    branch_vals['reco_taup_pi1_ipx'][0] = pca_p_reco_wrt_bs.X()
+    branch_vals['reco_taup_pi1_ipy'][0] = pca_p_reco_wrt_bs.Y()
+    branch_vals['reco_taup_pi1_ipz'][0] = pca_p_reco_wrt_bs.Z()
+    branch_vals['reco_taun_pi1_ipx'][0] = pca_n_reco_wrt_bs.X()
+    branch_vals['reco_taun_pi1_ipy'][0] = pca_n_reco_wrt_bs.Y()
+    branch_vals['reco_taun_pi1_ipz'][0] = pca_n_reco_wrt_bs.Z()
+
 
     if tree.taup_npizero == 0 and tree.taup_npi == 1:
         taupvis_reco = taup_pi1_reco.Clone()
@@ -399,6 +406,7 @@ for i in range(start_entry, end_entry):
         branch_vals['reco_taup_vx'][0] = taup_SV_reco_wrt_bs.X()
         branch_vals['reco_taup_vy'][0] = taup_SV_reco_wrt_bs.Y()
         branch_vals['reco_taup_vz'][0] = taup_SV_reco_wrt_bs.Z()
+
     if taun_SV_reco is not None:
 
         # define the sv wrt the beamspot
@@ -418,6 +426,14 @@ for i in range(start_entry, end_entry):
     ###np.random.shuffle(solutions) #shuffle solutions randomly for checks
 
     taup_reco, taun_reco, d_min_pred, decay_length_prob, sv_delta_constraint = solutions[0]
+    taup_nu_reco = taup_reco - taupvis_reco
+    taun_nu_reco = taun_reco - taunvis_reco
+    branch_vals['reco_taup_nu_px'][0] = taup_nu_reco.Px()
+    branch_vals['reco_taup_nu_py'][0] = taup_nu_reco.Py()
+    branch_vals['reco_taup_nu_pz'][0] = taup_nu_reco.Pz()
+    branch_vals['reco_taun_nu_px'][0] = taun_nu_reco.Px()
+    branch_vals['reco_taun_nu_py'][0] = taun_nu_reco.Py()
+    branch_vals['reco_taun_nu_pz'][0] = taun_nu_reco.Pz()
 
     # determine if correct solution was found
     d_sol1 = compare_lorentz_pairs((taup,taun),solutions[0])
