@@ -14,6 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'p
 from PolarimetricA1 import PolarimetricA1
 import matplotlib.pyplot as plt
 from collections import OrderedDict
+import torch.nn.init as init
 
 
 def read_root_in_chunks(filename, treename, output_name='df.pkl', nchunks=10, variables=None, verbosity=0):
@@ -123,6 +124,8 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         'cosTheta_reco',   
         'reco_taup_nu_px','reco_taup_nu_py','reco_taup_nu_pz',
         'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz', 
+        'reco_alt_taup_nu_px','reco_alt_taup_nu_py','reco_alt_taup_nu_pz',
+        'reco_alt_taun_nu_px','reco_alt_taun_nu_py','reco_alt_taun_nu_pz',
     ]
 
     read_root_in_chunks(filename1, treename1, output_name='output/df.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
@@ -153,6 +156,16 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         df = df[df["taup_npizero"] < 2]
         #require taun_npizero < 2
         df = df[df["taun_npizero"] < 2]
+
+        # define tau decay modes 0,1,2
+        # 0 = 1pi0pi0, 1 = 1pi1pi0, 2 = 3pi
+        df['taup_decay_mode'] = 0
+        df.loc[(df['taup_npi'] == 1) & (df['taup_npizero'] == 1), 'taup_decay_mode'] = 1
+        df.loc[(df['taup_npi'] == 3) & (df['taup_npizero'] == 0), 'taup_decay_mode'] = 2
+        df['taun_decay_mode'] = 0
+        df.loc[(df['taun_npi'] == 1) & (df['taun_npizero'] == 1), 'taun_decay_mode'] = 1
+        df.loc[(df['taun_npi'] == 3) & (df['taun_npizero'] == 0), 'taun_decay_mode'] = 2
+
 
         # add the visible tau 4-vectors by summing the pi and pizero 4-vectors
         for x in ['px', 'py', 'pz', 'e']:
@@ -276,23 +289,34 @@ class Normalize(nn.Module):
         x = x / self.std
         return x
 
+def initialize_weights(module):
+    if isinstance(module, nn.Linear):
+        init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+        print('initializing weights for layer %s' % module)
+        #init.orthogonal_(module.weight)
+
 class SimpleNN(nn.Module):
 
-    def __init__(self, input_dim, output_dim, n_hidden_layers=4, num_nodes=48):
+    def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes):
         super(SimpleNN, self).__init__()
-        n_nodes = input_dim
 
         layers = OrderedDict()
-        layers['input'] = nn.Linear(input_dim, num_nodes)
-        layers['bn_input'] = nn.BatchNorm1d(num_nodes)
+        layers['input'] = nn.Linear(input_dim, n_nodes)
+        layers['bn_input'] = nn.BatchNorm1d(n_nodes)
         layers['relu_input'] = nn.ReLU()
         for i in range(n_hidden_layers):
-            layers[f'hidden_{i+1}'] = nn.Linear(num_nodes, num_nodes)
-            layers[f'hidden_bn_{i+1}'] = nn.BatchNorm1d(num_nodes)
+            layers[f'hidden_{i+1}'] = nn.Linear(n_nodes, n_nodes)
+            layers[f'hidden_bn_{i+1}'] = nn.BatchNorm1d(n_nodes)
             layers[f'hidden_relu_{i+1}'] = nn.ReLU()
-        layers['output'] = nn.Linear(num_nodes, output_dim)
+        layers['output'] = nn.Linear(n_nodes, output_dim)
 
         self.layers = nn.Sequential(layers)
+
+        #self.apply(initialize_weights)
+
+        # print a summry of the model
+        print('Model summary:')
+        print(self.layers)
  
 
     def forward(self, x):
@@ -537,7 +561,12 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--stages', '-s', help='a list of stages to run', type=int, nargs="+")
     argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='model')
+    argparser.add_argument('--n_hidden_layers', help='number of hidden layers', type=int, default=6)
+    argparser.add_argument('--n_nodes', help='number of nodes per layer', type=int, default=300)
+    argparser.add_argument('--batch_size', help='batch size', type=int, default=1024)
     args = argparser.parse_args()
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     filename1 = "batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events.root"
     filename2 = "batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root"
@@ -547,16 +576,17 @@ if __name__ == '__main__':
     standardize = 2 # 0: no standardization, 1: standardize input, 2: standardize input and output
     polar = False
     regress_tau = False
-    num_epochs = 10
-    n_hidden_layers=6
-    num_nodes=300
+    num_epochs = 200
+    n_hidden_layers = args.n_hidden_layers
+    
+    n_nodes = args.n_nodes
 
     # stage 1: prepare dataframes
     if 1 in args.stages:
         PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=20, verbosity=1)
 
 
-    batch_size = 64
+    batch_size = args.batch_size
     input_features = [
         'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
         'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
@@ -570,7 +600,8 @@ if __name__ == '__main__':
         'reco_taun_vx','reco_taun_vy','reco_taun_vz',
         'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
         'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
-        'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e']
+        'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e',
+        'taup_decay_mode','taun_decay_mode']
 
     # use polar features
     if not regress_tau:
@@ -586,12 +617,12 @@ if __name__ == '__main__':
         output_features = [
             'taup_px','taup_py','taup_pz', 'taup_e',
             'taun_px','taun_py','taun_pz', 'taun_e']
-    file_paths = [f'output/df_chunk_{i}.pkl' for i in range(2)]
+    file_paths = [f'output/df_chunk_{i}.pkl' for i in range(20)]
     # only read the input and output features when reading the dfs
     #dataframes = [pd.read_pickle(file)[input_features + output_features + ['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']] for file in file_paths]
     dataframes = [pd.read_pickle(file) for file in file_paths]
     train_df = pd.concat(dataframes[:1], ignore_index=True)
-    test_df = pd.concat(dataframes[1:], ignore_index=True)
+    test_df = pd.concat(dataframes[1:2], ignore_index=True)
             
     # stage 2: train the model
 
@@ -599,6 +630,227 @@ if __name__ == '__main__':
 
     train_in_means, train_in_stds = train_dataset.get_input_means_stds()
     train_out_means, train_out_stds = train_dataset.get_output_means_stds()
+
+    def custom_loss(output, target, X, theta_scale=2., phi_scale=1./10, separate=False):
+        # first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
+        loss1 = torch.abs(output[:, 0] - target[:, 0]) # taup nu px
+        loss2 = torch.abs(output[:, 1] - target[:, 1]) # taup nu py
+        loss3 = torch.abs(output[:, 2] - target[:, 2]) # taup nu pz
+        loss4 = torch.abs(output[:, 3] - target[:, 3]) # taun nu px
+        loss5 = torch.abs(output[:, 4] - target[:, 4]) # taun nu py
+        loss6 = torch.abs(output[:, 5] - target[:, 5]) # taun nu pz
+        # now implement the L1Loss for the 3 visible tau momenta
+        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)/6
+
+        X_unscaled = X * train_in_stds + train_in_means
+        output_unscaled = output * train_out_stds + train_out_means
+        target_unscaled = target * train_out_stds + train_out_means
+
+        # get the visible tau vectors from X then convert to df so that they can be used in NeutrinoPolarCoordinates
+        taup_vis_tensor = X_unscaled[:, 0:3] + X_unscaled[:, 4:7] + X_unscaled[:, 8:11] + X_unscaled[:, 12:15]
+        taun_vis_tensor = X_unscaled[:, 16:19] + X_unscaled[:, 20:23] + X_unscaled[:, 24:27] + X_unscaled[:, 28:31]
+
+
+        # get neutrinos from the output and target tensors
+        reco_taup_nu_tensor = output_unscaled[:, 0:3]
+        reco_taun_nu_tensor = output_unscaled[:, 3:6]
+
+        taup_nu_tensor = target_unscaled[:, 0:3]
+        taun_nu_tensor = target_unscaled[:, 3:6]
+
+        
+        taup_vis = pd.DataFrame(taup_vis_tensor.cpu(), columns=['px', 'py', 'pz'])
+        taun_vis = pd.DataFrame(taun_vis_tensor.cpu(), columns=['px', 'py', 'pz'])
+
+        reco_taup_nu = pd.DataFrame(reco_taup_nu_tensor.cpu().detach(), columns=['px', 'py', 'pz'])
+        reco_taun_nu = pd.DataFrame(reco_taun_nu_tensor.cpu().detach(), columns=['px', 'py', 'pz'])
+
+        taup_nu = pd.DataFrame(taup_nu_tensor.cpu(), columns=['px', 'py', 'pz'])
+        taun_nu = pd.DataFrame(taun_nu_tensor.cpu(), columns=['px', 'py', 'pz'])
+        
+
+        # get the polar coordinates
+        taup_polar = NeutrinoPolarCoordinates(taup_vis)
+        taun_polar = NeutrinoPolarCoordinates(taun_vis)
+        reco_taup_nu_p_mag, reco_taup_nu_theta, reco_taup_nu_phi = taup_polar.compute_angles(reco_taup_nu)
+        reco_taun_nu_p_mag, reco_taun_nu_theta, reco_taun_nu_phi = taun_polar.compute_angles(reco_taun_nu)
+        taup_nu_p_mag, taup_nu_theta, taup_nu_phi = taup_polar.compute_angles(taup_nu)
+        taun_nu_p_mag, taun_nu_theta, taun_nu_phi = taun_polar.compute_angles(taun_nu)
+
+        # convert to tensors
+        reco_taup_nu_p_mag = torch.tensor(reco_taup_nu_p_mag, dtype=torch.float32)
+        reco_taup_nu_theta = torch.tensor(reco_taup_nu_theta, dtype=torch.float32)
+        reco_taup_nu_phi = torch.tensor(reco_taup_nu_phi, dtype=torch.float32)
+        reco_taun_nu_p_mag = torch.tensor(reco_taun_nu_p_mag, dtype=torch.float32)
+        reco_taun_nu_theta = torch.tensor(reco_taun_nu_theta, dtype=torch.float32)
+        reco_taun_nu_phi = torch.tensor(reco_taun_nu_phi, dtype=torch.float32)
+        taup_nu_p_mag = torch.tensor(taup_nu_p_mag, dtype=torch.float32)
+        taup_nu_theta = torch.tensor(taup_nu_theta, dtype=torch.float32)
+        taup_nu_phi = torch.tensor(taup_nu_phi, dtype=torch.float32)
+        taun_nu_p_mag = torch.tensor(taun_nu_p_mag, dtype=torch.float32)
+        taun_nu_theta = torch.tensor(taun_nu_theta, dtype=torch.float32)
+        taun_nu_phi = torch.tensor(taun_nu_phi, dtype=torch.float32)
+
+        # send all to gpu
+        reco_taup_nu_p_mag = reco_taup_nu_p_mag.to(device)
+        reco_taup_nu_theta = reco_taup_nu_theta.to(device)
+        reco_taup_nu_phi = reco_taup_nu_phi.to(device)
+        reco_taun_nu_p_mag = reco_taun_nu_p_mag.to(device)
+        reco_taun_nu_theta = reco_taun_nu_theta.to(device)
+        reco_taun_nu_phi = reco_taun_nu_phi.to(device)
+        taup_nu_p_mag = taup_nu_p_mag.to(device)
+        taup_nu_theta = taup_nu_theta.to(device)
+        taup_nu_phi = taup_nu_phi.to(device)
+        taun_nu_p_mag = taun_nu_p_mag.to(device)
+        taun_nu_theta = taun_nu_theta.to(device)
+        taun_nu_phi = taun_nu_phi.to(device)
+
+        taup_dphi = taup_nu_phi - reco_taup_nu_phi
+        taun_dphi = taun_nu_phi - reco_taun_nu_phi
+        taup_dphi = (taup_dphi + torch.pi) % (2 * torch.pi) - torch.pi
+        taun_dphi = (taun_dphi + torch.pi) % (2 * torch.pi) - torch.pi
+
+        phi_loss = phi_scale*(torch.abs(taup_dphi) + torch.abs(taun_dphi))
+        theta_loss = theta_scale*torch.abs(taup_nu_theta - reco_taup_nu_theta) + torch.abs(taun_nu_theta - reco_taun_nu_theta)
+
+        # compute totals
+        total_loss = torch.mean(l1_loss + theta_loss + phi_loss)
+        l1_loss = torch.mean(l1_loss)
+        theta_loss = torch.mean(theta_loss)
+        phi_loss = torch.mean(phi_loss)
+
+        # check theta_loss for nans and make some print outs if it has nans
+        if torch.isnan(theta_loss).any():
+            print('theta_loss has nans')
+            print('taup_theta_pred:', taup_theta_pred)
+            print('taup_theta:', taup_theta)
+            print('taun_theta_pred:', taun_theta_pred)
+            print('taun_theta:', taun_theta)
+            print('taup_vis_x:', taup_vis_x)
+            print('taup_vis_y:', taup_vis_y)
+            print('taup_vis_z:', taup_vis_z)
+            print('reco_taup_nu_x:', reco_taup_nu_x)
+            print('reco_taup_nu_y:', reco_taup_nu_y)
+            print('reco_taup_nu_z:', reco_taup_nu_z)
+            print('target_unscaled[:, 0]:', target_unscaled[:, 0])
+            print('target_unscaled[:, 1]:', target_unscaled[:, 1])
+            print('target_unscaled[:, 2]:', target_unscaled[:, 2])
+
+        if separate: return total_loss, l1_loss, theta_loss, phi_loss
+        return total_loss
+
+    def asymmetric_exp_penalty(diff, alpha=5.0):
+        # Penalizes more strongly for negative differences
+        return torch.where(diff < 0, torch.exp(-alpha * diff) - 1, torch.abs(diff))
+
+    def custom_loss_2(output, target, X, EP_loss_scale=1., mass_loss_scale=0., separate=False):
+
+        # remove the standardization from the input and output tensors since this can break energy and momentum conservation
+        X_unscaled = X * train_in_stds + train_in_means
+        output_unscaled = output * train_out_stds + train_out_means
+        target_unscaled = target * train_out_stds + train_out_means
+
+        # first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
+        loss1 = torch.abs(output_unscaled[:, 0] - target_unscaled[:, 0]) # taup nu px
+        loss2 = torch.abs(output_unscaled[:, 1] - target_unscaled[:, 1]) # taup nu py
+        loss3 = torch.abs(output_unscaled[:, 2] - target_unscaled[:, 2]) # taup nu pz
+        loss4 = torch.abs(output_unscaled[:, 3] - target_unscaled[:, 3]) # taun nu px
+        loss5 = torch.abs(output_unscaled[:, 4] - target_unscaled[:, 4]) # taun nu py
+        loss6 = torch.abs(output_unscaled[:, 5] - target_unscaled[:, 5]) # taun nu pz
+        # now implement the L1Loss for the 3 visible tau momenta
+        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)
+
+        # get the visible tau 4-vectors from X
+        #taup_vis
+        taup_vis_tensor = X_unscaled[:, 0:4] + X_unscaled[:, 4:8] + X_unscaled[:, 8:12] + X_unscaled[:, 12:16]
+        taun_vis_tensor = X_unscaled[:, 16:20] + X_unscaled[:, 20:24] + X_unscaled[:, 24:28] + X_unscaled[:, 28:32]
+
+        # get neutrino 3-vectors from the output and target tensors
+        reco_taup_nu_tensor = output_unscaled[:, 0:3]
+        reco_taun_nu_tensor = output_unscaled[:, 3:6]
+        # add the energy by summing the momenta
+        reco_taun_nu_e = torch.sqrt(reco_taun_nu_tensor[:, 0]**2 + reco_taun_nu_tensor[:, 1]**2 + reco_taun_nu_tensor[:, 2]**2)
+        reco_taup_nu_e = torch.sqrt(reco_taup_nu_tensor[:, 0]**2 + reco_taup_nu_tensor[:, 1]**2 + reco_taup_nu_tensor[:, 2]**2)
+        # include the energy in the 4-vectors
+        reco_taup_nu_tensor = torch.cat((reco_taup_nu_tensor, reco_taup_nu_e.unsqueeze(1)), dim=1)
+        reco_taun_nu_tensor = torch.cat((reco_taun_nu_tensor, reco_taun_nu_e.unsqueeze(1)), dim=1)
+
+        taup_nu_tensor = target_unscaled[:, 0:3]
+        taun_nu_tensor = target_unscaled[:, 3:6]
+        taup_nu_e = torch.sqrt(taup_nu_tensor[:, 0]**2 + taup_nu_tensor[:, 1]**2 + taup_nu_tensor[:, 2]**2)
+        taun_nu_e = torch.sqrt(taun_nu_tensor[:, 0]**2 + taun_nu_tensor[:, 1]**2 + taun_nu_tensor[:, 2]**2)
+        taup_nu_tensor = torch.cat((taup_nu_tensor, taup_nu_e.unsqueeze(1)), dim=1)
+        taun_nu_tensor = torch.cat((taun_nu_tensor, taun_nu_e.unsqueeze(1)), dim=1)
+        
+
+        ## ditau energy and momentum conservation terms
+        tau_mass_exp = 1.777
+        reco_taup = reco_taup_nu_tensor + taup_vis_tensor
+        reco_taun = reco_taun_nu_tensor + taun_vis_tensor
+
+        taup = taup_nu_tensor + taup_vis_tensor
+        taun = taun_nu_tensor + taun_vis_tensor
+
+        reco_total_px = reco_taup[:, 0] + reco_taun[:, 0]
+        reco_total_py = reco_taup[:, 1] + reco_taun[:, 1]
+        reco_total_pz = reco_taup[:, 2] + reco_taun[:, 2]
+        reco_total_e  = reco_taup[:, 3] + reco_taun[:, 3]
+
+        total_px = taup[:, 0] + taun[:, 0]
+        total_py = taup[:, 1] + taun[:, 1]
+        total_pz = taup[:, 2] + taun[:, 2]
+        total_e = taup[:, 3] + taun[:, 3]
+
+        Ep_conservation_loss = EP_loss_scale*(torch.abs(reco_total_e - total_e) + torch.abs(reco_total_px - total_px) + torch.abs(reco_total_py - total_py) + torch.abs(reco_total_pz - total_pz))
+
+        # now compute a loss term for the tau masses
+        # make sure sqrt is not negative
+        reco_taup_mass = torch.sqrt(torch.clamp(reco_taup[:, 3]**2 - (reco_taup[:, 0]**2 + reco_taup[:, 1]**2 + reco_taup[:, 2]**2), min=0.01))
+        reco_taun_mass = torch.sqrt(torch.clamp(reco_taun[:, 3]**2 - (reco_taun[:, 0]**2 + reco_taun[:, 1]**2 + reco_taun[:, 2]**2), min=0.01))
+
+        mass_diff_taup = reco_taup_mass - tau_mass_exp
+        mass_diff_taun = reco_taun_mass - tau_mass_exp
+
+        # apply the asymmetric penalty
+        #mass_loss = mass_loss_scale*(asymmetric_exp_penalty(mass_diff_taup) + asymmetric_exp_penalty(mass_diff_taun))
+
+        mass_loss = mass_loss_scale*((reco_taup_mass - tau_mass_exp)**2 + (reco_taun_mass - tau_mass_exp)**2)
+        
+
+        ## now get geometric term. Computed by finding cross products of tau visible and nu's. then taking delat phiu between these two
+        #reco_taup_cross = torch.cross(taup_vis_tensor[:, 0:3], reco_taup_nu_tensor[:, 0:3])
+        #reco_taun_cross = torch.cross(taun_vis_tensor[:, 0:3], reco_taun_nu_tensor[:, 0:3])
+        #reco_taup_cross_norm = torch.norm(reco_taup_cross, dim=1)
+        #reco_taun_cross_norm = torch.norm(reco_taun_cross, dim=1)
+        #reco_taup_cross_unit = reco_taup_cross / reco_taup_cross_norm.unsqueeze(1)
+        #reco_taun_cross_unit = reco_taun_cross / reco_taun_cross_norm.unsqueeze(1)
+#
+        #reco_dot_product = torch.einsum('ij,ij->i', reco_taup_cross_unit, reco_taun_cross_unit)
+        #reco_dphi = torch.acos(torch.clamp(reco_dot_product, -1.0, 1.0))
+#
+        #taup_cross = torch.cross(taup_vis_tensor[:, 0:3], taup_nu_tensor[:, 0:3])
+        #taun_cross = torch.cross(taun_vis_tensor[:, 0:3], taun_nu_tensor[:, 0:3])
+        #taup_cross_norm = torch.norm(taup_cross, dim=1)
+        #taun_cross_norm = torch.norm(taun_cross, dim=1)
+        #taup_cross_unit = taup_cross / taup_cross_norm.unsqueeze(1)
+        #taun_cross_unit = taun_cross / taun_cross_norm.unsqueeze(1)
+        #dot_product = torch.einsum('ij,ij->i', taup_cross_unit, taun_cross_unit)
+        #dphi = torch.acos(torch.clamp(dot_product, -1.0, 1.0)) # limit to [-1, 1] to avoid nan from acos
+#
+        #geometric_loss = torch.abs(reco_dphi - dphi)
+        
+
+        # compute totals
+        total_loss = torch.mean(l1_loss + Ep_conservation_loss + mass_loss)
+        #total_loss = torch.mean(l1_loss+mass_loss)
+        l1_loss = torch.mean(l1_loss)
+        mass_loss = torch.mean(mass_loss)
+        Ep_conservation_loss = torch.mean(Ep_conservation_loss)
+        #geometric_loss = torch.mean(geometric_loss)
+
+
+        if separate: return total_loss, l1_loss, Ep_conservation_loss, mass_loss
+        return total_loss
 
     if 2 in args.stages:
 
@@ -620,10 +872,16 @@ if __name__ == '__main__':
             test_dataset.y = (test_dataset.y - train_out_means) / train_out_stds
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, num_nodes=num_nodes)
+        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes)
+        
+        try:
+            model.load_state_dict(torch.load('model_nu_custom_2_nhidden6_nodes200_batch1024_reducelr_massmse_epoch_35.pth')) # loading best model first
+        except:
+            model.load_state_dict(torch.load('model_nu_custom_2_nhidden6_nodes200_batch1024_reducelr_massmse_epoch_35.pth', map_location=torch.device('cpu')))
+
         #criterion = nn.MSELoss()   
         # use abs error instead
-        criterion = nn.L1Loss()   
+        #criterion = nn.L1Loss() 
 
         def polar_loss(output, target, weights = [1,1,1,1,1,1]):
             #loss = torch.mean((output - target)**2) # implement this equivalent below put taking 3 components seperatly
@@ -694,18 +952,44 @@ if __name__ == '__main__':
             total_loss = torch.mean(loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 + loss8 + loss9 + loss10 + loss12 + loss13 + loss14 + loss15)/14
             return total_loss
 
+    #input_features = [
+    #    'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
+    #    'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
+    #    'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
+    #    'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
+    #    'reco_taun_pi1_px','reco_taun_pi1_py','reco_taun_pi1_pz','reco_taun_pi1_e',
+    #    'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
+    #    'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
+    #    'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
+    #    'reco_taup_vx','reco_taup_vy','reco_taup_vz',
+    #    'reco_taun_vx','reco_taun_vy','reco_taun_vz',
+    #    'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
+    #    'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
+    #    'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e']
+
+
         weight_decay = 0
-        optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
+        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
         # Define learning rate scheduler
         # learning rate will be reduced by a factor of 10 if the loss does not improve for 5 epochs
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1, min_lr=1e-6)
+        #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1, min_lr=1e-6,verbose=True) # reduce lr when the loss flattens
+        #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.2) # constant reduction every N epochs
+        #scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95) # exponentially decaying lr
+        #optimizer = optim.Adam(model.parameters(), lr=0.1, weight_decay=weight_decay)
+        #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0.00001)
+        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
+        #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0.001)
+        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
+        #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.2, min_lr=1e-6,verbose=True)
+        optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
+        #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.2, min_lr=1e-6,verbose=True)    
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98) # exponentially decaying lr
 
         loss_values = []
         val_loss_values = []
         running_loss_values = []
 
         print('Training the model...')
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         weights = [1,1,1,1,1,1]
         current_time = time.time()
         early_stopper = EarlyStopper(patience=10, min_delta=0.)
@@ -718,11 +1002,13 @@ if __name__ == '__main__':
             plt.xlabel('epoch')
             plt.ylabel('loss')
             plt.legend()
-            plt.savefig('loss_vs_epoch.pdf')
+            plt.savefig(f'loss_vs_epoch_{args.model_name}.pdf')
+            plt.close()
 
         for epoch in range(num_epochs):
             #model.train()
             running_loss= 0.0
+            running_loss_components = [0.0, 0.0, 0.0, 0.0]
             for i, (X, y) in enumerate(train_dataloader):
                 # move data to GPU
                 #print(X.shape)
@@ -732,16 +1018,29 @@ if __name__ == '__main__':
                 model.to(device)
                 optimizer.zero_grad()
                 outputs = model(X)
+                train_in_stds = train_in_stds.to(device)
+                train_out_stds = train_out_stds.to(device)
+                train_in_means = train_in_means.to(device)
+                train_out_means = train_out_means.to(device)
+                mass_loss_scale=10
+                EP_loss_scale=1.
                 if polar: loss = polar_loss(outputs, y, weights)
                 elif regress_tau: loss = loss_tau_regression(outputs, y)
-                else: loss = criterion(outputs, y)
+                #else: loss = criterion(outputs, y)
+                else: loss, l1_loss,  Ep_loss, mass_loss  = custom_loss_2(outputs, y, X, separate=True, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
                 loss.backward()
                 optimizer.step()
                 lr = scheduler.get_last_lr()
                 running_loss += loss.item()
+                running_loss_components[0] += l1_loss.item()
+                running_loss_components[1] += Ep_loss.item()
+                running_loss_components[2] += mass_loss.item()
+                #running_loss_components[3] += geometric_loss.item()
 
             running_loss /= len(train_dataloader)
             running_loss_values.append(running_loss)
+            for i in range(len(running_loss_components)):
+                running_loss_components[i] /= len(train_dataloader)
             
             # get the validation loss
             #model.eval()
@@ -755,7 +1054,8 @@ if __name__ == '__main__':
                     outputs = model(X)
                     if polar: loss = polar_loss(outputs, y, weights)
                     elif regress_tau: loss = loss_tau_regression(outputs, y)
-                    else: loss = criterion(outputs, y)
+                    #else: loss = criterion(outputs, y)
+                    else: loss = custom_loss_2(outputs, y, X, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
                     train_loss += loss.item()
                 train_loss /= len(train_dataloader)
                 loss_values.append(train_loss)
@@ -767,17 +1067,24 @@ if __name__ == '__main__':
                     outputs = model(X)
                     if polar: loss = polar_loss(outputs, y, weights)
                     elif regress_tau: loss = loss_tau_regression(outputs, y)
-                    else: loss = criterion(outputs, y)
+                    #else: loss = criterion(outputs, y)
+                    else: loss = custom_loss_2(outputs, y, X, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
                     val_loss += loss.item()
                 val_loss /= len(test_dataloader)
                 val_loss_values.append(val_loss)
                 
                 if early_stopper.early_stop(val_loss):
                     print(f"Early stopping triggered for epoch {epoch+1}")
-                    break
+                #    break # not triggering it just printing if it would have been stopped!
+
+                lr = scheduler.get_last_lr()
+                scheduler.step()
+                #scheduler.step(val_loss)
                 
 
             print(f'Epoch [{epoch+1}/{num_epochs}], loss: {train_loss:.6f}, val_loss: {val_loss:.6f}, running_loss: {running_loss:.6f}, lr = {lr[0]:.6f}')
+            if running_loss_components[0] != 0.:
+                print(f'Running loss components: {running_loss_components[0]:.6f}, {running_loss_components[1]:.6f}, {running_loss_components[2]:.6f}, {running_loss_components[3]:.6f}')
             if epoch > 1: plot_loss(loss_values, val_loss_values, running_loss_values)
             # save model every 10 epochs
             if (epoch+1) % 5 == 0:
@@ -793,9 +1100,15 @@ if __name__ == '__main__':
     # test the model
     if 3 in args.stages:
         # load the pytorch model 'model.pth'
-        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, num_nodes=num_nodes)
+        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes)
         #model.load_state_dict(torch.load('model.pth'))
-        model.load_state_dict(torch.load(f'{args.model_name}_epoch_10.pth')) 
+        # try the below and if it doesnt work then load to cpu
+        model_path = f'{args.model_name}_epoch_35.pth'
+        try:
+            model.load_state_dict(torch.load(model_path))
+        except:
+            print(f"Loading model from {model_path} failed. Trying to load from CPU.")
+            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
         model.eval()
 
         # apply the model to the test set
@@ -809,15 +1122,37 @@ if __name__ == '__main__':
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         # get the predictions
         predictions = []
+        custom_loss_total, l1_loss_total, theta_loss_total, phi_loss_total = 0, 0, 0, 0
+        custom_loss_2_total, l1_loss_2_total, Ep_loss_2_total, mass_loss_2_total = 0, 0, 0, 0
         with torch.no_grad():
             for i, (X, y) in enumerate(test_dataloader):
                 outputs = model(X)
                 if standardize == 2:
                     # convert predictions back to original scale
+                    custom_loss_i, l1_loss_i, theta_loss_i, phi_loss_i = custom_loss(outputs, y, X, separate=True)
+                    custom_loss_2_i, l1_loss_2_i, Ep_loss_i, mass_loss_i = custom_loss_2(outputs, y, X, separate=True)
+                    custom_loss_total += custom_loss_i.item()
+                    l1_loss_total += l1_loss_i.item()
+                    theta_loss_total += theta_loss_i.item()
+                    phi_loss_total += phi_loss_i.item()
+                    custom_loss_2_total += custom_loss_2_i.item()
+                    l1_loss_2_total += l1_loss_2_i.item()
+                    Ep_loss_2_total += Ep_loss_i.item()
+                    mass_loss_2_total += mass_loss_i.item()
                     outputs = outputs * train_out_stds + train_out_means
                 predictions.append(outputs.numpy())
+                #print('losses:', custom_loss_i.item(), l1_loss_i.item(), theta_loss_i.item())
         predictions = np.concatenate(predictions, axis=0)
         
+        print('custom loss:', custom_loss_total/len(test_dataloader))
+        print('l1 loss:', l1_loss_total/len(test_dataloader))
+        print('theta loss:', theta_loss_total/len(test_dataloader))
+        print('phi loss:', phi_loss_total/len(test_dataloader))
+        print('custom loss 2:', custom_loss_2_total/len(test_dataloader))
+        print('l1 loss 2:', l1_loss_2_total/len(test_dataloader))
+        print('Ep loss 2:', Ep_loss_2_total/len(test_dataloader))
+        print('mass loss 2:', mass_loss_2_total/len(test_dataloader))
+
         # get the true values
 
         true_values = test_df[output_features].values
@@ -977,7 +1312,7 @@ if __name__ == '__main__':
             test_df.at[i,'cosTheta_nn_reco'] = cosTheta
 
         # save the dataframe with the new variables
-        test_df.to_pickle('output/df_test_inc_nn_vars.pkl')
+        #test_df.to_pickle(f'output/df_test_inc_nn_vars_{args.model_name}.pkl')
         # also store it as a root file
-        with uproot.recreate('output/df_test_inc_nn_vars.root') as root_file:
+        with uproot.recreate(f'output/df_test_inc_nn_vars_{args.model_name}.root') as root_file:
             root_file['tree'] = test_df 
