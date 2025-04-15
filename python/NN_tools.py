@@ -15,6 +15,7 @@ from PolarimetricA1 import PolarimetricA1
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 import torch.nn.init as init
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 def read_root_in_chunks(filename, treename, output_name='df.pkl', nchunks=10, variables=None, verbosity=0):
@@ -126,6 +127,8 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz', 
         'reco_alt_taup_nu_px','reco_alt_taup_nu_py','reco_alt_taup_nu_pz',
         'reco_alt_taun_nu_px','reco_alt_taun_nu_py','reco_alt_taun_nu_pz',
+        'reco_d0_taup_nu_px','reco_d0_taup_nu_py','reco_d0_taup_nu_pz',
+        'reco_d0_taun_nu_px','reco_d0_taun_nu_py','reco_d0_taun_nu_pz',
     ]
 
     read_root_in_chunks(filename1, treename1, output_name='output/df.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
@@ -165,6 +168,29 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         df['taun_decay_mode'] = 0
         df.loc[(df['taun_npi'] == 1) & (df['taun_npizero'] == 1), 'taun_decay_mode'] = 1
         df.loc[(df['taun_npi'] == 3) & (df['taun_npizero'] == 0), 'taun_decay_mode'] = 2
+
+        # calculate delta IPs and delta SVs and store as unit vectors and magnitudes
+        # for taup
+        delta_ipx = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
+        delta_ipy = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
+        delta_ipz = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
+        delta_ip = np.sqrt(delta_ipx**2 + delta_ipy**2 + delta_ipz**2)
+        # store the unit vector, if delta_ip = 0 then set to 0
+        df['delta_ipx'] = np.where(delta_ip == 0, 0, delta_ipx/delta_ip)
+        df['delta_ipy'] = np.where(delta_ip == 0, 0, delta_ipy/delta_ip)
+        df['delta_ipz'] = np.where(delta_ip == 0, 0, delta_ipz/delta_ip)
+        df['delta_ip_mag'] = delta_ip
+
+        # now the same for the SVs
+        delta_svx = df['reco_taup_vx'] - df['reco_taun_vx']
+        delta_svy = df['reco_taup_vy'] - df['reco_taun_vy']
+        delta_svz = df['reco_taup_vz'] - df['reco_taun_vz']
+        delta_sv = np.sqrt(delta_svx**2 + delta_svy**2 + delta_svz**2)
+        # store the unit vector, if delta_sv = 0 then set to 0
+        df['delta_svx'] = np.where(delta_sv == 0, 0, delta_svx/delta_sv)
+        df['delta_svy'] = np.where(delta_sv == 0, 0, delta_svy/delta_sv)
+        df['delta_svz'] = np.where(delta_sv == 0, 0, delta_svz/delta_sv)
+        df['delta_sv_mag'] = delta_sv
 
 
         # add the visible tau 4-vectors by summing the pi and pizero 4-vectors
@@ -323,6 +349,27 @@ class SimpleNN(nn.Module):
         x = self.layers(x)
         return x
 
+class RelativeHuberLoss(nn.Module):
+    def __init__(self, delta=1.0, eps=0.1):
+        super().__init__()
+        self.delta = delta
+        self.eps = eps
+
+    def forward(self, prediction, target):
+        # Relative error
+        rel_error = (prediction - target) / (torch.abs(target) + self.eps)
+        abs_rel_error = torch.abs(rel_error)
+
+        # Huber-like behavior on relative error
+        mask = abs_rel_error < self.delta
+        loss = torch.where(
+            mask,
+            0.5 * rel_error ** 2,
+            self.delta * (abs_rel_error - 0.5 * self.delta)
+        )
+
+        return loss.mean()
+
 def compute_tau_four_vectors(df, y):
     """
     Compute the tau 4-vectors by summing the momenta and energy of 
@@ -358,42 +405,6 @@ def compute_tau_four_vectors(df, y):
     taus_df['reco_nn_taup_mass'] = np.sqrt(taus_df['reco_nn_taup_e']**2 - (taus_df['reco_nn_taup_px']**2 + taus_df['reco_nn_taup_py']**2 + taus_df['reco_nn_taup_pz']**2))
     taus_df['reco_nn_taun_mass'] = np.sqrt(taus_df['reco_nn_taun_e']**2 - (taus_df['reco_nn_taun_px']**2 + taus_df['reco_nn_taun_py']**2 + taus_df['reco_nn_taun_pz']**2))
     return taus_df
-
-def compute_nu_four_vectors(df, y):
-    """
-    compute the neutrino  4-vectors by subtracting the pi1, pi2, pi3, and pizero from the regressed taus
-    """
-
-    # make dataframe with same 8 output columns and same rows as initial dataframe
-    taus_df = pd.DataFrame(index=df.index, columns=['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz', 'reco_taup_nu_e', 'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz', 'reco_taun_nu_e'])
-    # get the regressed taus from the y tensor
-    taus_df['reco_nn_taup_px'] = y[:,0]
-    taus_df['reco_nn_taup_py'] = y[:,1]
-    taus_df['reco_nn_taup_pz'] = y[:,2]
-    taus_df['reco_nn_taup_e'] = y[:,3]
-    taus_df['reco_nn_taun_px'] = y[:,4]
-    taus_df['reco_nn_taun_py'] = y[:,5]
-    taus_df['reco_nn_taun_pz'] = y[:,6]
-    taus_df['reco_nn_taun_e'] = y[:,7]
-
-    #sum the momenta and energy of the pions and pi0s and neutrinos
-    for x in ['px', 'py', 'pz', 'e']:
-        # visible-only
-        taus_df['reco_taup_vis_' + x] = df['reco_taup_pi1_' + x] + df['reco_taup_pi2_' + x] + df['reco_taup_pi3_' + x] + df['reco_taup_pizero1_' + x] + df['reco_taup_pizero2_' + x]
-        taus_df['reco_taun_vis_' + x] = df['reco_taun_pi1_' + x] + df['reco_taun_pi2_' + x] + df['reco_taun_pi3_' + x] + df['reco_taun_pizero1_' + x] + df['reco_taun_pizero2_' + x]
-        # visible+invisible
-
-        # compute and store the neutrino momenta
-        taus_df['reco_nn_taup_nu_' + x] = taus_df['reco_nn_taup_'+x] - df['reco_taup_vis_' + x]
-        taus_df['reco_nn_taun_nu_' + x] = taus_df['reco_nn_taun_'+x] - df['reco_taun_vis_' + x]
-
-    # now we can compute the tau mass for convenience
-    taus_df['reco_nn_taup_mass'] = np.sqrt(taus_df['reco_nn_taup_e']**2 - (taus_df['reco_nn_taup_px']**2 + taus_df['reco_nn_taup_py']**2 + taus_df['reco_nn_taup_pz']**2))
-    taus_df['reco_nn_taun_mass'] = np.sqrt(taus_df['reco_nn_taun_e']**2 - (taus_df['reco_nn_taun_px']**2 + taus_df['reco_nn_taun_py']**2 + taus_df['reco_nn_taun_pz']**2))
-
-    return taus_df
-
-
 
 def PolarimetricVector(pis=[], pizeros=[], nu=ROOT.TLorentzVector(0,0,0,0)):
     """
@@ -575,8 +586,7 @@ if __name__ == '__main__':
 
     standardize = 2 # 0: no standardization, 1: standardize input, 2: standardize input and output
     polar = False
-    regress_tau = False
-    num_epochs = 200
+    num_epochs = 215
     n_hidden_layers = args.n_hidden_layers
     
     n_nodes = args.n_nodes
@@ -588,6 +598,8 @@ if __name__ == '__main__':
 
     batch_size = args.batch_size
     input_features = [
+        'reco_taup_vis_px','reco_taup_vis_py','reco_taup_vis_pz','reco_taup_vis_e',
+        'reco_taun_vis_px','reco_taun_vis_py','reco_taun_vis_pz','reco_taun_vis_e',
         'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
         'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
         'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
@@ -596,33 +608,27 @@ if __name__ == '__main__':
         'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
         'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
         'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
-        'reco_taup_vx','reco_taup_vy','reco_taup_vz',
-        'reco_taun_vx','reco_taun_vy','reco_taun_vz',
-        'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
-        'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
+        #'reco_taup_vx','reco_taup_vy','reco_taup_vz',
+        #'reco_taun_vx','reco_taun_vy','reco_taun_vz',
+        #'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
+        #'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
+        #'delta_ipx','delta_ipy','delta_ipz','delta_ip_mag',
+        #'delta_svx','delta_svy','delta_svz','delta_sv_mag',
         'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e',
-        'taup_decay_mode','taun_decay_mode']
+        'taup_decay_mode','taun_decay_mode',
+        #'reco_taup_nu_px','reco_taup_nu_py','reco_taup_nu_pz',
+        #'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz',
+        ]
 
-    # use polar features
-    if not regress_tau:
-        if polar:
-            output_features = [
-                'taup_nu_p_mag', 'taup_nu_phi', 'taup_nu_theta',
-                'taun_nu_p_mag', 'taun_nu_phi', 'taun_nu_theta']
-        else:
-            output_features = [
-                'taup_nu_px','taup_nu_py','taup_nu_pz',
-                'taun_nu_px','taun_nu_py','taun_nu_pz']
-    else: 
-        output_features = [
-            'taup_px','taup_py','taup_pz', 'taup_e',
-            'taun_px','taun_py','taun_pz', 'taun_e']
+    output_features = [
+        'taup_nu_px','taup_nu_py','taup_nu_pz',
+        'taun_nu_px','taun_nu_py','taun_nu_pz']
     file_paths = [f'output/df_chunk_{i}.pkl' for i in range(20)]
     # only read the input and output features when reading the dfs
     #dataframes = [pd.read_pickle(file)[input_features + output_features + ['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']] for file in file_paths]
     dataframes = [pd.read_pickle(file) for file in file_paths]
-    train_df = pd.concat(dataframes[:1], ignore_index=True)
-    test_df = pd.concat(dataframes[1:2], ignore_index=True)
+    train_df = pd.concat(dataframes[:18], ignore_index=True)
+    test_df = pd.concat(dataframes[18:], ignore_index=True)
             
     # stage 2: train the model
 
@@ -630,6 +636,7 @@ if __name__ == '__main__':
 
     train_in_means, train_in_stds = train_dataset.get_input_means_stds()
     train_out_means, train_out_stds = train_dataset.get_output_means_stds()
+
 
     def custom_loss(output, target, X, theta_scale=2., phi_scale=1./10, separate=False):
         # first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
@@ -649,7 +656,6 @@ if __name__ == '__main__':
         # get the visible tau vectors from X then convert to df so that they can be used in NeutrinoPolarCoordinates
         taup_vis_tensor = X_unscaled[:, 0:3] + X_unscaled[:, 4:7] + X_unscaled[:, 8:11] + X_unscaled[:, 12:15]
         taun_vis_tensor = X_unscaled[:, 16:19] + X_unscaled[:, 20:23] + X_unscaled[:, 24:27] + X_unscaled[:, 28:31]
-
 
         # get neutrinos from the output and target tensors
         reco_taup_nu_tensor = output_unscaled[:, 0:3]
@@ -719,29 +725,9 @@ if __name__ == '__main__':
         theta_loss = torch.mean(theta_loss)
         phi_loss = torch.mean(phi_loss)
 
-        # check theta_loss for nans and make some print outs if it has nans
-        if torch.isnan(theta_loss).any():
-            print('theta_loss has nans')
-            print('taup_theta_pred:', taup_theta_pred)
-            print('taup_theta:', taup_theta)
-            print('taun_theta_pred:', taun_theta_pred)
-            print('taun_theta:', taun_theta)
-            print('taup_vis_x:', taup_vis_x)
-            print('taup_vis_y:', taup_vis_y)
-            print('taup_vis_z:', taup_vis_z)
-            print('reco_taup_nu_x:', reco_taup_nu_x)
-            print('reco_taup_nu_y:', reco_taup_nu_y)
-            print('reco_taup_nu_z:', reco_taup_nu_z)
-            print('target_unscaled[:, 0]:', target_unscaled[:, 0])
-            print('target_unscaled[:, 1]:', target_unscaled[:, 1])
-            print('target_unscaled[:, 2]:', target_unscaled[:, 2])
-
         if separate: return total_loss, l1_loss, theta_loss, phi_loss
         return total_loss
 
-    def asymmetric_exp_penalty(diff, alpha=5.0):
-        # Penalizes more strongly for negative differences
-        return torch.where(diff < 0, torch.exp(-alpha * diff) - 1, torch.abs(diff))
 
     def custom_loss_2(output, target, X, EP_loss_scale=1., mass_loss_scale=0., separate=False):
 
@@ -750,15 +736,22 @@ if __name__ == '__main__':
         output_unscaled = output * train_out_stds + train_out_means
         target_unscaled = target * train_out_stds + train_out_means
 
-        # first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
-        loss1 = torch.abs(output_unscaled[:, 0] - target_unscaled[:, 0]) # taup nu px
-        loss2 = torch.abs(output_unscaled[:, 1] - target_unscaled[:, 1]) # taup nu py
-        loss3 = torch.abs(output_unscaled[:, 2] - target_unscaled[:, 2]) # taup nu pz
-        loss4 = torch.abs(output_unscaled[:, 3] - target_unscaled[:, 3]) # taun nu px
-        loss5 = torch.abs(output_unscaled[:, 4] - target_unscaled[:, 4]) # taun nu py
-        loss6 = torch.abs(output_unscaled[:, 5] - target_unscaled[:, 5]) # taun nu pz
+        loss1 = torch.abs(output[:, 0] - target[:, 0]) # taup nu px
+        loss2 = torch.abs(output[:, 1] - target[:, 1]) # taup nu py
+        loss3 = torch.abs(output[:, 2] - target[:, 2]) # taup nu pz
+        loss4 = torch.abs(output[:, 3] - target[:, 3]) # taun nu px
+        loss5 = torch.abs(output[:, 4] - target[:, 4]) # taun nu py
+        loss6 = torch.abs(output[:, 5] - target[:, 5]) # taun nu pz
+
+        ## first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
+        #loss1 = torch.abs(output_unscaled[:, 0] - target_unscaled[:, 0]) # taup nu px
+        #loss2 = torch.abs(output_unscaled[:, 1] - target_unscaled[:, 1]) # taup nu py
+        #loss3 = torch.abs(output_unscaled[:, 2] - target_unscaled[:, 2]) # taup nu pz
+        #loss4 = torch.abs(output_unscaled[:, 3] - target_unscaled[:, 3]) # taun nu px
+        #loss5 = torch.abs(output_unscaled[:, 4] - target_unscaled[:, 4]) # taun nu py
+        #loss6 = torch.abs(output_unscaled[:, 5] - target_unscaled[:, 5]) # taun nu pz
         # now implement the L1Loss for the 3 visible tau momenta
-        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)
+        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)/6
 
         # get the visible tau 4-vectors from X
         #taup_vis
@@ -810,9 +803,6 @@ if __name__ == '__main__':
 
         mass_diff_taup = reco_taup_mass - tau_mass_exp
         mass_diff_taun = reco_taun_mass - tau_mass_exp
-
-        # apply the asymmetric penalty
-        #mass_loss = mass_loss_scale*(asymmetric_exp_penalty(mass_diff_taup) + asymmetric_exp_penalty(mass_diff_taun))
 
         mass_loss = mass_loss_scale*((reco_taup_mass - tau_mass_exp)**2 + (reco_taun_mass - tau_mass_exp)**2)
         
@@ -874,120 +864,57 @@ if __name__ == '__main__':
 
         model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes)
         
-        try:
-            model.load_state_dict(torch.load('model_nu_custom_2_nhidden6_nodes200_batch1024_reducelr_massmse_epoch_35.pth')) # loading best model first
-        except:
-            model.load_state_dict(torch.load('model_nu_custom_2_nhidden6_nodes200_batch1024_reducelr_massmse_epoch_35.pth', map_location=torch.device('cpu')))
+        #try:
+        #    model.load_state_dict(torch.load('model_MAE.pth')) # loading best model first
+        #except:
+        #    model.load_state_dict(torch.load('model_MAE.pth', map_location=torch.device('cpu')))
 
         #criterion = nn.MSELoss()   
         # use abs error instead
         #criterion = nn.L1Loss() 
-
-        def polar_loss(output, target, weights = [1,1,1,1,1,1]):
-            #loss = torch.mean((output - target)**2) # implement this equivalent below put taking 3 components seperatly
-            #return loss
-            loss1 = (output[:, 0] - target[:, 0])**2 # p_mag
-            #loss2 = (output[:, 1] - target[:, 1])**2 # phi
-            dphi = output[:, 1] - target[:, 1]
-            mask = torch.abs(dphi) <= 3 * torch.pi
-            dphi[mask] = (dphi[mask] + torch.pi) % (2 * torch.pi) - torch.pi
-            loss2 = dphi**2 # phi
-            loss3 = (output[:, 2] - target[:, 2])**2 # theta
-            loss4 = (output[:, 3] - target[:, 3])**2 # p_mag
-            #loss5 = (output[:, 4] - target[:, 4])**2 # phi
-            dphi = output[:, 4] - target[:, 4]
-            mask = torch.abs(dphi) <= 3 * torch.pi
-            dphi[mask] = (dphi[mask] + torch.pi) % (2 * torch.pi) - torch.pi
-            loss5 = dphi**2 # phi
-            loss6 = (output[:, 5] - target[:, 5])**2 # theta
-            # Compute the total loss
-            total_loss = torch.mean(loss1*weights[0] + loss2*weights[1] + loss3*weights[2] + loss4*weights[3] + loss5*weights[4] + loss6*weights[5])/sum(weights)
-            return total_loss
-
-        def my_loss(output, target):
-            #get the loss for each component seperatly
-            #taup:
-            loss1 = (output[:, 0] - target[:, 0])**2 # px
-            loss2 = (output[:, 1] - target[:, 1])**2 # py
-            loss3 = (output[:, 2] - target[:, 2])**2 # pz
-            #taun:
-            loss4 = (output[:, 3] - target[:, 3])**2 # px
-            loss5 = (output[:, 4] - target[:, 4])**2 # py
-            loss6 = (output[:, 5] - target[:, 5])**2 # pz
-
-            # now get loss for the momentum differences between taup and taun
-            loss7 = ((output[:, 0] - output[:, 3]) - (target[:, 0] - target[:, 3]))**2 # Deltapx
-            loss8 = ((output[:, 1] - output[:, 4]) - (target[:, 1] - target[:, 4]))**2 # Deltapy
-            loss9 = ((output[:, 2] - output[:, 5]) - (target[:, 2] - target[:, 5]))**2 # Deltapz
-            # Compute the total loss
-            total_loss = torch.mean(loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 + loss8 + loss9)/9
-            return total_loss
-
-        def loss_tau_regression(output, target):
-            # loss of individual components
-            loss1 = (output[:, 0] - target[:, 0])**2 # taup px
-            loss2 = (output[:, 1] - target[:, 1])**2 # taup py
-            loss3 = (output[:, 2] - target[:, 2])**2 # taup pz
-            loss4 = (output[:, 3] - target[:, 3])**2 # taup e
-            loss5 = (output[:, 4] - target[:, 4])**2 # taun px
-            loss6 = (output[:, 5] - target[:, 5])**2 # taun py
-            loss7 = (output[:, 6] - target[:, 6])**2 # taun pz
-            loss8 = (output[:, 7] - target[:, 7])**2 # taun e
-
-            # tau mass constraint terms
-            tau_mass_exp = 1.777
-            taup_mass2 = output[:, 3]**2 - (output[:, 0]**2 + output[:, 1]**2 + output[:, 2]**2)
-            loss9 = torch.abs(taup_mass2 - tau_mass_exp**2)
-            taun_mass2 = output[:, 7]**2 - (output[:, 4]**2 + output[:, 5]**2 + output[:, 6]**2)
-            loss10 = torch.abs(taun_mass2 - tau_mass_exp**2)
-            #loss9 = 0
-            #loss10 = 0
-
-            # loss for components of the ditau system
-            loss12 = ((output[:, 0] + output[:, 4]) - (target[:, 0] + target[:, 4]))**2 # Z px
-            loss13 = ((output[:, 1] + output[:, 5]) - (target[:, 1] + target[:, 5]))**2 # Z py
-            loss14 = ((output[:, 2] + output[:, 6]) - (target[:, 2] + target[:, 6]))**2 # Z pz
-            loss15 = ((output[:, 3] + output[:, 7]) - (target[:, 3] + target[:, 7]))**2 # Z e
-
-            total_loss = torch.mean(loss1 + loss2 + loss3 + loss4 + loss5 + loss6 + loss7 + loss8 + loss9 + loss10 + loss12 + loss13 + loss14 + loss15)/14
-            return total_loss
-
-    #input_features = [
-    #    'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
-    #    'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
-    #    'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
-    #    'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
-    #    'reco_taun_pi1_px','reco_taun_pi1_py','reco_taun_pi1_pz','reco_taun_pi1_e',
-    #    'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
-    #    'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
-    #    'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
-    #    'reco_taup_vx','reco_taup_vy','reco_taup_vz',
-    #    'reco_taun_vx','reco_taun_vy','reco_taun_vz',
-    #    'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
-    #    'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
-    #    'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e']
+        #criterion = nn.HuberLoss(delta=1.0)
+        criterion = RelativeHuberLoss(delta=1.0)
 
 
-        weight_decay = 0
-        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
-        # Define learning rate scheduler
-        # learning rate will be reduced by a factor of 10 if the loss does not improve for 5 epochs
-        #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1, min_lr=1e-6,verbose=True) # reduce lr when the loss flattens
-        #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.2) # constant reduction every N epochs
-        #scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95) # exponentially decaying lr
-        #optimizer = optim.Adam(model.parameters(), lr=0.1, weight_decay=weight_decay)
-        #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0.00001)
-        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
         #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0.001)
         #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
         #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.2, min_lr=1e-6,verbose=True)
-        optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=weight_decay)
+        #optimizer = optim.Adam(model.parameters(), lr=0.01, weight_decay=1e-5)
         #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=10, factor=0.2, min_lr=1e-6,verbose=True)    
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98) # exponentially decaying lr
+        #scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98) # exponentially decaying lr
+
+        start_epochs = 5
+        ramp_epochs = 10
+        low_lr = 0.00001
+        peak_lr = 0.01
+        gamma = 0.98
+        
+        # Phase 1: Constant low LR
+        optimizer = optim.Adam(model.parameters(), lr=low_lr, weight_decay=1e-5)
+        constant = optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=start_epochs)
+        
+        # Phase 2: Linear ramp-up from low_lr to peak_lr
+        def ramp_lambda(epoch):
+            return 1.0 + (peak_lr / low_lr - 1.0) * (epoch / ramp_epochs)
+
+        ramp = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=ramp_lambda)
+        
+        # Phase 3: Exponential decay
+        # At this point, optimizer param groups already at peak_lr
+        exponential = optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
+        
+        # Combine them using SequentialLR
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[constant, ramp, exponential],
+            milestones=[start_epochs, start_epochs + ramp_epochs]
+        )
+
 
         loss_values = []
         val_loss_values = []
         running_loss_values = []
+        learning_rate_values = []
 
         print('Training the model...')
         weights = [1,1,1,1,1,1]
@@ -1005,6 +932,18 @@ if __name__ == '__main__':
             plt.savefig(f'loss_vs_epoch_{args.model_name}.pdf')
             plt.close()
 
+        def plot_learning_rate(learning_rate_values):
+            plt.figure()
+            plt.plot(range(1, len(learning_rate_values)+1), learning_rate_values)
+            plt.xlabel('epoch')
+            plt.ylabel('learning rate')
+            plt.savefig(f'learning_rate_{args.model_name}.pdf')
+            plt.close()
+
+        def SignedLog(x):
+            return torch.sign(x) * torch.log(torch.abs(x) + 1)
+
+        model.to(device)
         for epoch in range(num_epochs):
             #model.train()
             running_loss= 0.0
@@ -1014,28 +953,28 @@ if __name__ == '__main__':
                 #print(X.shape)
                 X = X.to(device)
                 y = y.to(device)
-                # move model to GPU
-                model.to(device)
                 optimizer.zero_grad()
                 outputs = model(X)
                 train_in_stds = train_in_stds.to(device)
                 train_out_stds = train_out_stds.to(device)
                 train_in_means = train_in_means.to(device)
                 train_out_means = train_out_means.to(device)
-                mass_loss_scale=10
-                EP_loss_scale=1.
-                if polar: loss = polar_loss(outputs, y, weights)
-                elif regress_tau: loss = loss_tau_regression(outputs, y)
-                #else: loss = criterion(outputs, y)
-                else: loss, l1_loss,  Ep_loss, mass_loss  = custom_loss_2(outputs, y, X, separate=True, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
+                mass_loss_scale=0.
+                EP_loss_scale=0.
+                #loss, l1_loss,  Ep_loss, mass_loss  = custom_loss_2(outputs, y, X, separate=True, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
+                loss = criterion(outputs, y)
+                #loss = criterion(SignedLog(outputs), SignedLog(y))
+
                 loss.backward()
                 optimizer.step()
                 lr = scheduler.get_last_lr()
+                learning_rate_values.append(lr[0])
                 running_loss += loss.item()
-                running_loss_components[0] += l1_loss.item()
-                running_loss_components[1] += Ep_loss.item()
-                running_loss_components[2] += mass_loss.item()
+                #running_loss_components[0] += l1_loss.item()
+                #running_loss_components[1] += Ep_loss.item()
+                #running_loss_components[2] += mass_loss.item()
                 #running_loss_components[3] += geometric_loss.item()
+
 
             running_loss /= len(train_dataloader)
             running_loss_values.append(running_loss)
@@ -1044,18 +983,16 @@ if __name__ == '__main__':
             
             # get the validation loss
             #model.eval()
+            model.to(device)
             with torch.no_grad():
                 val_loss = 0.0
                 train_loss = 0.0
                 for i, (X, y) in enumerate(train_dataloader):
                     X = X.to(device)
                     y = y.to(device)
-                    model.to(device)
                     outputs = model(X)
-                    if polar: loss = polar_loss(outputs, y, weights)
-                    elif regress_tau: loss = loss_tau_regression(outputs, y)
-                    #else: loss = criterion(outputs, y)
-                    else: loss = custom_loss_2(outputs, y, X, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
+                    loss = criterion(outputs, y)
+                    #loss = criterion(SignedLog(outputs), SignedLog(y))
                     train_loss += loss.item()
                 train_loss /= len(train_dataloader)
                 loss_values.append(train_loss)
@@ -1063,12 +1000,9 @@ if __name__ == '__main__':
                 for i, (X, y) in enumerate(test_dataloader):
                     X = X.to(device)
                     y = y.to(device)
-                    model.to(device)
                     outputs = model(X)
-                    if polar: loss = polar_loss(outputs, y, weights)
-                    elif regress_tau: loss = loss_tau_regression(outputs, y)
-                    #else: loss = criterion(outputs, y)
-                    else: loss = custom_loss_2(outputs, y, X, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
+                    loss = criterion(outputs, y)
+                    #loss = criterion(SignedLog(outputs), SignedLog(y))
                     val_loss += loss.item()
                 val_loss /= len(test_dataloader)
                 val_loss_values.append(val_loss)
@@ -1079,22 +1013,28 @@ if __name__ == '__main__':
 
                 lr = scheduler.get_last_lr()
                 scheduler.step()
-                #scheduler.step(val_loss)
+                #scheduler.step(val_loss) # for reduce on plateau
                 
 
             print(f'Epoch [{epoch+1}/{num_epochs}], loss: {train_loss:.6f}, val_loss: {val_loss:.6f}, running_loss: {running_loss:.6f}, lr = {lr[0]:.6f}')
             if running_loss_components[0] != 0.:
                 print(f'Running loss components: {running_loss_components[0]:.6f}, {running_loss_components[1]:.6f}, {running_loss_components[2]:.6f}, {running_loss_components[3]:.6f}')
             if epoch > 1: plot_loss(loss_values, val_loss_values, running_loss_values)
+            plot_learning_rate(learning_rate_values)
             # save model every 10 epochs
             if (epoch+1) % 5 == 0:
                 torch.save(model.state_dict(), f'{args.model_name}_epoch_{epoch+1}.pth')
+                # after we save the model we delete the model for the previously stored epoch
+                try:
+                    os.remove(f'{args.model_name}_epoch_{epoch-4}.pth')
+                except:
+                    print(f"Could not remove model {args.model_name}_epoch_{epoch-4}.pth")
                 print(f'Model saved at epoch {epoch+1}')
         
         elapsed_time = time.time() - current_time
         print (f"Training time: {elapsed_time:.2f} seconds")
         # Save the model
-        torch.save(model.state_dict(), f'f{args.model_name}.pth')
+        torch.save(model.state_dict(), f'{args.model_name}.pth')
 
 
     # test the model
@@ -1103,7 +1043,7 @@ if __name__ == '__main__':
         model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes)
         #model.load_state_dict(torch.load('model.pth'))
         # try the below and if it doesnt work then load to cpu
-        model_path = f'{args.model_name}_epoch_35.pth'
+        model_path = f'{args.model_name}_epoch_200.pth'
         try:
             model.load_state_dict(torch.load(model_path))
         except:
@@ -1129,16 +1069,20 @@ if __name__ == '__main__':
                 outputs = model(X)
                 if standardize == 2:
                     # convert predictions back to original scale
-                    custom_loss_i, l1_loss_i, theta_loss_i, phi_loss_i = custom_loss(outputs, y, X, separate=True)
-                    custom_loss_2_i, l1_loss_2_i, Ep_loss_i, mass_loss_i = custom_loss_2(outputs, y, X, separate=True)
-                    custom_loss_total += custom_loss_i.item()
-                    l1_loss_total += l1_loss_i.item()
-                    theta_loss_total += theta_loss_i.item()
-                    phi_loss_total += phi_loss_i.item()
-                    custom_loss_2_total += custom_loss_2_i.item()
-                    l1_loss_2_total += l1_loss_2_i.item()
-                    Ep_loss_2_total += Ep_loss_i.item()
-                    mass_loss_2_total += mass_loss_i.item()
+                    custom_loss_i, l1_loss_i, theta_loss_i, phi_loss_i = 0, 0, 0, 0
+                    custom_loss_2_i, l1_loss_2_i, Ep_loss_i, mass_loss_i = 0, 0, 0, 0
+                    #custom_loss_i, l1_loss_i, theta_loss_i, phi_loss_i = custom_loss(outputs, y, X, separate=True)
+                    #custom_loss_2_i, l1_loss_2_i, Ep_loss_i, mass_loss_i = custom_loss_2(outputs, y, X, separate=True)
+                    if custom_loss_i and l1_loss_i and theta_loss_i and phi_loss_i:
+                        custom_loss_total += custom_loss_i.item()
+                        l1_loss_total += l1_loss_i.item()
+                        theta_loss_total += theta_loss_i.item()
+                        phi_loss_total += phi_loss_i.item()
+                    if custom_loss_2_i and l1_loss_2_i and Ep_loss_i and mass_loss_i:
+                        custom_loss_2_total += custom_loss_2_i.item()
+                        l1_loss_2_total += l1_loss_2_i.item()
+                        Ep_loss_2_total += Ep_loss_i.item()
+                        mass_loss_2_total += mass_loss_i.item()
                     outputs = outputs * train_out_stds + train_out_means
                 predictions.append(outputs.numpy())
                 #print('losses:', custom_loss_i.item(), l1_loss_i.item(), theta_loss_i.item())
@@ -1153,12 +1097,35 @@ if __name__ == '__main__':
         print('Ep loss 2:', Ep_loss_2_total/len(test_dataloader))
         print('mass loss 2:', mass_loss_2_total/len(test_dataloader))
 
+
+        # store a reco_rand_...px,py,pz columns where we randomly ick between reco_tau.. and reco_alt_tau... solutions
+        # it should always choose the same solution for px, py, and pz
+        rands = np.random.rand(len(test_df))
+        test_df['reco_rand_taup_nu_px'] = np.where(rands < 0.5, test_df['reco_taup_nu_px'], test_df['reco_alt_taup_nu_px'])
+        test_df['reco_rand_taup_nu_py'] = np.where(rands < 0.5, test_df['reco_taup_nu_py'], test_df['reco_alt_taup_nu_py'])
+        test_df['reco_rand_taup_nu_pz'] = np.where(rands < 0.5, test_df['reco_taup_nu_pz'], test_df['reco_alt_taup_nu_pz'])
+        test_df['reco_rand_taun_nu_px'] = np.where(rands < 0.5, test_df['reco_taun_nu_px'], test_df['reco_alt_taun_nu_px'])
+        test_df['reco_rand_taun_nu_py'] = np.where(rands < 0.5, test_df['reco_taun_nu_py'], test_df['reco_alt_taun_nu_py'])
+        test_df['reco_rand_taun_nu_pz'] = np.where(rands < 0.5, test_df['reco_taun_nu_pz'], test_df['reco_alt_taun_nu_pz'])     
+
         # get the true values
 
         true_values = test_df[output_features].values
+        simple_predictions = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz', 'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
+        simple_predictions_alt = test_df[['reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz', 'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']].values
+        simple_prediction_d0 = test_df[['reco_d0_taup_nu_px', 'reco_d0_taup_nu_py', 'reco_d0_taup_nu_pz', 'reco_d0_taun_nu_px', 'reco_d0_taun_nu_py', 'reco_d0_taun_nu_pz']].values
+        simple_prediction_rand = test_df[['reco_rand_taup_nu_px', 'reco_rand_taup_nu_py', 'reco_rand_taup_nu_pz', 'reco_rand_taun_nu_px', 'reco_rand_taun_nu_py', 'reco_rand_taun_nu_pz']].values
         # calculate the mean squared error
         mse = np.mean((predictions - true_values)**2)
+        mse_simple = np.mean((simple_predictions - true_values)**2) 
+        mse_simple_alt = np.mean((simple_predictions_alt - true_values)**2)
+        mse_simple_d0 = np.mean((simple_prediction_d0 - true_values)**2)
+        mse_simple_rand = np.mean((simple_prediction_rand - true_values)**2)
         print(f'Mean squared error: {mse:.4f}')
+        print(f'Mean squared error (simple): {mse_simple:.4f}')
+        print(f'Mean squared error (simple alt): {mse_simple_alt:.4f}')
+        print(f'Mean squared error (simple d0): {mse_simple_d0:.4f}')
+        print(f'Mean squared error (simple rand): {mse_simple_rand:.4f}')
 
         # get non-NN reco values by summing reco_taup_nu.. with reco_taup_vis..
         # and reco_taun_nu.. with reco_taun_vis..
@@ -1169,55 +1136,31 @@ if __name__ == '__main__':
             test_df[f'reco_taup_{x}'] = test_df[f'reco_taup_vis_{x}'] + test_df[f'reco_taup_nu_{x}']
             test_df[f'reco_taun_{x}'] = test_df[f'reco_taun_vis_{x}'] + test_df[f'reco_taun_nu_{x}']
 
-        if polar:
-            # store the original predictions in the test_df with xx_rotated in the name
-            test_df['reco_nn_taup_nu_p_mag'] = predictions[:, 0]
-            test_df['reco_nn_taup_nu_phi'] = predictions[:, 1]
-            test_df['reco_nn_taup_nu_theta'] = predictions[:, 2]
-            test_df['reco_nn_taun_nu_p_mag'] = predictions[:, 3]
-            test_df['reco_nn_taun_nu_phi'] = predictions[:, 4]
-            test_df['reco_nn_taun_nu_theta'] = predictions[:, 5]
-            # transform back to origional non-polar frame using NeutrinoPolarCoordinates
-            taup_nu_p_mag = test_df['reco_nn_taup_nu_p_mag'].values
-            taup_nu_theta = test_df['reco_nn_taup_nu_theta'].values
-            taup_nu_phi = test_df['reco_nn_taup_nu_phi'].values
-            taun_nu_p_mag = test_df['reco_nn_taun_nu_p_mag'].values
-            taun_nu_theta = test_df['reco_nn_taun_nu_theta'].values
-            taun_nu_phi = test_df['reco_nn_taun_nu_phi'].values
-            taup_polar = NeutrinoPolarCoordinates(test_df[['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']].values)
-            taup_nu_p = taup_polar.reverse_transform(taup_nu_p_mag, taup_nu_theta, taup_nu_phi)
-            taun_polar = NeutrinoPolarCoordinates(test_df[['reco_taun_vis_px', 'reco_taun_vis_py', 'reco_taun_vis_pz']].values)
-            taun_nu_p = taun_polar.reverse_transform(taun_nu_p_mag, taun_nu_theta, taun_nu_phi)
-            # redefine predictions to use the rotated values
-            predictions = np.concatenate([taup_nu_p[:, 0].reshape(-1, 1), taup_nu_p[:, 1].reshape(-1, 1), taup_nu_p[:, 2].reshape(-1, 1),
-                                          taun_nu_p[:, 0].reshape(-1, 1), taun_nu_p[:, 1].reshape(-1, 1), taun_nu_p[:, 2].reshape(-1, 1)], axis=1)
 
-        if not regress_tau: taus_df = compute_tau_four_vectors(test_df, predictions)
-        else: taus_df = compute_nu_four_vectors(test_df, predictions)
-        
+        taus_df = compute_tau_four_vectors(test_df, predictions)
 
         # add tau_df to test_df
         test_df = pd.concat([test_df, taus_df], axis=1)
         # delete repeated columns
         test_df = test_df.loc[:, ~test_df.columns.duplicated()]
 
-        if not polar: # if not polar then convert and store polar coordinates as well
-            # convert to polar coordinates
-            tau_p = test_df[['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']].values
-            nu_p = test_df[['reco_nn_taup_nu_px', 'reco_nn_taup_nu_py', 'reco_nn_taup_nu_pz']].values
-            taup_polar = NeutrinoPolarCoordinates(tau_p)
-            taup_nu_p_mag, taup_nu_theta, taup_nu_phi = taup_polar.compute_angles(nu_p)
-            tau_p = test_df[['reco_taun_vis_px', 'reco_taun_vis_py', 'reco_taun_vis_pz']].values
-            nu_p = test_df[['reco_nn_taun_nu_px', 'reco_nn_taun_nu_py', 'reco_nn_taun_nu_pz']].values
-            taun_polar = NeutrinoPolarCoordinates(tau_p)
-            taun_nu_p_mag, taun_nu_theta, taun_nu_phi = taun_polar.compute_angles(nu_p)
-
-            test_df['reco_nn_taup_nu_p_mag'] = taup_nu_p_mag
-            test_df['reco_nn_taup_nu_theta'] = taup_nu_theta
-            test_df['reco_nn_taup_nu_phi'] = taup_nu_phi
-            test_df['reco_nn_taun_nu_p_mag'] = taun_nu_p_mag
-            test_df['reco_nn_taun_nu_theta'] = taun_nu_theta
-            test_df['reco_nn_taun_nu_phi'] = taun_nu_phi
+        
+        # convert to polar coordinates
+        tau_p = test_df[['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']].values
+        nu_p = test_df[['reco_nn_taup_nu_px', 'reco_nn_taup_nu_py', 'reco_nn_taup_nu_pz']].values
+        taup_polar = NeutrinoPolarCoordinates(tau_p)
+        taup_nu_p_mag, taup_nu_theta, taup_nu_phi = taup_polar.compute_angles(nu_p)
+        tau_p = test_df[['reco_taun_vis_px', 'reco_taun_vis_py', 'reco_taun_vis_pz']].values
+        nu_p = test_df[['reco_nn_taun_nu_px', 'reco_nn_taun_nu_py', 'reco_nn_taun_nu_pz']].values
+        taun_polar = NeutrinoPolarCoordinates(tau_p)
+        taun_nu_p_mag, taun_nu_theta, taun_nu_phi = taun_polar.compute_angles(nu_p)
+        
+        test_df['reco_nn_taup_nu_p_mag'] = taup_nu_p_mag
+        test_df['reco_nn_taup_nu_theta'] = taup_nu_theta
+        test_df['reco_nn_taup_nu_phi'] = taup_nu_phi
+        test_df['reco_nn_taun_nu_p_mag'] = taun_nu_p_mag
+        test_df['reco_nn_taun_nu_theta'] = taun_nu_theta
+        test_df['reco_nn_taun_nu_phi'] = taun_nu_phi
 
         # predict spin sensitive variables, note needs to be done in a loop for now
 
