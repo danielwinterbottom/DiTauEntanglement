@@ -1,0 +1,13 @@
+name: DiTauEntanglement3p10
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.10
+  - hepmc3
+  - root
+  - iminuit
+  - uproot
+  - matplotlib
+  - pytorch
+  - torchvision  

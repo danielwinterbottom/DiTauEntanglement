@@ -88,3 +88,15 @@ You can submit both of the previous commands as as batch jobs using:
 
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/ -j pythia_inc_entanglement -n 1000
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/ -j pythia_no_entanglement -n 1000
+
+
+# Install BaysFlow
+
+Need to pyse python version 3.10 or 3.11.
+Setup a condor environment with this version:
+
+	conda env create -f env_py_3p10.yml
+
+Then you can install BayesFlow using
+
+	pip install git+https://github.com/bayesflow-org/bayesflow.git
