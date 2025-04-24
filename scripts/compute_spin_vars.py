@@ -131,6 +131,39 @@ branches = [
         'reco_taun_nu_px',
         'reco_taun_nu_py',
         'reco_taun_nu_pz',
+        'reco_alt_taup_nu_px',
+        'reco_alt_taup_nu_py',
+        'reco_alt_taup_nu_pz',
+        'reco_alt_taun_nu_px',
+        'reco_alt_taun_nu_py',
+        'reco_alt_taun_nu_pz',
+        'reco_d0_taup_nu_px',
+        'reco_d0_taup_nu_py',
+        'reco_d0_taup_nu_pz',
+        'reco_d0_taun_nu_px',
+        'reco_d0_taun_nu_py',
+        'reco_d0_taun_nu_pz',
+
+        'dplus_taup_nu_px',
+        'dplus_taup_nu_py',
+        'dplus_taup_nu_pz',
+        'dplus_taun_nu_px',
+        'dplus_taun_nu_py',
+        'dplus_taun_nu_pz',
+        'dminus_taup_nu_px',
+        'dminus_taup_nu_py',
+        'dminus_taup_nu_pz',
+        'dminus_taun_nu_px',
+        'dminus_taun_nu_py',
+        'dminus_taun_nu_pz',
+        'dsign',
+        'dsign_alt',
+        'taup_nu_px',
+        'taup_nu_py',
+        'taup_nu_pz',
+        'taun_nu_px',
+        'taun_nu_py',
+        'taun_nu_pz',
 
 ]
 branch_vals = {}
@@ -347,25 +380,35 @@ for i in range(start_entry, end_entry):
 
     if tree.taup_npizero == 0 and tree.taup_npi == 1:
         taupvis_reco = taup_pi1_reco.Clone()
+        taupvis = taup_pi1.Clone()
     elif tree.taup_npizero == 1 and tree.taup_npi == 1:   
         taupvis_reco = taup_pi1_reco + taup_pizero1_reco
+        taupvis = taup_pi1 + taup_pizero1
     elif tree.taup_npizero == 2 and tree.taup_npi == 1:   
         taupvis_reco = taup_pi1_reco + taup_pizero1_reco + taup_pizero2_reco
+        taupvis = taup_pi1 + taup_pizero1 + taup_pizero2
     elif tree.taup_npizero == 0 and tree.taup_npi == 3:
         taupvis_reco = taup_pi1_reco + taup_pi2_reco + taup_pi3_reco
+        taupvis = taup_pi1 + taup_pi2 + taup_pi3
     else: 
         taupvis_reco = taup_pi1_reco.Clone()
+        taupvis = taup_pi1.Clone()
 
     if tree.taun_npizero == 0 and tree.taun_npi == 1:
         taunvis_reco = taun_pi1_reco.Clone()
+        taunvis = taun_pi1.Clone()
     elif tree.taun_npizero == 1 and tree.taun_npi == 1:
         taunvis_reco = taun_pi1_reco + taun_pizero1_reco 
+        taunvis = taun_pi1 + taun_pizero1
     elif tree.taun_npizero == 2 and tree.taun_npi == 1:
         taunvis_reco = taun_pi1_reco + taun_pizero1_reco + taun_pizero2_reco
+        taunvis = taun_pi1 + taun_pizero1 + taun_pizero2
     elif tree.taun_npizero == 0 and tree.taun_npi == 3:
         taunvis_reco = taun_pi1_reco + taun_pi2_reco + taun_pi3_reco
+        taunvis = taun_pi1 + taun_pi2 + taun_pi3
     else:
         taunvis_reco = taun_pi1_reco.Clone()
+        taunvis = taun_pi1.Clone()
 
     mode=1
     if (tree.taup_npi == 1 and tree.taup_npizero == 1) or (tree.taun_npi == 1 and tree.taun_npizero == 1):
@@ -395,8 +438,11 @@ for i in range(start_entry, end_entry):
         taun_SV_reco = None
 
     if taup_SV_reco is not None and taun_SV_reco is not None:
-        sv_delta = taup_SV_reco - taun_SV_reco
-    else: sv_delta = None
+        sv_delta_reco = taup_SV_reco - taun_SV_reco
+        sv_delta = taup_SV - taun_SV
+    else: 
+        sv_delta_reco = None
+        sv_delta = None
 
     if taup_SV_reco is not None:
 
@@ -421,7 +467,59 @@ for i in range(start_entry, end_entry):
     branch_vals['mass'][0] = P_Z.M()
     branch_vals['reco_mass'][0] = P_Z_reco.M()
 
-    solutions = reconstructor.reconstruct_tau_alt(P_Z_reco, taupvis_reco, taunvis_reco, taup_pi1_reco, taun_pi1_reco, np_point=d_min_point_p_reco, nn_point=d_min_point_n_reco, O_y=BS_reco.Y(), d_min_reco=d_min_reco, sv_delta=sv_delta, mode=mode, no_minimisation=True)
+    solutions = reconstructor.reconstruct_tau_alt(P_Z_reco, taupvis_reco, taunvis_reco, taup_pi1_reco, taun_pi1_reco, np_point=d_min_point_p_reco, nn_point=d_min_point_n_reco, O_y=BS_reco.Y(), d_min_reco=d_min_reco, sv_delta=sv_delta_reco, mode=mode, no_minimisation=True)
+    solutions_gen = ReconstructTauAnalytically(P_Z, taupvis, taunvis, taup_pi1, taun_pi1, return_values=True)
+
+    # if first element has -ve d and second has -ve, then switch the solutions (they should already be arranged this way though, but just incase...)
+    if solutions_gen[0][6] < 0 and solutions_gen[1][6] > 0:
+        solutions_gen[0], solutions_gen[1] = solutions_gen[1], solutions_gen[0]
+    dplus_taun_nu = (solutions_gen[0][1]-taunvis)
+    dplus_taup_nu = (solutions_gen[0][0]-taupvis)
+    dminus_taun_nu = (solutions_gen[1][1]-taunvis)
+    dminus_taup_nu = (solutions_gen[1][0]-taupvis)
+    branch_vals['dplus_taup_nu_px'][0] = dplus_taup_nu.Px()
+    branch_vals['dplus_taup_nu_py'][0] = dplus_taup_nu.Py()
+    branch_vals['dplus_taup_nu_pz'][0] = dplus_taup_nu.Pz()
+    branch_vals['dplus_taun_nu_px'][0] = dplus_taun_nu.Px()
+    branch_vals['dplus_taun_nu_py'][0] = dplus_taun_nu.Py()
+    branch_vals['dplus_taun_nu_pz'][0] = dplus_taun_nu.Pz()
+    branch_vals['dminus_taup_nu_px'][0] = dminus_taup_nu.Px()
+    branch_vals['dminus_taup_nu_py'][0] = dminus_taup_nu.Py()
+    branch_vals['dminus_taup_nu_pz'][0] = dminus_taup_nu.Pz()
+    branch_vals['dminus_taun_nu_px'][0] = dminus_taun_nu.Px()
+    branch_vals['dminus_taun_nu_py'][0] = dminus_taun_nu.Py()
+    branch_vals['dminus_taun_nu_pz'][0] = dminus_taun_nu.Pz()
+
+    # get the correct solution for the gen tau
+    taun = ROOT.TLorentzVector(tree.taun_px, tree.taun_py, tree.taun_pz, tree.taun_e)
+    taup = ROOT.TLorentzVector(tree.taup_px, tree.taup_py, tree.taup_pz, tree.taup_e)
+
+    taup_nu = ROOT.TLorentzVector(tree.taup_nu_px, tree.taup_nu_py, tree.taup_nu_pz, tree.taup_nu_e)
+    taun_nu = ROOT.TLorentzVector(tree.taun_nu_px, tree.taun_nu_py, tree.taun_nu_pz, tree.taun_nu_e)
+    branch_vals['taup_nu_px'][0] = taup_nu.Px()
+    branch_vals['taup_nu_py'][0] = taup_nu.Py()
+    branch_vals['taup_nu_pz'][0] = taup_nu.Pz()
+    branch_vals['taun_nu_px'][0] = taun_nu.Px()
+    branch_vals['taun_nu_py'][0] = taun_nu.Py()
+    branch_vals['taun_nu_pz'][0] = taun_nu.Pz()
+
+    _, _, _, dsign = solve_abcd_values(taup, taun, P_Z, taupvis, taunvis)
+    branch_vals['dsign'][0] = np.sign(dsign)
+
+    # determine the correct sign for dsign by checking which os the two solutions match most clostly to the true value
+    d_sol1 = compare_lorentz_pairs((taup,taun),solutions_gen[0][:5])
+    d_sol2 = compare_lorentz_pairs((taup,taun),solutions_gen[1][:5])
+
+    if d_sol1<d_sol2:
+        dsign_alt = 1
+    elif d_sol1>d_sol2:
+        dsign_alt = -1
+    else: 
+        dsign_alt = 0.
+    branch_vals['dsign_alt'][0] = dsign_alt
+
+
+        
 
     ###np.random.shuffle(solutions) #shuffle solutions randomly for checks
 
@@ -434,6 +532,28 @@ for i in range(start_entry, end_entry):
     branch_vals['reco_taun_nu_px'][0] = taun_nu_reco.Px()
     branch_vals['reco_taun_nu_py'][0] = taun_nu_reco.Py()
     branch_vals['reco_taun_nu_pz'][0] = taun_nu_reco.Pz()
+
+    taup_alt_reco, taun_alt_reco, _, _, _ = solutions[1]
+    taup_nu_alt_reco = taup_alt_reco - taupvis_reco
+    taun_nu_alt_reco = taun_alt_reco - taunvis_reco
+    branch_vals['reco_alt_taup_nu_px'][0] = taup_nu_alt_reco.Px()
+    branch_vals['reco_alt_taup_nu_py'][0] = taup_nu_alt_reco.Py()
+    branch_vals['reco_alt_taup_nu_pz'][0] = taup_nu_alt_reco.Pz()
+    branch_vals['reco_alt_taun_nu_px'][0] = taun_nu_alt_reco.Px()
+    branch_vals['reco_alt_taun_nu_py'][0] = taun_nu_alt_reco.Py()
+    branch_vals['reco_alt_taun_nu_pz'][0] = taun_nu_alt_reco.Pz()
+
+    taup_d0_reco, taun_d0_reco, _, _, _ = solutions[2]
+    taup_nu_d0_reco = taup_d0_reco - taupvis_reco
+    taun_nu_d0_reco = taun_d0_reco - taunvis_reco
+    branch_vals['reco_d0_taup_nu_px'][0] = taup_nu_d0_reco.Px()
+    branch_vals['reco_d0_taup_nu_py'][0] = taup_nu_d0_reco.Py()
+    branch_vals['reco_d0_taup_nu_pz'][0] = taup_nu_d0_reco.Pz()
+    branch_vals['reco_d0_taun_nu_px'][0] = taun_nu_d0_reco.Px()
+    branch_vals['reco_d0_taun_nu_py'][0] = taun_nu_d0_reco.Py()
+    branch_vals['reco_d0_taun_nu_pz'][0] = taun_nu_d0_reco.Pz()
+
+
 
     # determine if correct solution was found
     d_sol1 = compare_lorentz_pairs((taup,taun),solutions[0])

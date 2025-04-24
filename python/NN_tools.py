@@ -129,6 +129,12 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         'reco_alt_taun_nu_px','reco_alt_taun_nu_py','reco_alt_taun_nu_pz',
         'reco_d0_taup_nu_px','reco_d0_taup_nu_py','reco_d0_taup_nu_pz',
         'reco_d0_taun_nu_px','reco_d0_taun_nu_py','reco_d0_taun_nu_pz',
+        'dsign','dsign_alt',
+        'dplus_taup_nu_px','dplus_taup_nu_py','dplus_taup_nu_pz',
+        'dplus_taun_nu_px','dplus_taun_nu_py','dplus_taun_nu_pz',
+        'dminus_taup_nu_px','dminus_taup_nu_py','dminus_taup_nu_pz',
+        'dminus_taun_nu_px','dminus_taun_nu_py','dminus_taun_nu_pz',
+
     ]
 
     read_root_in_chunks(filename1, treename1, output_name='output/df.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
@@ -245,6 +251,19 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         df['reco_taun_nu_phi'] = phi
         df['reco_taun_nu_theta'] = theta
 
+        nu_p_dplus = df[['dplus_taup_nu_px', 'dplus_taup_nu_py', 'dplus_taup_nu_pz']].values
+        nu_p_dminus = df[['dminus_taup_nu_px', 'dminus_taup_nu_py', 'dminus_taup_nu_pz']].values
+
+        nu_n_dplus = df[['dplus_taun_nu_px', 'dplus_taun_nu_py', 'dplus_taun_nu_pz']].values
+
+        d = (nu_p_dplus - nu_p_dminus)/2
+        df[['d_x', 'd_y', 'd_z']] = d
+
+        nu_p_d0 = nu_p_dplus - d
+        nu_n_d0 = nu_n_dplus + d
+        df[['d0_taup_nu_px', 'd0_taup_nu_py', 'd0_taup_nu_pz']] = nu_p_d0
+        df[['d0_taun_nu_px', 'd0_taun_nu_py', 'd0_taun_nu_pz']] = nu_n_d0
+
         # save the concatenated dataframe
         if verbosity>0: 
             # print df collumns making sure all are displayed
@@ -321,6 +340,23 @@ def initialize_weights(module):
         print('initializing weights for layer %s' % module)
         #init.orthogonal_(module.weight)
 
+def DeleteOldModels(model_name, val_loss_values, current_epoch):
+    # check the models stored for previous epochs. If the validation loss for the current model is better then delete the previous models
+    # search for all files in the current directory that start with the model name and end with .pth
+    name_to_search = f'{model_name}_epoch_'
+    files = [f for f in os.listdir('.') if f.startswith(name_to_search) and f.endswith('.pth')]
+    current_loss = val_loss_values[-1]
+    for file in files:
+        # get the epoch number from the filename
+        epoch = int(file.split('_')[-1].split('.')[0])
+        if epoch >= current_epoch: continue
+        # get the validation loss for that epoch
+        val_loss = val_loss_values[epoch-1]
+        # if the current loss is better than the previous loss then delete the previous model
+        if current_loss < val_loss:
+            os.remove(file)
+            print(f'Deleted model {file} with validation loss {val_loss:.6f}')
+
 class SimpleNN(nn.Module):
 
     def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes):
@@ -343,6 +379,8 @@ class SimpleNN(nn.Module):
         # print a summry of the model
         print('Model summary:')
         print(self.layers)
+        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        print(f'Number of parameters: {n_params}')
  
 
     def forward(self, x):
@@ -575,6 +613,8 @@ if __name__ == '__main__':
     argparser.add_argument('--n_hidden_layers', help='number of hidden layers', type=int, default=6)
     argparser.add_argument('--n_nodes', help='number of nodes per layer', type=int, default=300)
     argparser.add_argument('--batch_size', help='batch size', type=int, default=1024)
+    argparser.add_argument('--train_dsolution', help='train a specific solutions for the d sign (+/- 1 - other values default to the ordinary training)', default=None, type=int)
+    argparser.add_argument('--loss', help='loss function to use options are MSE, MAE, or Huber', type=str, default='MSE')
     args = argparser.parse_args()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -586,7 +626,8 @@ if __name__ == '__main__':
 
     standardize = 2 # 0: no standardization, 1: standardize input, 2: standardize input and output
     polar = False
-    num_epochs = 215
+    #num_epochs = 415
+    num_epochs = 115
     n_hidden_layers = args.n_hidden_layers
     
     n_nodes = args.n_nodes
@@ -608,27 +649,45 @@ if __name__ == '__main__':
         'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
         'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
         'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
-        #'reco_taup_vx','reco_taup_vy','reco_taup_vz',
-        #'reco_taun_vx','reco_taun_vy','reco_taun_vz',
-        #'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
-        #'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
-        #'delta_ipx','delta_ipy','delta_ipz','delta_ip_mag',
-        #'delta_svx','delta_svy','delta_svz','delta_sv_mag',
+        'reco_taup_vx','reco_taup_vy','reco_taup_vz',
+        'reco_taun_vx','reco_taun_vy','reco_taun_vz',
+        'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
+        'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
+        'delta_ipx','delta_ipy','delta_ipz','delta_ip_mag',
+        'delta_svx','delta_svy','delta_svz','delta_sv_mag',
         'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e',
         'taup_decay_mode','taun_decay_mode',
         #'reco_taup_nu_px','reco_taup_nu_py','reco_taup_nu_pz',
         #'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz',
         ]
 
-    output_features = [
-        'taup_nu_px','taup_nu_py','taup_nu_pz',
-        'taun_nu_px','taun_nu_py','taun_nu_pz']
+    if args.train_dsolution == 1:
+        # regress the dplus solution
+        output_features = [
+            'dplus_taup_nu_px','dplus_taup_nu_py','dplus_taup_nu_pz',
+            'dplus_taun_nu_px','dplus_taun_nu_py','dplus_taun_nu_pz']
+    elif args.train_dsolution == -1:
+        # regress the dminus solution
+        output_features = [
+            'dminus_taup_nu_px','dminus_taup_nu_py','dminus_taup_nu_pz',
+            'dminus_taun_nu_px','dminus_taun_nu_py','dminus_taun_nu_pz']
+    elif args.train_dsolution == 0:
+        # regress the d0 solution
+        output_features = [
+            'd0_taup_nu_px','d0_taup_nu_py','d0_taup_nu_pz',
+            'd0_taun_nu_px','d0_taun_nu_py','d0_taun_nu_pz']
+    else: 
+        output_features = [
+            'taup_nu_px','taup_nu_py','taup_nu_pz',
+            'taun_nu_px','taun_nu_py','taun_nu_pz']
+
+    print(f'Regressing output features: {output_features}')
     file_paths = [f'output/df_chunk_{i}.pkl' for i in range(20)]
     # only read the input and output features when reading the dfs
     #dataframes = [pd.read_pickle(file)[input_features + output_features + ['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']] for file in file_paths]
     dataframes = [pd.read_pickle(file) for file in file_paths]
-    train_df = pd.concat(dataframes[:18], ignore_index=True)
-    test_df = pd.concat(dataframes[18:], ignore_index=True)
+    train_df = pd.concat(dataframes[:1], ignore_index=True)
+    test_df = pd.concat(dataframes[1:2], ignore_index=True)
             
     # stage 2: train the model
 
@@ -869,11 +928,17 @@ if __name__ == '__main__':
         #except:
         #    model.load_state_dict(torch.load('model_MAE.pth', map_location=torch.device('cpu')))
 
-        #criterion = nn.MSELoss()   
-        # use abs error instead
-        #criterion = nn.L1Loss() 
-        #criterion = nn.HuberLoss(delta=1.0)
-        criterion = RelativeHuberLoss(delta=1.0)
+        if args.loss == 'MSE':
+            print('Using MSE loss')
+            criterion = nn.MSELoss()   
+        elif args.loss == 'MAE':
+            print('Using MAE loss')
+            criterion = nn.L1Loss() 
+        elif args.loss == 'Huber':
+            print('Using Huber loss')
+            criterion = nn.HuberLoss(delta=1.0)
+        else: 
+            raise ValueError(f"Unknown loss function: {args.loss}")
 
 
         #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=50, eta_min=0.001)
@@ -889,26 +954,22 @@ if __name__ == '__main__':
         peak_lr = 0.01
         gamma = 0.98
         
-        # Phase 1: Constant low LR
         optimizer = optim.Adam(model.parameters(), lr=low_lr, weight_decay=1e-5)
-        constant = optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=start_epochs)
-        
-        # Phase 2: Linear ramp-up from low_lr to peak_lr
-        def ramp_lambda(epoch):
-            return 1.0 + (peak_lr / low_lr - 1.0) * (epoch / ramp_epochs)
 
-        ramp = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=ramp_lambda)
-        
-        # Phase 3: Exponential decay
-        # At this point, optimizer param groups already at peak_lr
-        exponential = optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
-        
-        # Combine them using SequentialLR
-        scheduler = optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[constant, ramp, exponential],
-            milestones=[start_epochs, start_epochs + ramp_epochs]
-        )
+        def combined_schedule(epoch):
+            ramp_factor = peak_lr / low_lr
+            if epoch < start_epochs:
+                return 1.0  # phase 1: constant low_lr
+            elif epoch < start_epochs + ramp_epochs:
+                # phase 2: linear ramp
+                ramp_progress = (epoch - start_epochs) / ramp_epochs
+                return 1.0 + (ramp_factor - 1.0) * ramp_progress
+            else:
+                # phase 3: exponential decay from peak_lr
+                decay_steps = epoch - (start_epochs + ramp_epochs)
+                return ramp_factor * (gamma ** decay_steps)
+
+        scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=combined_schedule)       
 
 
         loss_values = []
@@ -943,6 +1004,8 @@ if __name__ == '__main__':
         def SignedLog(x):
             return torch.sign(x) * torch.log(torch.abs(x) + 1)
 
+            
+
         model.to(device)
         for epoch in range(num_epochs):
             #model.train()
@@ -961,23 +1024,19 @@ if __name__ == '__main__':
                 train_out_means = train_out_means.to(device)
                 mass_loss_scale=0.
                 EP_loss_scale=0.
-                #loss, l1_loss,  Ep_loss, mass_loss  = custom_loss_2(outputs, y, X, separate=True, mass_loss_scale=mass_loss_scale, EP_loss_scale=EP_loss_scale)
                 loss = criterion(outputs, y)
                 #loss = criterion(SignedLog(outputs), SignedLog(y))
 
                 loss.backward()
                 optimizer.step()
                 lr = scheduler.get_last_lr()
-                learning_rate_values.append(lr[0])
+                
                 running_loss += loss.item()
-                #running_loss_components[0] += l1_loss.item()
-                #running_loss_components[1] += Ep_loss.item()
-                #running_loss_components[2] += mass_loss.item()
-                #running_loss_components[3] += geometric_loss.item()
 
 
             running_loss /= len(train_dataloader)
             running_loss_values.append(running_loss)
+            learning_rate_values.append(lr[0])
             for i in range(len(running_loss_components)):
                 running_loss_components[i] /= len(train_dataloader)
             
@@ -1024,11 +1083,12 @@ if __name__ == '__main__':
             # save model every 10 epochs
             if (epoch+1) % 5 == 0:
                 torch.save(model.state_dict(), f'{args.model_name}_epoch_{epoch+1}.pth')
-                # after we save the model we delete the model for the previously stored epoch
-                try:
-                    os.remove(f'{args.model_name}_epoch_{epoch-4}.pth')
-                except:
-                    print(f"Could not remove model {args.model_name}_epoch_{epoch-4}.pth")
+                # after we save the model we delete the models for the previously stored epoch if the loss is better
+                #try:
+                #    os.remove(f'{args.model_name}_epoch_{epoch-4}.pth')
+                #except:
+                #    print(f"Could not remove model {args.model_name}_epoch_{epoch-4}.pth")
+                DeleteOldModels(args.model_name, val_loss_values, epoch)
                 print(f'Model saved at epoch {epoch+1}')
         
         elapsed_time = time.time() - current_time
@@ -1043,7 +1103,7 @@ if __name__ == '__main__':
         model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes)
         #model.load_state_dict(torch.load('model.pth'))
         # try the below and if it doesnt work then load to cpu
-        model_path = f'{args.model_name}_epoch_200.pth'
+        model_path = f'{args.model_name}_epoch_415.pth'
         try:
             model.load_state_dict(torch.load(model_path))
         except:

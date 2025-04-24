@@ -194,6 +194,11 @@ class TauReconstructor:
             solutions.append((P_taup_reco, P_taun_reco, d_min, decay_length_prob, sv_delta_constraint))
 
         sorted_solutions = self.sort_solutions(solutions, mode=mode, d_min_reco=d_min_reco)
+
+        # add a solution where minuit.values[3] = 0 (i.e d^2 =0)
+        P_taup_reco = (1.-minuit_1.values[0])/2*P_Z + minuit_1.values[1]/2*P_taupvis - minuit_1.values[2]/2*P_taunvis
+        P_taun_reco = (1.+minuit_1.values[0])/2*P_Z - minuit_1.values[1]/2*P_taupvis + minuit_1.values[2]/2*P_taunvis
+        sorted_solutions.append((P_taup_reco, P_taun_reco, None, None, None))
           
         if verbose:
 
@@ -478,9 +483,6 @@ def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1
 
     m_Z_sq = P_Z.M2()
 
-    # note the matrix method below relies on the approximation that the masses of the visible tau decay product in the tau->Xnu are the same for tau+ and tau-
-    # which won't be true if taus decay into different channels and is also approximate for rho and a1 decays since these are broad resonances.
-    # it is the third row of the matrix that is only correct under this assumption
     M = np.array([[-x,     P_taupvis.M2(), -z     ],
                   [y,      -z,      P_taunvis.M2()],
                   [m_Z_sq, -x,      y]])

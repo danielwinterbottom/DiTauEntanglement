@@ -44,7 +44,7 @@ class FourVecLinear(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        bias_type: int = 3,
+        bias_type: int = 0,
         device=None,
         dtype=None,
     ) -> None:
@@ -122,19 +122,22 @@ class FourVecReLUE(nn.Module):
 
     """
 
-    def __init__(self):
+    def __init__(self, num_vecs: int):
         super().__init__()
+        self.bias = nn.Parameter(torch.zeros(1, num_vecs, 1))
+        bound = 1 / math.sqrt(num_vecs)
+        nn.init.uniform_(self.bias, bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        E = x[..., 0:1]  # Shape (..., 1)
-        p = x[..., 1:]   # Shape (..., 3)
+        E = x[..., 0:1] + self.bias
+        p = x[..., 1:]
 
-        E_relu = torch.relu(E)  # Shape (..., 1)
-        mask = (E > 0).float()  # 1 where E > 0, else 0; shape (..., 1)
+        E_relu = torch.relu(E)
+        mask = (E > 0).float()  # 1 where E > 0, else 0
 
         p_masked = p * mask     # Zero momenta where E <= 0
 
-        return torch.cat([E_relu, p_masked], dim=-1)  # Shape (..., 4)
+        return torch.cat([E_relu, p_masked], dim=-1) 
 
 class FourVecLeakyReLU(nn.Module):
     """
@@ -154,21 +157,59 @@ class FourVecLeakyReLU(nn.Module):
     but its magnitude is affected by the nonlinearity of LeakyReLU on the energy component.
     """
 
-    def __init__(self, negative_slope: float = 0.01):
+    def __init__(self, num_vecs: int, negative_slope: float = 0.01):
         super().__init__()
+        self.bias = nn.Parameter(torch.zeros(1, num_vecs, 1))
+        bound = 1 / math.sqrt(num_vecs)
+        nn.init.uniform_(self.bias, bound, bound)
         self.negative_slope = negative_slope
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        E = x[..., 0:1]  # Shape (..., 1)
-        p = x[..., 1:]   # Shape (..., 3)
+        E = x[..., 0:1] + self.bias
+        p = x[..., 1:]
 
         # Apply LeakyReLU to energy component
-        E_leaky = torch.where(E > 0, E, self.negative_slope * E)  # Shape (..., 1)
+        E_leaky = torch.where(E > 0, E, self.negative_slope * E)
 
         # Apply the same scaling to the momentum components
-        p_scaled = torch.where(E > 0, p, p * self.negative_slope)  # Shape (..., 3)
+        p_scaled = torch.where(E > 0, p, p * self.negative_slope)
 
-        return torch.cat([E_leaky, p_scaled], dim=-1)  # Shape (..., 4)
+        return torch.cat([E_leaky, p_scaled], dim=-1)
+
+class FourVecBatchNormE(nn.Module):
+    """
+    A custom BatchNorm for 4-vectors that normalizes only the energy (E) component,
+    and scales the full 4-vector [E, px, py, pz] proportionally.
+
+    Input shape: (batch_size, num_vectors, 4)
+    """
+
+    def __init__(self, num_vecs, eps=1e-5, momentum=0.1, affine=True):
+        super().__init__()
+        self.num_vecs = num_vecs
+        # BatchNorm1d over the E components from all 4-vectors
+        self.bn_E = nn.BatchNorm1d(num_vecs, eps=eps, momentum=momentum, affine=affine)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, F = x.shape
+        assert F == 4 and N == self.num_vecs, "Expected shape (B, num_vecs, 4)"
+
+        E = x[..., 0]  # shape (B, N)
+        p = x[..., 1:]  # shape (B, N, 3)
+
+        # Normalize E: reshape to (B, N) and apply BN1d across dim=0
+        E_norm = self.bn_E(E)  # shape (B, N)
+
+        # Compute scale: new E / original E
+        scale = E_norm / (E + 1e-6)  # avoid div by zero, shape (B, N)
+
+        # Expand scale for broadcasting over 3 momentum components
+        scale = scale.unsqueeze(-1)  # (B, N, 1)
+
+        p_scaled = p * scale  # scale px, py, pz proportionally
+        E_norm = E_norm.unsqueeze(-1)  # (B, N, 1)
+
+        return torch.cat([E_norm, p_scaled], dim=-1)  # (B, N, 4)
 
 if __name__ == '__main__':
 
@@ -186,6 +227,8 @@ if __name__ == '__main__':
     print("Input 4-vectors (x):")
     print(x)
 
+    print(x.shape)
+
     print("\nWeight matrix:")
     print(layer.weight)
     print("\nBias matrix:")
@@ -194,12 +237,77 @@ if __name__ == '__main__':
     print(f"\nOutput with bias_type={bias_type}:")
     print(output)
 
-    relu_layer = FourVecReLUE()
+    relu_layer = FourVecReLUE(out_features)
     relu_output = relu_layer(output)
     print("\nOutput after FourVecReLUE activation:")
     print(relu_output)
 
-    leaky_relu_layer = FourVecLeakyReLU(negative_slope=0.1)
+    leaky_relu_layer = FourVecLeakyReLU(out_features,negative_slope=0.1)
     leaky_relu_output = leaky_relu_layer(output)
     print("\nOutput after FourVecLeakyReLU activation:")
     print(leaky_relu_output)
+
+
+    print('FourVecBatchNormE checks:')
+
+    num_vecs = 3 
+    bn = FourVecBatchNormE(num_vecs=num_vecs)
+
+    # Sample input: shape (batch_size=2, num_vecs=3, features=4)
+    # Each 4-vector is [E, px, py, pz]
+    x = torch.tensor([
+        [[10.0, 1.0, 2.0, 3.0],
+         [20.0, 2.0, 4.0, 6.0],
+         [30.0, 3.0, 6.0, 9.0]],
+
+         [[30.0, 1.0, 2.0, 3.0],
+         [50.0, 2.0, 4.0, 6.0],
+         [70.0, 3.0, 6.0, 9.0]],
+
+        [[15.0, 1.5, 3.0, 4.5],
+         [25.0, 2.5, 5.0, 7.5],
+         [35.0, 3.5, 7.0, 10.5]]
+    ], dtype=torch.float32)
+
+    # get just the E component
+    E = x[..., 0]  # shape (batch_size, num_vecs)
+    varE = torch.var(input=E, dim=0, unbiased=False)  # shape (num_vecs)
+    meanE = torch.mean(input=E, dim=0)  # shape (num_vecs)
+    print("\nE mean:")
+    print(meanE)
+    print("\nE variance:")
+    print(varE)
+    bn_E = nn.BatchNorm1d(num_vecs)
+    bn_E.train()  # Set to training mode
+    E_norm = bn_E(E)  # shape (batch_size, num_vecs)
+    print("\nE components:")
+    print(E)
+    print("\nNormalized E components:")
+    print(E_norm)
+
+
+    # Enable training mode to use batch stats
+    bn.train()
+
+    # Apply the normalization
+    x_norm = bn(x)
+
+    # Print outputs
+    print("Input:")
+    print(x)
+    print("\nNormalized Output:")
+    print(x_norm)
+
+    # Additional test: verify proportional scaling
+    # px / E should be the same as px' / E' for each 4-vector
+    ratios_before = x[..., 1:] / x[..., 0:1]
+    ratios_after = x_norm[..., 1:] / x_norm[..., 0:1]
+
+    print("\nMomentum / Energy ratios before:")
+    print(ratios_before)
+    print("\nMomentum / Energy ratios after:")
+    print(ratios_after)
+
+    # Check if ratios are (approximately) preserved
+    print("\nRatio difference (should be near zero):")
+    print((ratios_before - ratios_after).abs().max())
