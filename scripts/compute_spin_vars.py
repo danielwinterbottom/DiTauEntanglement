@@ -734,6 +734,9 @@ for i in range(start_entry, end_entry):
     # compute coordinate vectors here (n,r,k)
     # p is direction of e+ beam - this will be known also for reco variables!
     p = ROOT.TVector3(tree.z_x, tree.z_y, tree.z_z).Unit()
+    # if all elements of p are zero then set pz to -1
+    if p.X() == 0 and p.Y() == 0 and p.Z() == 0:
+        p.SetXYZ(0,0,-1)
 
     # k is direction of tau+
     k = taup.Vect().Unit()
