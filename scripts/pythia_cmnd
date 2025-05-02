@@ -1,4 +1,3 @@
-Tune:preferLHAPDF = 2
 Main:timesAllowErrors = 10000
 Check:epTolErr = 0.01
 Beams:setProductionScalesFromLHEF = off
@@ -26,4 +25,3 @@ TimeShower:alphaSvalue=0.118
 SigmaTotal:mode = 0
 SigmaTotal:sigmaEl = 21.89
 SigmaTotal:sigmaTot = 100.309
-PDF:pSet=LHAPDF6:NNPDF31_nnlo_as_0118

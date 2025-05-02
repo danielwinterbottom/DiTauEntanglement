@@ -144,6 +144,20 @@ branches = [
         'reco_d0_taun_nu_py',
         'reco_d0_taun_nu_pz',
 
+        'reco_dplus_taup_nu_px',
+        'reco_dplus_taup_nu_py',
+        'reco_dplus_taup_nu_pz',
+        'reco_dplus_taun_nu_px',
+        'reco_dplus_taun_nu_py',
+        'reco_dplus_taun_nu_pz',
+        'reco_dminus_taup_nu_px',
+        'reco_dminus_taup_nu_py',
+        'reco_dminus_taup_nu_pz',
+        'reco_dminus_taun_nu_px',
+        'reco_dminus_taun_nu_py',
+        'reco_dminus_taun_nu_pz',
+
+
         'dplus_taup_nu_px',
         'dplus_taup_nu_py',
         'dplus_taup_nu_pz',
@@ -164,6 +178,19 @@ branches = [
         'taun_nu_px',
         'taun_nu_py',
         'taun_nu_pz',
+
+        'dplus_taup_l',
+        'dplus_taun_l',
+        'dplus_taup_l_sv',
+        'dplus_taun_l_sv',
+        'dplus_dmin_constraint',
+        'dplus_sv_delta_constraint',
+        'dminus_taup_l',
+        'dminus_taun_l',
+        'dminus_taup_l_sv',
+        'dminus_taun_l_sv',
+        'dminus_dmin_constraint',
+        'dminus_sv_delta_constraint',
 
 ]
 branch_vals = {}
@@ -430,12 +457,11 @@ for i in range(start_entry, end_entry):
     if args.smear_mode in [1,7]:
         taup_SV_reco = smearing.SmearSV(taup_SV)
         taun_SV_reco = smearing.SmearSV(taun_SV)
-    elif taup_SV is not None:
-        taup_SV_reco = taup_SV.Clone()
-        taun_SV_reco = taun_SV.Clone()
-    else: 
-        taup_SV_reco = None
-        taun_SV_reco = None
+    else:
+        if taup_SV is not None: taup_SV_reco = taup_SV.Clone()
+        else: taup_SV_reco = None
+        if taun_SV is not None: taun_SV_reco = taun_SV.Clone()
+        else: taun_SV_reco = None
 
     if taup_SV_reco is not None and taun_SV_reco is not None:
         sv_delta_reco = taup_SV_reco - taun_SV_reco
@@ -489,6 +515,7 @@ for i in range(start_entry, end_entry):
     branch_vals['dminus_taun_nu_px'][0] = dminus_taun_nu.Px()
     branch_vals['dminus_taun_nu_py'][0] = dminus_taun_nu.Py()
     branch_vals['dminus_taun_nu_pz'][0] = dminus_taun_nu.Pz()
+        
 
     # get the correct solution for the gen tau
     taun = ROOT.TLorentzVector(tree.taun_px, tree.taun_py, tree.taun_pz, tree.taun_e)
@@ -552,6 +579,75 @@ for i in range(start_entry, end_entry):
     branch_vals['reco_d0_taun_nu_px'][0] = taun_nu_d0_reco.Px()
     branch_vals['reco_d0_taun_nu_py'][0] = taun_nu_d0_reco.Py()
     branch_vals['reco_d0_taun_nu_pz'][0] = taun_nu_d0_reco.Pz()
+
+    taup_dplus_reco, taun_dplus_reco, _, _, _ = solutions[3]
+    taup_nu_dplus_reco = taup_dplus_reco - taupvis_reco
+    taun_nu_dplus_reco = taun_dplus_reco - taunvis_reco
+    branch_vals['reco_dplus_taup_nu_px'][0] = taup_nu_dplus_reco.Px()
+    branch_vals['reco_dplus_taup_nu_py'][0] = taup_nu_dplus_reco.Py()
+    branch_vals['reco_dplus_taup_nu_pz'][0] = taup_nu_dplus_reco.Pz()
+    branch_vals['reco_dplus_taun_nu_px'][0] = taun_nu_dplus_reco.Px()
+    branch_vals['reco_dplus_taun_nu_py'][0] = taun_nu_dplus_reco.Py()
+    branch_vals['reco_dplus_taun_nu_pz'][0] = taun_nu_dplus_reco.Pz()
+    
+    if taup_SV_reco is not None:
+        np_point = taup_SV_reco 
+        dir_p = taupvis_reco.Vect().Unit()
+    else:
+        np_point = d_min_point_p_reco
+        dir_p = taup_pi1.Vect().Unit()
+   
+    if taun_SV_reco is not None:
+        nn_point= taun_SV_reco 
+        dir_n = taunvis_reco.Vect().Unit()
+    else:
+        nn_point = d_min_point_n_reco
+        dir_n = taun_pi1.Vect().Unit()
+
+
+    d_min_reco_forvars, _, _ = FindDMin(nn_point, dir_n, np_point, dir_p, return_points=True)
+    dplus_taup_l, dplus_taun_l, dplus_taup_l_sv, dplus_taun_l_sv, dplus_dmin1_constraint, dplus_dmin2_constraint, dplus_sv_delta_constraint = GetDsignVars(taup=taup_dplus_reco, taun=taun_dplus_reco, taupvis=taupvis_reco, taunvis=taunvis_reco, taup_pi1=taup_pi1_reco, taun_pi1=taun_pi1_reco, O_y=BS_reco.Y(), np_point=d_min_point_p_reco, nn_point=d_min_point_n_reco, d_min_reco=d_min_reco_forvars, taup_sv=taup_SV_reco, taun_sv=taun_SV_reco)
+
+    taup_dminus_reco, taun_dminus_reco, _, _, _ = solutions[4]
+    taup_nu_dminus_reco = taup_dminus_reco - taupvis_reco
+    taun_nu_dminus_reco = taun_dminus_reco - taunvis_reco
+    branch_vals['reco_dminus_taup_nu_px'][0] = taup_nu_dminus_reco.Px()
+    branch_vals['reco_dminus_taup_nu_py'][0] = taup_nu_dminus_reco.Py()
+    branch_vals['reco_dminus_taup_nu_pz'][0] = taup_nu_dminus_reco.Pz()
+    branch_vals['reco_dminus_taun_nu_px'][0] = taun_nu_dminus_reco.Px()
+    branch_vals['reco_dminus_taun_nu_py'][0] = taun_nu_dminus_reco.Py()
+    branch_vals['reco_dminus_taun_nu_pz'][0] = taun_nu_dminus_reco.Pz()
+    dminus_taup_l, dminus_taun_l, dminus_taup_l_sv, dminus_taun_l_sv, dminus_dmin1_constraint, dminus_dmin2_constraint, dminus_sv_delta_constraint = GetDsignVars(taup=taup_dminus_reco, taun=taun_dminus_reco, taupvis=taupvis_reco, taunvis=taunvis_reco, taup_pi1=taup_pi1_reco, taun_pi1=taun_pi1_reco, O_y=BS_reco.Y(), np_point=d_min_point_p_reco, nn_point=d_min_point_n_reco, d_min_reco=d_min_reco_forvars, taup_sv=taup_SV_reco, taun_sv=taun_SV_reco)
+    
+
+    #print('!!!!!!!')
+    #print(taup_dplus_reco.X(), taup_dminus_reco.X(), taup_reco.X())
+    #print('gen tau:', taup.X())
+    #print(tree.taup_npi, tree.taup_npizero, tree.taun_npi, tree.taun_npizero)
+    #print('dsign:', branch_vals['dsign'][0], dsign_alt) #TODO - check this
+    #print('plus: ', dplus_taup_l, dplus_taun_l, dplus_taup_l_sv, dplus_taun_l_sv, dplus_dmin1_constraint, dplus_dmin2_constraint, dplus_sv_delta_constraint)
+    #print('minus:', dminus_taup_l, dminus_taun_l, dminus_taup_l_sv, dminus_taun_l_sv, dminus_dmin1_constraint, dminus_dmin2_constraint, dminus_sv_delta_constraint)
+  #
+    #if taup_SV_reco is not None and taun_SV_reco is not None:
+    #    print('SV reco vs gen:', np_point.X(), taup_SV.X(), nn_point.X(), taun_SV.X())
+    #    print('dirs reco vs gen:', dir_p.X(), taupvis.Vect().Unit().X(), dir_n.X(), taunvis.Vect().Unit().X())
+    #    d_min_reco_forvars_gen, _, _ = FindDMin(taun_SV, taunvis.Vect().Unit(), taup_SV, taupvis.Vect().Unit(), return_points=True)
+    #    print('d_min gen vs reco (x):', d_min_reco_forvars_gen.Unit().X(), d_min_reco_forvars.Unit().X())
+    #    print('d_min gen vs reco (y):', d_min_reco_forvars_gen.Unit().Y(), d_min_reco_forvars.Unit().Y())
+    #    print('d_min gen vs reco (z):', d_min_reco_forvars_gen.Unit().Z(), d_min_reco_forvars.Unit().Z())
+  
+    branch_vals['dplus_taup_l'][0] = dplus_taup_l
+    branch_vals['dplus_taun_l'][0] = dplus_taun_l
+    branch_vals['dplus_taup_l_sv'][0] = dplus_taup_l_sv
+    branch_vals['dplus_taun_l_sv'][0] = dplus_taun_l_sv
+    branch_vals['dplus_dmin_constraint'][0] = dplus_dmin1_constraint
+    branch_vals['dplus_sv_delta_constraint'][0] = dplus_sv_delta_constraint
+    branch_vals['dminus_taup_l'][0] = dminus_taup_l
+    branch_vals['dminus_taun_l'][0] = dminus_taun_l
+    branch_vals['dminus_taup_l_sv'][0] = dminus_taup_l_sv
+    branch_vals['dminus_taun_l_sv'][0] = dminus_taun_l_sv
+    branch_vals['dminus_dmin_constraint'][0] = dminus_dmin1_constraint
+    branch_vals['dminus_sv_delta_constraint'][0] = dminus_sv_delta_constraint
 
 
 

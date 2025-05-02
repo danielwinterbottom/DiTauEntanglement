@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from torch.nn import functional as F
+from collections import OrderedDict
 
 class FourVecLinear(nn.Module):
     """
@@ -12,30 +13,10 @@ class FourVecLinear(nn.Module):
     Each input 4-vector is scaled by a learnable weight and summed over the input dimension
     to produce an output 4-vector for each feature.
 
-    Bias behavior is controlled by `bias_type`, and the bias is applied **to the output 4-vectors** after the weighted sum:
-
-        bias_type = 0: No bias is added.
-
-        bias_type = 1: A single scalar bias is learned per output feature. This scalar is **added equally to all four components**
-                       (E, px, py, pz) of each output 4-vector. The output becomes:
-                       [E + b, px + b, py + b, pz + b], where b is the learned scalar for that output feature.
-
-        bias_type = 2: A scalar bias is learned per output feature and **applied along the direction of the output 4-vector**.
-                       The bias is scaled in the direction of the output 4-vector (before the bias is applied), effectively shifting
-                       the vector along its own direction.
-
-        bias_type = 3: A scalar bias is learned per output feature and **only added to the E (energy) component** of the output 4-vector.
-                       The (px, py, pz) components remain unchanged. The output becomes:
-                        [E + b, px, py, pz], where b is the learned scalar for that output feature.
-
-        bias_type = 4: A full 4-component bias vector is learned per output feature, allowing each of (E, px, py, pz)
-                       to receive a distinct bias term. The output becomes:
-                       [E + b0, px + b1, py + b2, pz + b3], where b0 through b3 are the individual learned biases.
 
     Args:
         in_features (int): Number of input 4-vectors per sample.
         out_features (int): Number of output 4-vectors per sample.
-        bias_type (int, optional): Type of bias to apply (0, 1, or 2). Default: 1.
         device (torch.device, optional): Device for parameters.
         dtype (torch.dtype, optional): Data type for parameters.
     """
@@ -44,7 +25,6 @@ class FourVecLinear(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        bias_type: int = 0,
         device=None,
         dtype=None,
     ) -> None:
@@ -52,57 +32,24 @@ class FourVecLinear(nn.Module):
         factory_kwargs = {'device': device, 'dtype': dtype}
         self.in_features = in_features
         self.out_features = out_features
-        self.bias_type = bias_type
 
         # Initialize weights
         self.weight = nn.Parameter(torch.empty((out_features, in_features), **factory_kwargs))
-
-        # Initialize bias based on bias_type
-        if bias_type in [1,2,3]:
-            self.bias = nn.Parameter(torch.empty((out_features), **factory_kwargs))  # same bias for all elements
-        elif bias_type == 4:
-            self.bias = nn.Parameter(torch.empty((out_features, 4), **factory_kwargs))  # unique bias for each component
-        else:
-            self.register_parameter('bias', None)
 
         self.reset_parameters()
 
     def reset_parameters(self):
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in = self.in_features
-            bound = 1 / math.sqrt(fan_in)
-            nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         weighted = torch.einsum('oi,bif->bof', self.weight, x)
 
-        if self.bias_type == 1 and self.bias is not None:
-            weighted = weighted + self.bias.view(1, -1, 1)
-        elif self.bias_type == 2 and self.bias is not None:
-            # for this option we will keep length of bias vector equal to b, but the direction will the the same as the input
-            # get the direction of the output vector before the bias is applied
-            norm = torch.norm(weighted, dim=2, keepdim=True)
-            norm = torch.clamp(norm, min=1e-6) # Avoid division by zero
-            weighted_dir = weighted / norm
-            # apply bias in the direction of the output vector before the bias is applied
-            weighted = weighted +  self.bias.view(1, -1, 1) * weighted_dir
-        elif self.bias_type == 3 and self.bias is not None:
-            # for this option we add the bias only to the E component of the 4-vectors
-            # make a object the same shape as weighted but with px,py,pz = 0, and E=1
-            bias_term = torch.zeros_like(weighted)
-            bias_term[:, :, 0] = 1
-            weighted = weighted +  self.bias.view(1, -1, 1) * bias_term
-        elif self.bias_type == 4 and self.bias is not None:
-            # for this option we generate 4 bias terms or each component of the output vector
-            weighted = weighted + self.bias.view(1, -1, 4) 
-
         return weighted
 
 
     def extra_repr(self) -> str:
-        return f'in_features={self.in_features}, out_features={self.out_features}, bias_type={self.bias_type}'
+        return f'in_features={self.in_features}, out_features={self.out_features}'
 
 class FourVecReLUE(nn.Module):
     """
@@ -139,7 +86,7 @@ class FourVecReLUE(nn.Module):
 
         return torch.cat([E_relu, p_masked], dim=-1) 
 
-class FourVecLeakyReLU(nn.Module):
+class FourVecLeakyReLUE(nn.Module):
     """
     A custom activation function for 4-vectors that applies the LeakyReLU function only to the energy component (E) of the 4-vector.
 
@@ -211,17 +158,36 @@ class FourVecBatchNormE(nn.Module):
 
         return torch.cat([E_norm, p_scaled], dim=-1)  # (B, N, 4)
 
+class FourVecLinearResidualBlock(nn.Module):
+    """
+    A residual block for 4-vectors that applies a linear transformation followed by a FourVecReLUE activation.
+    The input is added to the output of the block, allowing for identity mapping.
+    """
+
+    def __init__(self, N_features: int):
+        super().__init__()
+        layers = OrderedDict()
+        self.linear1 = FourVecLinear(N_features, N_features)
+        self.activation = FourVecLeakyReLUE(N_features)
+        self.linear2 = FourVecLinear(N_features, N_features)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        identity = x
+        out = self.linear1(x)
+        out = self.activation(out)
+        out = self.linear2(out)
+        return out + identity
+
 if __name__ == '__main__':
 
     # Create a batch of 4-vectors (shape: batch_size, in_features, 4)
     batch_size = 2
     in_features = 3
     out_features = 2
-    bias_type = 3
 
     x = torch.randn(batch_size, in_features, 4)  # Random input tensor
 
-    layer = FourVecLinear(in_features, out_features, bias_type=bias_type)
+    layer = FourVecLinear(in_features, out_features)
     output = layer(x)
 
     print("Input 4-vectors (x):")
@@ -234,7 +200,7 @@ if __name__ == '__main__':
     print("\nBias matrix:")
     print(layer.bias)
 
-    print(f"\nOutput with bias_type={bias_type}:")
+    print(f"\nOutput:")
     print(output)
 
     relu_layer = FourVecReLUE(out_features)

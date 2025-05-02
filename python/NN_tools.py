@@ -134,6 +134,23 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         'dplus_taun_nu_px','dplus_taun_nu_py','dplus_taun_nu_pz',
         'dminus_taup_nu_px','dminus_taup_nu_py','dminus_taup_nu_pz',
         'dminus_taun_nu_px','dminus_taun_nu_py','dminus_taun_nu_pz',
+        'reco_dplus_taup_nu_px','reco_dplus_taup_nu_py','reco_dplus_taup_nu_pz',
+        'reco_dplus_taun_nu_px','reco_dplus_taun_nu_py','reco_dplus_taun_nu_pz',
+        'reco_dminus_taup_nu_px','reco_dminus_taup_nu_py','reco_dminus_taup_nu_pz',
+        'reco_dminus_taun_nu_px','reco_dminus_taun_nu_py','reco_dminus_taun_nu_pz',
+
+        'dplus_taup_l',
+        'dplus_taun_l',
+        'dplus_taup_l_sv',
+        'dplus_taun_l_sv',
+        'dplus_dmin_constraint',
+        'dplus_sv_delta_constraint',
+        'dminus_taup_l',
+        'dminus_taun_l',
+        'dminus_taup_l_sv',
+        'dminus_taun_l_sv',
+        'dminus_dmin_constraint',
+        'dminus_sv_delta_constraint',
 
     ]
 
@@ -187,16 +204,37 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         df['delta_ipz'] = np.where(delta_ip == 0, 0, delta_ipz/delta_ip)
         df['delta_ip_mag'] = delta_ip
 
-        # now the same for the SVs
+        # now the same for the SVs - make sure it is only non-zero if both SVs are defined (non-zero)
         delta_svx = df['reco_taup_vx'] - df['reco_taun_vx']
         delta_svy = df['reco_taup_vy'] - df['reco_taun_vy']
         delta_svz = df['reco_taup_vz'] - df['reco_taun_vz']
+        # set the delta_sv to 0 if either SV is not defined
+        delta_svx = np.where((df['reco_taup_vx'] == 0) | (df['reco_taun_vx'] == 0), 0, delta_svx)
+        delta_svy = np.where((df['reco_taup_vy'] == 0) | (df['reco_taun_vy'] == 0), 0, delta_svy)
+        delta_svz = np.where((df['reco_taup_vz'] == 0) | (df['reco_taun_vz'] == 0), 0, delta_svz)
         delta_sv = np.sqrt(delta_svx**2 + delta_svy**2 + delta_svz**2)
         # store the unit vector, if delta_sv = 0 then set to 0
         df['delta_svx'] = np.where(delta_sv == 0, 0, delta_svx/delta_sv)
         df['delta_svy'] = np.where(delta_sv == 0, 0, delta_svy/delta_sv)
         df['delta_svz'] = np.where(delta_sv == 0, 0, delta_svz/delta_sv)
         df['delta_sv_mag'] = delta_sv
+
+
+        # process the dsign sensitive variables
+        # make sure these aren't all peaked too close to 1
+        df['dplus_sv_delta_constraint'] = -np.log(1-df['dplus_sv_delta_constraint']+1e-9)
+        df['dminus_sv_delta_constraint'] = -np.log(1-df['dminus_sv_delta_constraint']+1e-9)
+        # make sure tau decay lengths don't go to extreme values
+        # cap dplus_taup_l, dplus_taun_l, dminus_taup_l, and dminus_taun_l at +/- 30
+        df['dplus_taup_l'] = np.clip(df['dplus_taup_l'], -30, 30)
+        df['dplus_taun_l'] = np.clip(df['dplus_taun_l'], -30, 30)
+        df['dminus_taup_l'] = np.clip(df['dminus_taup_l'], -30, 30)
+        df['dminus_taun_l'] = np.clip(df['dminus_taun_l'], -30, 30)
+        # cap dplus_taup_l_sv, dplus_taun_l_sv, dminus_taup_l_sv, and dminus_taun_l_sv at +20 / -10
+        df['dplus_taup_l_sv'] = np.clip(df['dplus_taup_l_sv'], -10, 20)
+        df['dplus_taun_l_sv'] = np.clip(df['dplus_taun_l_sv'], -10, 20)
+        df['dminus_taup_l_sv'] = np.clip(df['dminus_taup_l_sv'], -10, 20)
+        df['dminus_taun_l_sv'] = np.clip(df['dminus_taun_l_sv'], -10, 20)
 
 
         # add the visible tau 4-vectors by summing the pi and pizero 4-vectors
@@ -257,12 +295,17 @@ def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, ve
         nu_n_dplus = df[['dplus_taun_nu_px', 'dplus_taun_nu_py', 'dplus_taun_nu_pz']].values
 
         d = (nu_p_dplus - nu_p_dminus)/2
-        df[['d_x', 'd_y', 'd_z']] = d
+        df[['d_px', 'd_py', 'd_pz']] = d
 
         nu_p_d0 = nu_p_dplus - d
         nu_n_d0 = nu_n_dplus + d
         df[['d0_taup_nu_px', 'd0_taup_nu_py', 'd0_taup_nu_pz']] = nu_p_d0
         df[['d0_taun_nu_px', 'd0_taun_nu_py', 'd0_taun_nu_pz']] = nu_n_d0
+
+        reco_nu_p_dplus = df[['reco_dplus_taup_nu_px', 'reco_dplus_taup_nu_py', 'reco_dplus_taup_nu_pz']].values
+        reco_nu_p_dminus = df[['reco_dminus_taup_nu_px', 'reco_dminus_taup_nu_py', 'reco_dminus_taup_nu_pz']].values
+        d_reco = (reco_nu_p_dplus - reco_nu_p_dminus)/2
+        df[['reco_d_px', 'reco_d_py', 'reco_d_pz']] = d_reco
 
         # save the concatenated dataframe
         if verbosity>0: 
@@ -1200,7 +1243,7 @@ if __name__ == '__main__':
         taus_df = compute_tau_four_vectors(test_df, predictions)
 
         # add tau_df to test_df
-        test_df = pd.concat([test_df, taus_df], axis=1)
+        test_df = pd.concat([test_df.reset_index(drop=True), taus_df.reset_index(drop=True)], axis=1)
         # delete repeated columns
         test_df = test_df.loc[:, ~test_df.columns.duplicated()]
 

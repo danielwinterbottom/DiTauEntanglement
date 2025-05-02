@@ -55,6 +55,7 @@ def solve_abcd_values(P_taup_true, P_taun_true, P_Z, P_taupvis, P_taunvis):
 
     return abcd_values
 
+
 class TauReconstructor:
     def __init__(self, mtau=1.777):
         """
@@ -109,6 +110,7 @@ class TauReconstructor:
 
         initial_guess_1= [a1, b1, c1, d1]
         initial_guess_2= [a2, b2, c2, d2]
+
 
         # perform minimisation for each solution
         minuit_1 = Minuit(
@@ -174,7 +176,11 @@ class TauReconstructor:
             decay_length_prob = 1.
 
             if O_y is not None and nn_point is not None and np_point is not None:
-                P_intersection, N_intersection, _, O  = find_intersections_fixed_Oy(P_taup_reco, P_taun_reco, np_point, P_taup_pi1.Vect().Unit(), nn_point, P_taun_pi1.Vect().Unit(), O_y)
+                if False:
+                    print('')
+                    ###
+                else:
+                    P_intersection, N_intersection, _, O  = find_intersections_fixed_Oy(P_taup_reco, P_taun_reco, np_point, P_taup_pi1.Vect().Unit(), nn_point, P_taun_pi1.Vect().Unit(), O_y)
                 prob_taup = tau_decay_probability(P_taup_reco.P(), P_taup_reco.E(), (P_intersection-O).Mag())
                 prob_taun = tau_decay_probability(P_taun_reco.P(), P_taun_reco.E(), (N_intersection-O).Mag())
                 decay_length_prob = prob_taup*prob_taun
@@ -193,12 +199,25 @@ class TauReconstructor:
 
             solutions.append((P_taup_reco, P_taun_reco, d_min, decay_length_prob, sv_delta_constraint))
 
+        # before sorting make copies of the +ve and -ve solutions
+        if initial_guess_1[3] >= 0:
+            solution_dplus = copy.deepcopy(solutions[0])
+            solution_dminus = copy.deepcopy(solutions[1])
+        else:
+            solution_dplus = copy.deepcopy(solutions[1])
+            solution_dminus = copy.deepcopy(solutions[0])
+
         sorted_solutions = self.sort_solutions(solutions, mode=mode, d_min_reco=d_min_reco)
 
         # add a solution where minuit.values[3] = 0 (i.e d^2 =0)
         P_taup_reco = (1.-minuit_1.values[0])/2*P_Z + minuit_1.values[1]/2*P_taupvis - minuit_1.values[2]/2*P_taunvis
         P_taun_reco = (1.+minuit_1.values[0])/2*P_Z - minuit_1.values[1]/2*P_taupvis + minuit_1.values[2]/2*P_taunvis
         sorted_solutions.append((P_taup_reco, P_taun_reco, None, None, None))
+
+        # now add the +ve and -ve solutions
+        sorted_solutions.append(solution_dplus)
+        sorted_solutions.append(solution_dminus)
+
           
         if verbose:
 
@@ -530,7 +549,7 @@ def GetDMins(P_taup, P_taun, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1):
     d_min = PredictDmin(
         P_taunvis_new, P_taupvis_new, ROOT.TVector3(0.0, 0.0, -1.0)
     ).Unit()
-    d_min = ChangeFrame(P_taun, P_taunvis, d_min, reverse=True)  
+    d_min = ChangeFrame(P_taun, P_taunvis, d_min, reverse=True)
 
     P_taun_pi1_new = ChangeFrame(P_taun, P_taun_pi1, P_taun_pi1)
     P_taup_pi1_new = ChangeFrame(P_taun, P_taun_pi1, P_taup_pi1)
@@ -818,7 +837,31 @@ def find_intersections_fixed_Oy(taup, taun, np_point, np_dir, nn_point, nn_dir, 
     d_min_pred = FindDMin(N_intersection, nn_dir.Unit(), P_intersection, np_dir.Unit())
 
     return P_intersection, N_intersection, d_min_pred, ROOT.TVector3(O_x, O_y, O_z)
-  
+
+def estimate_decay_length(tau, sv, O_y):
+    """
+    Estimate the decay length L along the tau direction,
+    given the tau direction, the secondary vertex, and the known y-origin.
+
+    Args:
+        tau (ROOT.TLorentzVector): tau 4-vector.
+        sv (ROOT.TVector3): secondary vertex position.
+        O_y (float): known y-coordinate of the tau production point.
+
+    Returns:
+        float: estimated decay length L (in same units as sv).
+    """
+    direction = tau.Vect().Unit()
+    dy = sv.Y() - O_y
+    vy = direction.Y()
+
+    if abs(vy) < 1e-6:
+        # Avoid division by very small number
+        return None  # Direction parallel to y-plane; can't solve
+
+    L = dy / vy
+    return L
+
 def find_O_and_lambdas_from_intersections(taup, taun, P_intersection, N_intersection, O_y=None):
     """
     Given two intersection points, computes the origin (O) and the lambda scalars (lambda_p and lambda_n).
@@ -915,6 +958,42 @@ def closest_distance(P1, P2, P):
     P_closest = P1 + t * v  # Closest point on the line
 
     return (P - P_closest).Mag()  # Distance between P and P_closest  
+
+def GetDsignVars(taup,taun,taupvis,taunvis,taup_pi1,taun_pi1,O_y,np_point,nn_point,d_min_reco, taup_sv=None,taun_sv=None):
+
+    # constraints from impact parameters
+
+    dmin1, dmin2 = GetDMins(taup, taun, taupvis, taunvis, taup_pi1, taun_pi1)
+    dmin1_constraint = dmin1.Unit().Dot(d_min_reco.Unit())
+    dmin2_constraint = dmin2.Unit().Dot(d_min_reco.Unit())
+
+    # Compute decay length using O_y and charged pions
+    P_intersection, N_intersection, _, O = find_intersections_fixed_Oy(taup.Vect().Unit(), taun.Vect().Unit(), np_point, taup_pi1.Vect().Unit(), nn_point, taun_pi1.Vect().Unit(), O_y)
+    taup_l_mag = (P_intersection-O).Mag()
+    taun_l_mag = (N_intersection-O).Mag()
+    # determine if the decay length is positive or negative, the latter being unphysical
+    taup_l_sign = (P_intersection-O).Unit().Dot(taup.Vect().Unit())
+    taun_l_sign = (N_intersection-O).Unit().Dot(taun.Vect().Unit())
+    taup_l = taup_l_sign*taup_l_mag
+    taun_l = taun_l_sign*taun_l_mag
+
+    # Compute decay length using SVs when they exist
+    taup_l_sv = 0.
+    taun_l_sv = 0.
+    if taup_sv is not None:
+        taup_l_sv = estimate_decay_length(taup, taup_sv, O_y)
+    if taun_sv is not None:
+        taun_l_sv = estimate_decay_length(taun, taun_sv, O_y)
+    sv_delta_constraint = 0.
+
+    # constraint from comparing the SV difference to the tau directions
+    if taup_sv is not None and taun_sv is not None:
+        # we have another variable by comparing tau directions by SV differences
+        sv_delta = taup_sv - taun_sv
+        sv_delta_constraint = (sv_delta.Unit().Dot(taup.Vect().Unit()) - sv_delta.Unit().Dot(taun.Vect().Unit()))/2
+
+
+    return taup_l, taun_l, taup_l_sv, taun_l_sv, dmin1_constraint, dmin2_constraint, sv_delta_constraint
 
 class Smearing():
     """
