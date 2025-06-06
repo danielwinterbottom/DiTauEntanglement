@@ -3,8 +3,8 @@ import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
-from pyHepMC3 import HepMC3
-from Pythia8ToHepMC3 import Pythia8ToHepMC3
+#from pyHepMC3 import HepMC3
+#from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
 
@@ -33,6 +33,7 @@ branches = [
 'taup_e',
 'taup_npi',
 'taup_npizero',
+'taup_nmu',
 'taup_pi1_px',
 'taup_pi1_py',
 'taup_pi1_pz',
@@ -72,6 +73,7 @@ branches = [
 'taun_e',
 'taun_npi',
 'taun_npizero',
+'taun_nmu',
 'taun_pi1_px',
 'taun_pi1_py',
 'taun_pi1_pz',
@@ -105,6 +107,19 @@ branches = [
 'taun_nu_py',
 'taun_nu_pz',
 'taun_nu_e',
+
+'taup_mu_px',
+'taup_mu_py',
+'taup_mu_pz',
+'taup_mu_e',
+'taun_mu_px',
+'taun_mu_py',
+'taun_mu_pz',
+'taun_mu_e',
+
+'taup_vis_pt',
+'taun_vis_pt',
+'m_vis',
 ]
 
 
@@ -118,7 +133,7 @@ for b in branches:
     branch_vals[b] = array('f',[0])
     tree.Branch(b,  branch_vals[b],  '%s/F' % b)
 
-pythia = pythia8.Pythia("", False)
+pythia = pythia8.Pythia("")
 pythia.readFile(args.cmnd_file)
 
 if args.input:
@@ -162,8 +177,8 @@ pythia.init()
 
 pythia.LHAeventSkip(args.n_skip*args.n_events)
 
-hepmc_converter = Pythia8ToHepMC3()
-hepmc_writer = HepMC3.WriterAscii(args.output)
+#hepmc_converter = Pythia8ToHepMC3()
+#hepmc_writer = HepMC3.WriterAscii(args.output)
 
 def IsLastCopy(part, event):
     ''' 
@@ -181,6 +196,7 @@ def GetPiDaughters(part, event):
     pis = []
     pi0s = []
     nus = []
+    mus = []
 
     rho0_mass = 0.7755
 
@@ -198,6 +214,8 @@ def GetPiDaughters(part, event):
             pi0s.append(daughter)
         if abs(daughter.id()) == 16:
             nus.append(daughter)
+        if abs(daughter.id()) == 13:
+            mus.append(daughter)
 
     if len(pis) == 3:
         # Separate the pion with the opposite charge to the parent tau
@@ -221,9 +239,9 @@ def GetPiDaughters(part, event):
 #            if i>0:
 #                print('mass = %.4f, mass diff = %.4f' % ((sorted_pis[0].p() + pi.p()).mCalc(), abs((sorted_pis[0].p() + pi.p()).mCalc() - rho0_mass)))
 
-        return (sorted_pis, pi0s, nus, daughter_pdgids)
+        return (sorted_pis, pi0s, nus, mus, daughter_pdgids)
 
-    return (pis, pi0s, nus, daughter_pdgids)
+    return (pis, pi0s, nus, mus, daughter_pdgids)
 
 stopGenerating = False
 count = 0
@@ -250,6 +268,7 @@ while not stopGenerating:
         daughter_ids = [pythia.event[x].id() for x in part.daughterList()]
         #print(pdgid, part.e(), part.charge(), part.status(), mother_ids, daughter_ids)
         LastCopy = IsLastCopy(part, pythia.event)
+
         if pdgid == 11 and len(mother_ids) == 0:
             # the e+ directions defines the z direction
             # not really needed to store this since its always in the -z direction due to how the sample is produced..
@@ -264,7 +283,7 @@ while not stopGenerating:
             branch_vals['z_y' % vars()][0] = z_y
             branch_vals['z_z' % vars()][0] = z_z
         if abs(pdgid) == 15 and LastCopy:
-            pis, pi0s, nus, daughter_pdgids = GetPiDaughters(part,pythia.event)
+            pis, pi0s, nus, mus, daughter_pdgids = GetPiDaughters(part,pythia.event)
             tau_name = 'taun' if pdgid == 15 else 'taup'
             branch_vals['%(tau_name)s_px' % vars()][0] = part.px()
             branch_vals['%(tau_name)s_py' % vars()][0] = part.py()
@@ -272,9 +291,10 @@ while not stopGenerating:
             branch_vals['%(tau_name)s_e' % vars()][0]  = part.e()
             branch_vals['%(tau_name)s_npi' % vars()][0]  = len(pis)
             branch_vals['%(tau_name)s_npizero' % vars()][0]  = len(pi0s)
+            branch_vals['%(tau_name)s_nmu' % vars()][0]  = len(mus)
 
-            if len(pis) == 0:
-                print('Warning: no pions found for tau %i' % part.id())
+            if len(pis) == 0 and len(mus) == 0:
+                print('Warning: no pions or muons found for tau %i' % part.id())
                 print('daughter pdgids:')
                 print(daughter_pdgids)
                 # print the mothers of this tau
@@ -325,11 +345,29 @@ while not stopGenerating:
                 branch_vals['%(tau_name)s_pizero2_pz' % vars()][0] = pi0s[1].pz()            
                 branch_vals['%(tau_name)s_pizero2_e' % vars()][0]  = pi0s[1].e()
 
+            if len(mus) > 0:
+                branch_vals['%(tau_name)s_mu_px' % vars()][0] = mus[0].px()
+                branch_vals['%(tau_name)s_mu_py' % vars()][0] = mus[0].py()
+                branch_vals['%(tau_name)s_mu_pz' % vars()][0] = mus[0].pz()            
+                branch_vals['%(tau_name)s_mu_e' % vars()][0]  = mus[0].e()
+
+    # sum all visible tau momenta
+    taup_vis_px = branch_vals['taup_pi1_px'][0] + branch_vals['taup_pi2_px'][0] + branch_vals['taup_pi3_px'][0] + branch_vals['taup_pizero1_px'][0] + branch_vals['taup_pizero2_px'][0] + branch_vals['taup_mu_px'][0]
+    taup_vis_py = branch_vals['taup_pi1_py'][0] + branch_vals['taup_pi2_py'][0] + branch_vals['taup_pi3_py'][0] + branch_vals['taup_pizero1_py'][0] + branch_vals['taup_pizero2_py'][0] + branch_vals['taup_mu_py'][0]
+    taup_vis_pz = branch_vals['taup_pi1_pz'][0] + branch_vals['taup_pi2_pz'][0] + branch_vals['taup_pi3_pz'][0] + branch_vals['taup_pizero1_pz'][0] + branch_vals['taup_pizero2_pz'][0] + branch_vals['taup_mu_pz'][0]
+    taup_vis_E = branch_vals['taup_pi1_e'][0] + branch_vals['taup_pi2_e'][0] + branch_vals['taup_pi3_e'][0] + branch_vals['taup_pizero1_e'][0] + branch_vals['taup_pizero2_e'][0] + branch_vals['taup_mu_e'][0]
+    taun_vis_px = branch_vals['taun_pi1_px'][0] + branch_vals['taun_pi2_px'][0] + branch_vals['taun_pi3_px'][0] + branch_vals['taun_pizero1_px'][0] + branch_vals['taun_pizero2_px'][0] + branch_vals['taun_mu_px'][0]
+    taun_vis_py = branch_vals['taun_pi1_py'][0] + branch_vals['taun_pi2_py'][0] + branch_vals['taun_pi3_py'][0] + branch_vals['taun_pizero1_py'][0] + branch_vals['taun_pizero2_py'][0] + branch_vals['taun_mu_py'][0]
+    taun_vis_pz = branch_vals['taun_pi1_pz'][0] + branch_vals['taun_pi2_pz'][0] + branch_vals['taun_pi3_pz'][0] + branch_vals['taun_pizero1_pz'][0] + branch_vals['taun_pizero2_pz'][0] + branch_vals['taun_mu_pz'][0]
+    taun_vis_E = branch_vals['taun_pi1_e'][0] + branch_vals['taun_pi2_e'][0] + branch_vals['taun_pi3_e'][0] + branch_vals['taun_pizero1_e'][0] + branch_vals['taun_pizero2_e'][0] + branch_vals['taun_mu_e'][0]
+    branch_vals['taup_vis_pt'][0] = (taup_vis_px**2 + taup_vis_py**2)**.5
+    branch_vals['taun_vis_pt'][0] = (taun_vis_px**2 + taun_vis_py**2)**.5
+    branch_vals['m_vis'][0] = ((taup_vis_E + taun_vis_E)**2 - (taup_vis_px + taun_vis_px)**2 - (taup_vis_py + taun_vis_py)**2 - (taup_vis_pz + taun_vis_pz)**2)**.5
 
 
-    hepmc_event = HepMC3.GenEvent()
-    hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
-    hepmc_writer.write_event(hepmc_event)
+    #hepmc_event = HepMC3.GenEvent()
+    #hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
+    #hepmc_writer.write_event(hepmc_event)
 
     if not stopGenerating: tree.Fill()
 
@@ -344,7 +382,7 @@ while not stopGenerating:
 
 # Finalize
 #pythia.stat()
-hepmc_writer.close()  
+#hepmc_writer.close()  
 
 tree.Write()
 fout.Close()

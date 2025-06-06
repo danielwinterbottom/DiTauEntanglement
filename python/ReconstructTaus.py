@@ -590,7 +590,9 @@ def FindDMin(p1, d1, p2, d2, return_points=False):
 
     # Handle parallel lines (cross product is zero)
     if denom == 0:
-        raise ValueError("The lines are parallel or nearly parallel.")
+        print("Warning: The lines are parallel or nearly parallel.")
+        #raise ValueError("The lines are parallel or nearly parallel.")
+        denom = 1e-10  # Set a small value to avoid division by zero
 
     # Compute t1 and t2 using determinant approach
     dp = p2 - p1

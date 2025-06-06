@@ -93,9 +93,11 @@ class MixtureGaussianDatasetDegenerate(Dataset):
             # the extra var will equal -1 or 1
             # sample a random number, if this is larger than 0.7 then set the new var sign to be equal to the sign of y, if not take the opposite sign
             extra_var_col = torch.bernoulli(torch.full((n_samples,), eff)).to(device)
-            extra_var_col = torch.where(extra_var_col == 1, 1, -1)
+            extra_var_col = torch.where(extra_var_col == 1, 1, -1) * torch.sign(self.y)
             # multiply the extra var by the sign of y
-            self.X = self.X * torch.sign(self.y) * extra_var_col
+            #self.X = self.X * torch.sign(self.y) * extra_var_col
+            # add a column to X which =  torch.sign(self.y) * extra_var_col
+            self.X = torch.cat((self.X.unsqueeze(1), extra_var_col.unsqueeze(1)), dim=1)
 
 
     def get_input_means_stds(self):
@@ -118,8 +120,8 @@ class MixtureGaussianDatasetDegenerate(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
-        #if self.extra_var: return self.X[idx], self.y[idx]
-        return self.X[idx].unsqueeze(0), self.y[idx].unsqueeze(0)        
+        if self.extra_var: return self.X[idx], self.y[idx].unsqueeze(0)
+        else: return self.X[idx].unsqueeze(0), self.y[idx].unsqueeze(0)        
 
 
 argparse = argparse.ArgumentParser(description='Nflow example')
@@ -159,19 +161,34 @@ def plot_data(X, y, title="data_distribution"):
 
 # define NN to regress y given X
 
+class QuantileLoss(nn.Module):
+    def __init__(self, quantile: float):
+        super().__init__()
+        self.quantile = quantile
+
+    def forward(self, preds, targets):
+        errors = targets - preds
+        loss = torch.max(
+            self.quantile * errors,
+            (self.quantile - 1) * errors
+        )
+        return loss.mean()
+
 class SimpleNN(nn.Module):
 
-    def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes, sigmoid=False):
+    def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes, sigmoid=False, activation='ReLU'):
         super(SimpleNN, self).__init__()
 
         layers = OrderedDict()
         layers['input'] = nn.Linear(input_dim, n_nodes)
-        layers['bn_input'] = nn.BatchNorm1d(n_nodes)
-        layers['relu_input'] = nn.ReLU()
+        #layers['bn_input'] = nn.BatchNorm1d(n_nodes)
+        if activation == 'LeakyReLU': layers['relu_input'] = nn.LeakyReLU(negative_slope=0.2)
+        else: layers['relu_input'] = nn.ReLU()
         for i in range(n_hidden_layers):
             layers[f'hidden_{i+1}'] = nn.Linear(n_nodes, n_nodes)
-            layers[f'hidden_bn_{i+1}'] = nn.BatchNorm1d(n_nodes)
-            layers[f'hidden_relu_{i+1}'] = nn.ReLU()
+            #layers[f'hidden_bn_{i+1}'] = nn.BatchNorm1d(n_nodes)
+            if activation == 'LeakyReLU': layers[f'hidden_relu_{i+1}'] = nn.LeakyReLU(negative_slope=0.2)
+            else: layers[f'hidden_relu_{i+1}'] = nn.ReLU()
         
         layers['output'] = nn.Linear(n_nodes, output_dim)
         if sigmoid:
@@ -194,6 +211,10 @@ def train_model(model, dataloader, n_epochs=50, lr=0.01):
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     if args.loss == 'MAE': criterion = nn.L1Loss()
     elif args.loss == 'MSE': criterion = nn.MSELoss()
+    elif args.loss.startswith('Quantile_'):
+        # extract the quantile from the loss str
+        quantile = float(args.loss.split('_')[1])
+        criterion = QuantileLoss(quantile=quantile)
     else:
         raise ValueError(f"Unknown loss function: {args.loss}. Use 'MAE' or 'MSE'.")
     model.to(device)
@@ -248,18 +269,23 @@ def plot_model_predictions(model, dataloader, title, in_means, in_stds, out_mean
 
 
     # plot the X, y, and y_pred histograms in seperate sub figures
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 3, 1)
+    plt.figure(figsize=(12, 12))
+    plt.subplot(2, 2, 1)
     plt.hist(X[:, 0], bins=50, density=False, alpha=0.6, color='b')
-    plt.title('X')
-    plt.xlabel('X')
+    plt.title('X1')
+    plt.xlabel('X1')
     plt.ylabel('Density')
-    plt.subplot(1, 3, 2)
+    plt.subplot(2, 2, 2)
+    plt.hist(X[:, 1], bins=50, density=False, alpha=0.6, color='b')
+    plt.title('X2')
+    plt.xlabel('X2')
+    plt.ylabel('Density')
+    plt.subplot(2, 2, 3)
     plt.hist(y, bins=50, density=False, alpha=0.6, color='g')
     plt.title('y true')
-    plt.xlabel('y')
+    plt.xlabel('y true')
     plt.ylabel('Density')
-    plt.subplot(1, 3, 3)
+    plt.subplot(2, 2, 4)
     plt.hist(predictions, bins=50, density=False, alpha=0.6, color='r')
     plt.title('y_pred')
     plt.xlabel('y pred')
@@ -269,10 +295,19 @@ def plot_model_predictions(model, dataloader, title, in_means, in_stds, out_mean
 
     # make 2D plot of the data
     plt.figure(figsize=(8, 8))
-    plt.hist2d(X.squeeze(), y.squeeze(), bins=50, density=True, cmap='Blues')
+    plt.hist2d(X[:, 0], y.squeeze(), bins=50, density=True, cmap='Blues')
     plt.colorbar()
-    plt.title('X vs y true')
-    plt.xlabel('X')
+    plt.title('X1 vs y true')
+    plt.xlabel('X1')
+    plt.ylabel('y true')
+    plt.savefig(f"{title}_2D.pdf")
+
+    # make 2D plot of the data
+    plt.figure(figsize=(8, 8))
+    plt.hist2d(X[:, 1], y.squeeze(), bins=50, density=True, cmap='Blues')
+    plt.colorbar()
+    plt.title('X2 vs y true')
+    plt.xlabel('X2')
     plt.ylabel('y true')
     plt.savefig(f"{title}_2D.pdf")
 
@@ -289,43 +324,50 @@ def plot_model_predictions(model, dataloader, title, in_means, in_stds, out_mean
 # make plots for cases where there is some seperation between the signs:
 
 #for eff in [0.5,0.7,0.9,1.0]:
-for eff in [0.7]:
+for eff in [0.9]:
 
     print (f"Training model with extra var eff: {eff}")
 
     eff_str = str(eff).replace('.', 'p')
 
     dataset_double_seperable = MixtureGaussianDatasetDegenerate(n_samples=100000, device=device, extra_var=True, eff=eff)
+    in_means_2, in_stds_2, out_means_2, out_stds_2 = None, None, None, None
     in_means_2, in_stds_2 = dataset_double_seperable.get_input_means_stds()
     out_means_2, out_stds_2 = dataset_double_seperable.get_output_means_stds()
     dataset_double_seperable.X = (dataset_double_seperable.X - in_means_2) / in_stds_2
     dataset_double_seperable.y = (dataset_double_seperable.y - out_means_2) / out_stds_2
     dataloader_double_seperable = DataLoader(dataset_double_seperable, batch_size=1024, shuffle=True)
     
-    #model_double_seperable = SimpleNN(input_dim=1, output_dim=1, n_hidden_layers=2, n_nodes=20).to(device)
-    #train_model(model_double_seperable, dataloader_double_seperable, n_epochs=50, lr=0.01)
-    #torch.save(model_double_seperable.state_dict(), f'Nflow_example_NN_model_double_seperable_eff{eff_str}_{args.loss}.pth')
-    #plot_model_predictions(model_double_seperable, dataloader_double_seperable, title=f"model_predictions_double_seperable_eff{eff_str}_{args.loss}", in_means=in_means_2, in_stds=in_stds_2, out_means=out_means_2, out_stds=out_stds_2)
+    model_double_seperable = SimpleNN(input_dim=2, output_dim=1, n_hidden_layers=2, n_nodes=20).to(device)
+    train_model(model_double_seperable, dataloader_double_seperable, n_epochs=50, lr=0.01)
+    torch.save(model_double_seperable.state_dict(), f'NN_model_double_seperable_eff{eff_str}_{args.loss}.pth')
+    plot_model_predictions(model_double_seperable, dataloader_double_seperable, title=f"model_predictions_double_seperable_eff{eff_str}_{args.loss}", in_means=in_means_2, in_stds=in_stds_2, out_means=out_means_2, out_stds=out_stds_2)
 
+    continue
 
     # now training an adversarial method
     print('Training adversarial model...')
     
-    G_model = SimpleNN(input_dim=1, output_dim=1, n_hidden_layers=2, n_nodes=20).to(device)
-    D_model = SimpleNN(input_dim=2, output_dim=1,n_hidden_layers=2, n_nodes=20, sigmoid=True).to(device)
+    G_model = SimpleNN(input_dim=2, output_dim=1, n_hidden_layers=2, n_nodes=20, activation='LeakyReLU').to(device)
+    D_model = SimpleNN(input_dim=3, output_dim=1,n_hidden_layers=2, n_nodes=20, sigmoid=True).to(device)
+
+    num_epochs = 10
+    gamma = (0.0001/0.01)**(1/num_epochs)
 
     G_optimizer = torch.optim.Adam(G_model.parameters(), lr=0.001)
     D_optimizer = torch.optim.Adam(D_model.parameters(), lr=0.001)
+    #G_scheduler = optim.lr_scheduler.ExponentialLR(G_optimizer, gamma=gamma)
+    #D_scheduler = optim.lr_scheduler.ExponentialLR(D_optimizer, gamma=gamma)
     
     # we could initialize the weights using the previous training if we want e.g:
     #try:
-    #    model.load_state_dict(torch.load(f'Nflow_example_NN_model_double_seperable_eff{eff_str}_{args.loss}.pth')) # loading best model first
+    #    G_model.load_state_dict(torch.load(f'NN_model_double_seperable_eff{eff_str}_{args.loss}.pth')) # loading best model first
     #except:
-    #    model.load_state_dict(torch.load(f'Nflow_example_NN_model_double_seperable_eff{eff_str}_{args.loss}.pthh', map_location=torch.device('cpu')))
+    #    G_model.load_state_dict(torch.load(f'NN_model_double_seperable_eff{eff_str}_{args.loss}.pth', map_location=torch.device('cpu')))
 
     adversarial_criterion = nn.BCELoss()
 
-    num_epochs = 200
+    
     for epoch in range(num_epochs):
         D_running_loss = 0.0
         G_running_loss = 0.0
@@ -333,54 +375,91 @@ for eff in [0.7]:
 
             # Update D network: minimize -(log(D(x)) + log(1 - D(G(z))))
 
-            D_model.zero_grad()
+#            D_optimizer.zero_grad()
+#
+#            # split X in half randomly
+#            X = X.to(device)
+#            y_true = y_true.to(device)
+#            #split X and y_pred in half to produce real and fake
+#            # For X_real we will add the true y values as additional columns
+#            # For X_fake we will add the predicted y values from G_model as the columns
+#            X_real = X[:int(X.size(0)/2)]
+#            X_fake = X[int(X.size(0)/2):]
+#            y_real = y_true[:int(X.size(0)/2)]
+#            #X_real = X
+#            #X_fake = X
+#            #y_real = y_true
+#            y_fake = G_model(X_fake)
+#            X_real = torch.cat((X_real, y_real), dim=1)
+#            # now we will generate the fake y values using the G_model
+#            # now we will concatenate the X and y_fake values
+#            X_fake = torch.cat((X_fake, y_fake), dim=1)
+#
+#
+#            # now we create labels for real (=1) and fake (=0) data
+#            y_real_labels = torch.ones(X_real.size(0)).unsqueeze(1)
+#            y_fake_labels = torch.zeros(X_fake.size(0)).unsqueeze(1)
+#            # move labels to device
+#            y_real_labels = y_real_labels.to(device)
+#            y_fake_labels = y_fake_labels.to(device)
+#
+#            D_loss_real = adversarial_criterion(D_model(X_real), y_real_labels)
+#            D_loss_real.backward()
+#            D_loss_fake = adversarial_criterion(D_model(X_fake.detach()), y_fake_labels)
+#            D_loss_fake.backward()
+#            D_loss = D_loss_real + D_loss_fake
+#            D_optimizer.step()
+#
+#            D_running_loss += D_loss.item()
+#
+#            # Update G network: maximize log(D(G(z)))
+#            G_optimizer.zero_grad()
+#            y_fake_labels = torch.ones(y_fake.size(0)).unsqueeze(1) # fake labels are real for G cost
+#            y_fake_labels = y_fake_labels.to(device)
+#            G_loss = adversarial_criterion(D_model(X_fake), y_fake_labels)
+#            G_loss.backward()
+#            G_optimizer.step()
+#
+#            G_running_loss += G_loss.item()
+#
 
-            # split X in half randomly
+            y_label_real = torch.ones(X.size(0)).unsqueeze(1).to(device)
+            y_label_fake = torch.zeros(X.size(0)).unsqueeze(1).to(device)
+
+            # train G:
+            G_optimizer.zero_grad()
             X = X.to(device)
             y_true = y_true.to(device)
-            #split X and y_pred in half to produce real and fake
-            # For X_real we will add the true y values as additional columns
-            # For X_fake we will add the predicted y values from G_model as the columns
-            X_real = X[:int(X.size(0)/2)]
-            y_real = y_true[:int(X.size(0)/2)]
-            X_real = torch.cat((X_real, y_real), dim=1)
-            # now we will generate the fake y values using the G_model
-            y_fake = G_model(X[int(X.size(0)/2):])
-            # now we will concatenate the X and y_fake values
-            X_fake = torch.cat((X[int(X.size(0)/2):], y_fake), dim=1)
-
-
-            # now we create labels for real (=1) and fake (=0) data
-            y_real_labels = torch.ones(X_real.size(0)).unsqueeze(1)
-            y_fake_labels = torch.zeros(X_fake.size(0)).unsqueeze(1)
-            # move labels to device
-            y_real_labels = y_real_labels.to(device)
-            y_fake_labels = y_fake_labels.to(device)
-
-            D_loss_real = adversarial_criterion(D_model(X_real), y_real_labels)
-            D_loss_real.backward()
-            D_loss_fake = adversarial_criterion(D_model(X_fake.detach()), y_fake_labels)
-            D_loss_fake.backward()
-            D_loss = D_loss_real + D_loss_fake
-            D_optimizer.step()
-
-            D_running_loss += D_loss.item()
-
-            # Update G network: maximize log(D(G(z)))
-            G_model.zero_grad()
-            y_fake_labels = torch.ones(y_fake.size(0)).unsqueeze(1) # fake labels are real for G cost
-            y_fake_labels = y_fake_labels.to(device)
-            G_loss = adversarial_criterion(D_model(X_fake), y_fake_labels)
+            y_fake = G_model(X)
+            # concatenate X and y_fake
+            X_fake = torch.cat((X, y_fake), dim=1)
+            # create labels for real data
+            G_loss = adversarial_criterion(D_model(X_fake), y_label_real)
             G_loss.backward()
             G_optimizer.step()
-
             G_running_loss += G_loss.item()
+
+            # train D:
+            D_optimizer.zero_grad()
+            #print(f"X: {X.shape}, y_true: {y_true.shape}, y_fake: {y_fake.shape}")
+            #print("y_label_real: ", y_label_real.shape, "y_label_fake: ", y_label_fake.shape)
+            D_loss_real = adversarial_criterion(D_model(torch.cat((X, y_true), dim=1)), y_label_real)
+            D_loss_fake = adversarial_criterion(D_model(torch.cat((X, y_fake.detach()), dim=1)), y_label_fake)
+
+            D_loss = (D_loss_real + D_loss_fake)/2
+
+            D_loss.backward()
+            D_optimizer.step()
+            D_running_loss += D_loss.item()
 
         D_running_loss /= len(dataloader_double_seperable)
         G_running_loss /= len(dataloader_double_seperable)
+        #G_scheduler.step()
+        #D_scheduler.step()
 
         print(f'Epoch [{epoch+1}/{num_epochs}], D Loss: {D_running_loss:.4f}, G Loss: {G_running_loss:.4f}')
 
+    torch.save(G_model.state_dict(), f'NN_adversarial_model_double_seperable_eff{eff_str}_{args.loss}.pth')
     plot_model_predictions(G_model, dataloader_double_seperable, title=f"adversarial_model_predictions_double_seperable_eff{eff_str}_{args.loss}", in_means=in_means_2, in_stds=in_stds_2, out_means=out_means_2, out_stds=out_stds_2)
       
 

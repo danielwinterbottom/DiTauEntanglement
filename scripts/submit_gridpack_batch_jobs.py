@@ -6,6 +6,7 @@ parser.add_argument('--events_per_job', help= 'Number of events per job', defaul
 parser.add_argument('--total_events', help= 'Total number of events to produce', default=200000, type=int)
 parser.add_argument('--input', '-i', help= 'Name of input gridpack')
 parser.add_argument('--output', '-o', help= 'Name of output directory')
+parser.add_argument('--use_cms_pack', action='store_true', help='Run a CMS style gridpack')
 args = parser.parse_args()
 
 current_dir=os.getcwd()
@@ -14,7 +15,7 @@ nevents = args.events_per_job
 name = '%s_Ntot_%i_Njob_%i' % (args.output, args.total_events, nevents)
 gridpackname = args.input
 
-def Submit(job, jobname, N):
+def Submit(job, jobname, N,):
    print(jobname)
 
    job_file_name = 'jobs/job_%(jobname)s.job' % vars()
@@ -34,15 +35,25 @@ def Submit(job, jobname, N):
 
    os.system('condor_submit %(job_file_name)s' % vars())
 
-
-out_string = '#!/bin/sh\n\
-echo \"Cluster = $1 Process = $2\"\n\
-cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
-rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
-tar -xvf %(current_dir)s/%(gridpackname)s -C $_CONDOR_SCRATCH_DIR\n\
-$_CONDOR_SCRATCH_DIR/run.sh %(nevents)i $2\n\
-mv events.lhe.gz events_$2.lhe.gz\n\
-rm -r madevent run.sh' % vars()
+if  args.use_cms_pack:
+    out_string = '#!/bin/sh\n\
+    echo \"Cluster = $1 Process = $2\"\n\
+    cd $_CONDOR_SCRATCH_DIR\n\
+    rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
+    tar -xvf %(current_dir)s/%(gridpackname)s\n\
+    ./runcmsgrid.sh %(nevents)i $2 1\n\
+    mv cmsgrid_final.lhe events_$2.lhe\n\
+    gzip events_$2.lhe\n\
+    mv events_$2.lhe.gz %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/.' % vars()
+else:
+    out_string = '#!/bin/sh\n\
+    echo \"Cluster = $1 Process = $2\"\n\
+    cd %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2\n\
+    rm -rf %(current_dir)s/batch_job_outputs/%(name)s/job_output_$2/*\n\
+    tar -xvf %(current_dir)s/%(gridpackname)s -C $_CONDOR_SCRATCH_DIR\n\
+    $_CONDOR_SCRATCH_DIR/run.sh %(nevents)i $2\n\
+    mv events.lhe.gz events_$2.lhe.gz\n\
+    rm -r madevent run.sh' % vars()
 
 # make an output directory
 os.system('mkdir -p batch_job_outputs/%(name)s' % vars())
