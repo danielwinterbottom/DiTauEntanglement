@@ -1,0 +1,70 @@
+import model sm-lepton_masses
+add model taudecay_UFO
+
+#pipi:
+generate p p > ta+ ta- / h, ta+ > pi+ vt~, ta- > pi- vt
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_lowmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 50
+set run_card mmnlmax 200
+set run_card gridpack True
+done
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_medmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 200
+set run_card mmnlmax 600
+set run_card gridpack True
+done
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_highmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 600
+set run_card gridpack True
+done
+
+
+# now with no entanglement
+generate p p > ta+{R} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process p p > ta+{L} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process p p > ta+{L} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process p p > ta+{R} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- vt
+
+output pp_to_tauhtauh_to_pipi_no_entanglement_lowmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 50
+set run_card mmnlmax 200
+set run_card gridpack True
+done
+
+output pp_to_tauhtauh_to_pipi_no_entanglement_medmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 200
+set run_card mmnlmax 600
+set run_card gridpack True
+done
+
+output pp_to_tauhtauh_to_pipi_no_entanglement_highmass
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 600
+set run_card gridpack True
+done

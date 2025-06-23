@@ -1,0 +1,55 @@
+import model vector_LQ_UFO
+add model taudecay_UFO
+
+#pipi:
+generate p p > ta+ ta- / zp gp h NP<=2, ta+ > pi+ vt~, ta- > pi- vt
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_lowmass_bsm
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 50
+set run_card mmnlmax 200
+set run_card gridpack True
+set param_card nplqcoup 1 1
+set param_card nplqcoup 1 2
+set param_card nplqcoup 3 -1
+set param_card nplqcoup 4 0.21
+set param_card nplqcoup 5 -0.21
+set param_card mass 42 1000
+set param_card decay 42 4
+done
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_medmass_bsm
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 200
+set run_card mmnlmax 600
+set run_card gridpack True
+set param_card nplqcoup 1 1
+set param_card nplqcoup 1 2
+set param_card nplqcoup 3 -1
+set param_card nplqcoup 4 0.21
+set param_card nplqcoup 5 -0.21
+set param_card mass 42 1000
+set param_card decay 42 4
+done
+
+output pp_to_tauhtauh_to_pipi_inc_entanglement_highmass_bsm
+launch
+done
+set run_card ebeam1 6800.0
+set run_card ebeam2 6800.0
+set run_card mmnl 600
+set run_card gridpack True
+set param_card nplqcoup 1 1
+set param_card nplqcoup 1 2
+set param_card nplqcoup 3 -1
+set param_card nplqcoup 4 0.21
+set param_card nplqcoup 5 -0.21
+set param_card mass 42 1000
+set param_card decay 42 4
+done
