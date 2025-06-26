@@ -132,6 +132,12 @@ branch_vals = {}
 for b in branches:
     branch_vals[b] = array('f',[0])
     tree.Branch(b,  branch_vals[b],  '%s/F' % b)
+    if b.startswith('taup_') or b.startswith('taun_'):
+        # add also branches for first copy
+        b_first_name = b.replace('taup','taup_LHE').replace('taun','taun_LHE')
+        branch_vals[b_first_name] = array('f',[0])
+        tree.Branch(b_first_name,  branch_vals[b_first_name],  '%s/F' % b_first_name)
+
 
 pythia = pythia8.Pythia("")
 pythia.readFile(args.cmnd_file)
@@ -191,6 +197,18 @@ def IsLastCopy(part, event):
         if event[p].id() == pdgid: LastCopy = False
 
     return LastCopy
+
+def IsFirstCopy(part, event):
+    ''' 
+    check if particle is the first copy by checking if it has no mothers of the same pdgid
+    check may not work for some particle types - tested only for taus at the moment
+    '''
+    FirstCopy = True
+    pdgid = part.id()
+    for p in part.motherList():
+        if event[p].id() == pdgid: FirstCopy = False
+
+    return FirstCopy
 
 def GetPiDaughters(part, event):
     pis = []
@@ -262,6 +280,84 @@ while not stopGenerating:
     #print('event %i' % (count+1))
 
     #print('particles:')
+
+    first_pis = []
+    first_pizeros = []
+    first_nus = []
+    first_mus = []
+    first_taus = []
+    for i, part in enumerate(pythia.process):
+        pdgid = part.id()
+        if abs(pdgid) == 15:
+
+            tau_name = 'taun_LHE' if pdgid == 15 else 'taup_LHE'
+            pis, pi0s, nus, mus, daughter_pdgids = GetPiDaughters(part,pythia.process)
+            branch_vals['%(tau_name)s_px' % vars()][0] = part.px()
+            branch_vals['%(tau_name)s_py' % vars()][0] = part.py()
+            branch_vals['%(tau_name)s_pz' % vars()][0] = part.pz()
+            branch_vals['%(tau_name)s_e' % vars()][0]  = part.e()
+            branch_vals['%(tau_name)s_npi' % vars()][0]  = len(pis)
+            branch_vals['%(tau_name)s_npizero' % vars()][0]  = len(pi0s)
+            branch_vals['%(tau_name)s_nmu' % vars()][0]  = len(mus)
+
+            if len(pis) > 0:
+                branch_vals['%(tau_name)s_pi1_px' % vars()][0] = pis[0].px()
+                branch_vals['%(tau_name)s_pi1_py' % vars()][0] = pis[0].py()
+                branch_vals['%(tau_name)s_pi1_pz' % vars()][0] = pis[0].pz()
+                branch_vals['%(tau_name)s_pi1_e' % vars()][0]  = pis[0].e()
+                branch_vals['%(tau_name)s_pi1_vx' % vars()][0] = pis[0].xProd() # mm units
+                branch_vals['%(tau_name)s_pi1_vy' % vars()][0] = pis[0].yProd()
+                branch_vals['%(tau_name)s_pi1_vz' % vars()][0] = pis[0].zProd()
+
+            if len(nus) > 0:
+                branch_vals['%(tau_name)s_nu_px' % vars()][0] = nus[0].px()
+                branch_vals['%(tau_name)s_nu_py' % vars()][0] = nus[0].py()
+                branch_vals['%(tau_name)s_nu_pz' % vars()][0] = nus[0].pz()
+                branch_vals['%(tau_name)s_nu_e' % vars()][0]  = nus[0].e()
+
+            if len(pis) > 1:
+                branch_vals['%(tau_name)s_pi2_px' % vars()][0] = pis[1].px()
+                branch_vals['%(tau_name)s_pi2_py' % vars()][0] = pis[1].py()
+                branch_vals['%(tau_name)s_pi2_pz' % vars()][0] = pis[1].pz()
+                branch_vals['%(tau_name)s_pi2_e' % vars()][0]  = pis[1].e()
+                branch_vals['%(tau_name)s_pi2_vx' % vars()][0] = pis[1].xProd()
+                branch_vals['%(tau_name)s_pi2_vy' % vars()][0] = pis[1].yProd()
+                branch_vals['%(tau_name)s_pi2_vz' % vars()][0] = pis[1].zProd()
+                
+            if len(pis) > 2:
+                branch_vals['%(tau_name)s_pi3_px' % vars()][0] = pis[2].px()
+                branch_vals['%(tau_name)s_pi3_py' % vars()][0] = pis[2].py()
+                branch_vals['%(tau_name)s_pi3_pz' % vars()][0] = pis[2].pz()
+                branch_vals['%(tau_name)s_pi3_e' % vars()][0]  = pis[2].e()
+                branch_vals['%(tau_name)s_pi3_vx' % vars()][0] = pis[2].xProd()
+                branch_vals['%(tau_name)s_pi3_vy' % vars()][0] = pis[2].yProd()
+                branch_vals['%(tau_name)s_pi3_vz' % vars()][0] = pis[2].zProd()
+
+            if len(pi0s) > 0:
+                branch_vals['%(tau_name)s_pizero1_px' % vars()][0] = pi0s[0].px()
+                branch_vals['%(tau_name)s_pizero1_py' % vars()][0] = pi0s[0].py()
+                branch_vals['%(tau_name)s_pizero1_pz' % vars()][0] = pi0s[0].pz()            
+                branch_vals['%(tau_name)s_pizero1_e' % vars()][0]  = pi0s[0].e()
+            if len(pi0s) > 1:
+                branch_vals['%(tau_name)s_pizero2_px' % vars()][0] = pi0s[1].px()
+                branch_vals['%(tau_name)s_pizero2_py' % vars()][0] = pi0s[1].py()
+                branch_vals['%(tau_name)s_pizero2_pz' % vars()][0] = pi0s[1].pz()            
+                branch_vals['%(tau_name)s_pizero2_e' % vars()][0]  = pi0s[1].e()
+
+            if len(mus) > 0:
+                branch_vals['%(tau_name)s_mu_px' % vars()][0] = mus[0].px()
+                branch_vals['%(tau_name)s_mu_py' % vars()][0] = mus[0].py()
+                branch_vals['%(tau_name)s_mu_pz' % vars()][0] = mus[0].pz()            
+                branch_vals['%(tau_name)s_mu_e' % vars()][0]  = mus[0].e()
+
+    taup_vis_px = branch_vals['taup_LHE_pi1_px'][0] + branch_vals['taup_LHE_pi2_px'][0] + branch_vals['taup_LHE_pi3_px'][0] + branch_vals['taup_LHE_pizero1_px'][0] + branch_vals['taup_LHE_pizero2_px'][0] + branch_vals['taup_LHE_mu_px'][0]
+    taup_vis_py = branch_vals['taup_LHE_pi1_py'][0] + branch_vals['taup_LHE_pi2_py'][0] + branch_vals['taup_LHE_pi3_py'][0] + branch_vals['taup_LHE_pizero1_py'][0] + branch_vals['taup_LHE_pizero2_py'][0] + branch_vals['taup_LHE_mu_py'][0]
+    taun_vis_px = branch_vals['taun_LHE_pi1_px'][0] + branch_vals['taun_LHE_pi2_px'][0] + branch_vals['taun_LHE_pi3_px'][0] + branch_vals['taun_LHE_pizero1_px'][0] + branch_vals['taun_LHE_pizero2_px'][0] + branch_vals['taun_LHE_mu_px'][0]
+    taun_vis_py = branch_vals['taun_LHE_pi1_py'][0] + branch_vals['taun_LHE_pi2_py'][0] + branch_vals['taun_LHE_pi3_py'][0] + branch_vals['taun_LHE_pizero1_py'][0] + branch_vals['taun_LHE_pizero2_py'][0] + branch_vals['taun_LHE_mu_py'][0]
+
+    branch_vals['taup_LHE_vis_pt'][0] = (taup_vis_px**2 + taup_vis_py**2)**.5
+    branch_vals['taun_LHE_vis_pt'][0] = (taun_vis_px**2 + taun_vis_py**2)**.5
+
     for i, part in enumerate(pythia.event):
         pdgid = part.id()
         mother_ids = [pythia.event[x].id() for x in part.motherList()]
@@ -282,6 +378,8 @@ while not stopGenerating:
             branch_vals['z_x' % vars()][0] = z_x
             branch_vals['z_y' % vars()][0] = z_y
             branch_vals['z_z' % vars()][0] = z_z
+
+
         if abs(pdgid) == 15 and LastCopy:
             pis, pi0s, nus, mus, daughter_pdgids = GetPiDaughters(part,pythia.event)
             tau_name = 'taun' if pdgid == 15 else 'taup'
@@ -325,7 +423,8 @@ while not stopGenerating:
                 branch_vals['%(tau_name)s_pi2_vx' % vars()][0] = pis[1].xProd()
                 branch_vals['%(tau_name)s_pi2_vy' % vars()][0] = pis[1].yProd()
                 branch_vals['%(tau_name)s_pi2_vz' % vars()][0] = pis[1].zProd()
-
+                
+            if len(pis) > 2:
                 branch_vals['%(tau_name)s_pi3_px' % vars()][0] = pis[2].px()
                 branch_vals['%(tau_name)s_pi3_py' % vars()][0] = pis[2].py()
                 branch_vals['%(tau_name)s_pi3_pz' % vars()][0] = pis[2].pz()
@@ -362,7 +461,11 @@ while not stopGenerating:
     taun_vis_E = branch_vals['taun_pi1_e'][0] + branch_vals['taun_pi2_e'][0] + branch_vals['taun_pi3_e'][0] + branch_vals['taun_pizero1_e'][0] + branch_vals['taun_pizero2_e'][0] + branch_vals['taun_mu_e'][0]
     branch_vals['taup_vis_pt'][0] = (taup_vis_px**2 + taup_vis_py**2)**.5
     branch_vals['taun_vis_pt'][0] = (taun_vis_px**2 + taun_vis_py**2)**.5
-    branch_vals['m_vis'][0] = ((taup_vis_E + taun_vis_E)**2 - (taup_vis_px + taun_vis_px)**2 - (taup_vis_py + taun_vis_py)**2 - (taup_vis_pz + taun_vis_pz)**2)**.5
+    m_vis_sq = (taup_vis_E + taun_vis_E)**2 - (taup_vis_px + taun_vis_px)**2 - (taup_vis_py + taun_vis_py)**2 - (taup_vis_pz + taun_vis_pz)**2
+    if m_vis_sq < 0: 
+        branch_vals['m_vis'][0] = -1
+    else:
+        branch_vals['m_vis'][0] = m_vis_sq**.5
 
 
     #hepmc_event = HepMC3.GenEvent()
