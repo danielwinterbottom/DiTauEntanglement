@@ -674,6 +674,39 @@ for i in range(start_entry, end_entry):
     #TODO: could try to use a random number sampling of the solutions to avoid a bias towards solutions with smaller decay lengths
     d_min_constraint = d_min_pred.Dot(d_min_reco)
 
+    # define ditau rest frames
+    ditau = taup + taun
+    ditau_reco = taup_reco + taun_reco
+    boost = -ditau.BoostVector()
+    boost_reco = -ditau_reco.BoostVector()
+    # boost taus and decay products to ditau rest frame
+    taup.Boost(boost)
+    taun.Boost(boost)
+    taup_pi1.Boost(boost)
+    taun_pi1.Boost(boost)
+    if taup_pi2 is not None: taup_pi2.Boost(boost)
+    if taup_pi3 is not None: taup_pi3.Boost(boost)
+    if taun_pi2 is not None: taun_pi2.Boost(boost)
+    if taun_pi3 is not None: taun_pi3.Boost(boost)
+    if taup_pizero1 is not None: taup_pizero1.Boost(boost)
+    if taup_pizero2 is not None: taup_pizero2.Boost(boost)
+    if taun_pizero1 is not None: taun_pizero1.Boost(boost)
+    if taun_pizero2 is not None: taun_pizero2.Boost(boost)
+
+    # now the same for the reco taus and decay products
+    taup_reco.Boost(boost_reco)
+    taun_reco.Boost(boost_reco)
+    taup_pi1_reco.Boost(boost_reco)
+    taun_pi1_reco.Boost(boost_reco)
+    if taup_pi2_reco is not None: taup_pi2_reco.Boost(boost_reco)
+    if taup_pi3_reco is not None: taup_pi3_reco.Boost(boost_reco)
+    if taun_pi2_reco is not None: taun_pi2_reco.Boost(boost_reco)
+    if taun_pi3_reco is not None: taun_pi3_reco.Boost(boost_reco)
+    if taup_pizero1_reco is not None: taup_pizero1_reco.Boost(boost_reco)
+    if taup_pizero2_reco is not None: taup_pizero2_reco.Boost(boost_reco)
+    if taun_pizero1_reco is not None: taun_pizero1_reco.Boost(boost_reco)
+    if taun_pizero2_reco is not None: taun_pizero2_reco.Boost(boost_reco)
+
     if taup_npi == 1 and taup_npizero == 0:
         taup_pi1.Boost(-taup.BoostVector())
         taup_s = taup_pi1.Vect().Unit()
@@ -750,10 +783,9 @@ for i in range(start_entry, end_entry):
     # boost taup and taun to ditau COM frame
     taup_COM = taup.Clone()
     taun_COM = taun.Clone()
-    ditau = taup + taun
-    boost = -ditau.BoostVector()
-    taup_COM.Boost(boost)
-    taun_COM.Boost(boost)
+    #boost = -ditau.BoostVector()
+    #taup_COM.Boost(boost)
+    #taun_COM.Boost(boost)
 
     # k is direction of tau+
     k = taup_COM.Vect().Unit()
@@ -763,7 +795,6 @@ for i in range(start_entry, end_entry):
 
     taup_reco_COM = taup_reco.Clone()
     taun_reco_COM = taun_reco.Clone()
-    ditau_reco = taup_reco + taun_reco
     boost_reco = -ditau_reco.BoostVector()
     taup_reco_COM.Boost(boost_reco)
     taun_reco_COM.Boost(boost_reco)

@@ -120,6 +120,15 @@ branches = [
 'taup_vis_pt',
 'taun_vis_pt',
 'm_vis',
+
+'taup_first_px', 
+'taup_first_py', 
+'taup_first_pz',
+'taup_first_e',
+'taun_first_px',
+'taun_first_py',
+'taun_first_pz',
+'taun_first_e',
 ]
 
 
@@ -132,7 +141,7 @@ branch_vals = {}
 for b in branches:
     branch_vals[b] = array('f',[0])
     tree.Branch(b,  branch_vals[b],  '%s/F' % b)
-    if b.startswith('taup_') or b.startswith('taun_'):
+    if (b.startswith('taup_') or b.startswith('taun_')) and 'first' not in b:
         # add also branches for first copy
         b_first_name = b.replace('taup','taup_LHE').replace('taun','taun_LHE')
         branch_vals[b_first_name] = array('f',[0])
@@ -162,7 +171,7 @@ else: # for pp->H->tautau using pythia
     pythia.readString("Beams:idA = 2212") # Proton
     pythia.readString("Beams:idB = 2212")  # Proton
     pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
-    pythia.readString("TauDecays:externalMode = 0")
+    #pythia.readString("TauDecays:externalMode = 0")
     # Enable H production and decay to taus
 
     pythia.readString("HiggsSM:gg2H = on")
@@ -209,6 +218,38 @@ def IsFirstCopy(part, event):
         if event[p].id() == pdgid: FirstCopy = False
 
     return FirstCopy
+
+def TraceTauMother(part, event, mother_ids_to_exclude=[]):
+    """
+    Recursively trace tau's ancestry until the first non-tau mother is found.
+    """
+    mother_indices = part.motherList()
+    
+    if not mother_indices:
+        print(f"No mother found for particle with id {part.id()}")
+        return
+
+    # Take the first mother (can expand to loop over all if needed)
+    mother = event[mother_indices[0]]
+
+    if abs(mother.id()) == 15:
+        # Keep going up the ancestry
+        TraceTauMother(mother, event, mother_ids_to_exclude)
+    else:
+        # Print non-tau mother info unless it is in the excluded list
+        if not mother.id() in mother_ids_to_exclude:
+            print("First non-tau mother found for tau with status %i:" % part.status())
+            print('id = %i, status = %i, px = %.4f, py = %.4f, pz = %.4f, e = %.4f' %
+                  (mother.id(), mother.status(), mother.px(), mother.py(), mother.pz(), mother.e()))
+            # check if there are any other mothers and if so print these as well
+            if len(mother_indices) > 1:
+                print("Other mothers found:")
+                for idx in mother_indices[1:]:
+                    other_mother = event[idx]
+                    if not other_mother.id() in mother_ids_to_exclude:
+                        print('id = %i, status = %i, px = %.4f, py = %.4f, pz = %.4f, e = %.4f' %
+                              (other_mother.id(), other_mother.status(), other_mother.px(), other_mother.py(), other_mother.pz(), other_mother.e()))
+
 
 def GetPiDaughters(part, event):
     pis = []
@@ -261,6 +302,38 @@ def GetPiDaughters(part, event):
 
     return (pis, pi0s, nus, mus, daughter_pdgids)
 
+def TauRotationCorrection(taup_LHE, taun_LHE, taup, taun):
+    ditau = taup + taun
+    ditau_LHE = taup_LHE + taun_LHE
+    # check if masses are consistent, if not print a warning
+    if abs(ditau.M() - ditau_LHE.M()) > 1e-6:
+        print('Warning: ditau mass mismatch: %.6f vs %.6f' % (ditau.M(), ditau_LHE.M()))
+    # boost taup's to ditau rest frames
+    taup_LHE.Boost(-ditau_LHE.BoostVector())
+    taup.Boost(-ditau.BoostVector())
+    v_orig = taup.Vect().Unit()
+    v_target = taup_LHE.Vect().Unit()
+
+    axis = v_orig.Cross(v_target)
+    if axis.Mag() < 1e-8:
+        # Vectors already aligned or exactly opposite
+        angle = 0 if v_orig.Dot(v_target) > 0 else math.pi
+        axis = ROOT.TVector3(1, 0, 0)  # Arbitrary orthogonal axis
+    else:
+        axis = axis.Unit()
+        angle = math.acos(v_orig.Dot(v_target))
+
+    # Construct rotation
+    rotation = ROOT.TRotation()
+    rotation.Rotate(angle, axis)
+
+    boost_to_LHE_frame = ROOT.TLorentzRotation(ditau_LHE.BoostVector())
+    boost_to_orig_rest = ROOT.TLorentzRotation(-ditau.BoostVector())
+    rot = ROOT.TLorentzRotation(rotation)
+    transform = boost_to_orig_rest.Inverse() * rot * boost_to_orig_rest
+
+    return transform
+
 stopGenerating = False
 count = 0
 
@@ -286,9 +359,12 @@ while not stopGenerating:
     first_nus = []
     first_mus = []
     first_taus = []
+    taus_LHE = []
     for i, part in enumerate(pythia.process):
         pdgid = part.id()
         if abs(pdgid) == 15:
+
+            taus_LHE.append(part)
 
             tau_name = 'taun_LHE' if pdgid == 15 else 'taup_LHE'
             pis, pi0s, nus, mus, daughter_pdgids = GetPiDaughters(part,pythia.process)
@@ -358,12 +434,15 @@ while not stopGenerating:
     branch_vals['taup_LHE_vis_pt'][0] = (taup_vis_px**2 + taup_vis_py**2)**.5
     branch_vals['taun_LHE_vis_pt'][0] = (taun_vis_px**2 + taun_vis_py**2)**.5
 
+    taus_first_copy = []
+
     for i, part in enumerate(pythia.event):
         pdgid = part.id()
         mother_ids = [pythia.event[x].id() for x in part.motherList()]
         daughter_ids = [pythia.event[x].id() for x in part.daughterList()]
         #print(pdgid, part.e(), part.charge(), part.status(), mother_ids, daughter_ids)
         LastCopy = IsLastCopy(part, pythia.event)
+        FirstCopy = IsFirstCopy(part, pythia.event)
 
         if pdgid == 11 and len(mother_ids) == 0:
             # the e+ directions defines the z direction
@@ -379,8 +458,19 @@ while not stopGenerating:
             branch_vals['z_y' % vars()][0] = z_y
             branch_vals['z_z' % vars()][0] = z_z
 
+        if abs(pdgid) == 15 and FirstCopy:
+            taus_first_copy.append(part)
+            tau_name = 'taun_first' if pdgid == 15 else 'taup_first'
+            branch_vals['%(tau_name)s_px' % vars()][0] = part.px()
+            branch_vals['%(tau_name)s_py' % vars()][0] = part.py()
+            branch_vals['%(tau_name)s_pz' % vars()][0] = part.pz()
+            branch_vals['%(tau_name)s_e' % vars()][0]  = part.e()
 
-        if abs(pdgid) == 15 and LastCopy:
+
+        if abs(pdgid) == 15 and LastCopy and part.status() > -70: # this status cut should remove taus from hadron decays
+            #TraceTauMother(part, pythia.event, mother_ids_to_exclude=[25,23])
+            #print('Tau with status %i found: id =%i, px = %.4f, py = %.4f, pz = %.4f, e = %.4f' % 
+            #      (part.status(), part.id(), part.px(), part.py(), part.pz(), part.e()))
             pis, pi0s, nus, mus, daughter_pdgids = GetPiDaughters(part,pythia.event)
             tau_name = 'taun' if pdgid == 15 else 'taup'
             branch_vals['%(tau_name)s_px' % vars()][0] = part.px()
@@ -472,7 +562,13 @@ while not stopGenerating:
     #hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
     #hepmc_writer.write_event(hepmc_event)
 
-    if not stopGenerating: tree.Fill()
+    if not stopGenerating: 
+        # check if both taun and taup were found (LastCopy), if not print a warning and don't fill the tree
+        if branch_vals['taup_e'][0] == 0 or branch_vals['taun_e'][0] == 0:
+            print('Warning: taup or taun not found in event %i' % (count+1))
+            print('taup_e = %.4f, taun_e = %.4f' % (branch_vals['taup_e'][0], branch_vals['taun_e'][0]))
+        #else: 
+        tree.Fill()
 
     if count % 1000 == 0:
         print('Processed %i events' % count)
