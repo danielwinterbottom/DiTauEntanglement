@@ -51,7 +51,12 @@ def solve_abcd_values(P_taup_true, P_taun_true, P_Z, P_taupvis, P_taunvis):
         b[num_components + i] = P_taun_true[i] - P_Z[i] / 2  # Right-hand side
 
     # Solve the system A * [c_0, c_1, c_2, c_3]^T = b
-    abcd_values, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+    try:
+        solution = np.linalg.lstsq(A, b, rcond=None)
+        abcd_values, _, _, _ = solution
+    except np.linalg.LinAlgError as e:
+        print("Error in solving the system:", e)
+        abcd_values = np.zeros(4)  # Return zeros if there's an error
 
     return abcd_values
 
@@ -494,7 +499,9 @@ def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1
     m_taupvis = P_taupvis * P_taupvis
     m_taunvis = P_taunvis * P_taunvis
 
+
     q = compute_q(P_Z*P_Z,P_Z, P_taupvis, P_taunvis)
+
 
     x = P_Z * P_taupvis
     y = P_Z * P_taunvis
@@ -513,7 +520,13 @@ def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1
                   [lamy],
                   [0.]])
 
-    M_inv = np.linalg.inv(M)
+    # add proper handling for singular matrix
+    try:
+        M_inv = np.linalg.inv(M)
+    except np.linalg.LinAlgError:
+        print("Warning: Matrix M is singular, using pseudo-inverse instead.")
+        M_inv = np.linalg.pinv(M)
+   
 
     v = np.dot(M_inv, L)
 
@@ -521,7 +534,11 @@ def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1
     b = v[1][0]
     c = v[2][0]
 
-    dsq = 1./(-4*q*q) * ( (1+a**2)*m_Z_sq + b**2*P_taupvis.M2() + c**2*P_taunvis.M2() -4*m_tau**2 + 2*(a*c*y - a*b*x - b*c*z)) # this version gives the correct result, but need to work out why...
+    denom = (-4*q*q)
+    if denom == 0:
+        print("Warning: Denominator is zero, setting to a small value to avoid division by zero.")
+        denom = 1e-10
+    dsq = 1./denom * ( (1+a**2)*m_Z_sq + b**2*P_taupvis.M2() + c**2*P_taunvis.M2() -4*m_tau**2 + 2*(a*c*y - a*b*x - b*c*z)) # this version gives the correct result, but need to work out why...
     d = dsq**.5 if dsq > 0 else 0.
 
     solutions = []
@@ -948,8 +965,8 @@ def tau_decay_probability(p, E, L):
     lambda_decay = gamma * beta * c * tau  # Mean decay length in meters
     #lambda_decay = 45./1.777*c* tau # assume tau energy ~ 1/2 mZ for computing gamma - need to do this otherwise algo prefers to raise tau energy to make any decay length consistent with the tau lifetime
     L_m = L/1000. # convert from mm to meters
-    
-    return np.exp(-L_m / lambda_decay)  # Survival probability
+    denom = lambda_decay if lambda_decay != 0 else 1e-10  # Avoid division by zero
+    return np.exp(-L_m / denom)  # Survival probability
 
 def closest_distance(P1, P2, P):
     v = P2 - P1  # Direction vector of the line
@@ -1027,6 +1044,10 @@ class Smearing():
         self.Ox_smearing = ROOT.TF1("Ox_smearing","TMath::Gaus(x,0,0.15)",-1.5,1.5) # from https://cds.cern.ch/record/317914/files/sl-96-074.pdf
         self.Oy_smearing = ROOT.TF1("Oy_smearing","TMath::Gaus(x,0,0.011)",-0.11,0.11) # from https://cds.cern.ch/record/317914/files/sl-96-074.pdf
         self.Oz_smearing = ROOT.TF1("Oz_smearing","TMath::Gaus(x,0,7)",-70,70) # from https://cds.cern.ch/record/317914/files/sl-96-074.pdf
+
+        self.PV_smearing = ROOT.TF1("PV_smearing","TMath::Gaus(x,0,0.02)",-0.2,0.2) # rough estimate for CMS 20 microns
+
+        self.MET_smearing = ROOT.TF1("MET_smearing","TMath::Gaus(x,0,10)",-100,100) # rough estimate for CMS MET resolution (flat 10 GeV)
 
         self.Q_E_smearing = ROOT.TF1("Q_E_smearing","TMath::Gaus(x,1,0.18/sqrt([0])+0.009)",0,2) # energy resolution of detected photons
         self.Q_Angular_smearing = ROOT.TF1("Q_Angular_smearing","TMath::Gaus(x,0,(2.5/sqrt([0])+0.25)/1000.)",-1,1) # approximate guess for now (this number was quoted for electromagnetic objects but is probably better for tracks)
@@ -1164,7 +1185,29 @@ class Smearing():
         BS_smeared.SetY(BS.Y() + rand_y)
         BS_smeared.SetZ(BS.Z() + rand_z)
 
-        return BS_smeared        
+        return BS_smeared   
+
+    def SmearPV(self, PV):
+        if PV is None: return None
+        # smear the primary vertex position
+        PV_smeared = ROOT.TVector3(PV)
+        rand_x = self.PV_smearing.GetRandom()
+        rand_y = self.PV_smearing.GetRandom()
+        rand_z = self.PV_smearing.GetRandom()
+        PV_smeared.SetX(PV.X() + rand_x)
+        PV_smeared.SetY(PV.Y() + rand_y)
+        PV_smeared.SetZ(PV.Z() + rand_z)
+
+        return PV_smeared     
+        
+    def SmearMET(self, MET):
+        if MET is None: return None
+        # smear the MET value
+        MET_smeared = MET
+        rand_MET = self.MET_smearing.GetRandom()
+        MET_smeared += rand_MET
+
+        return MET_smeared
 
 if __name__ == '__main__':
 
