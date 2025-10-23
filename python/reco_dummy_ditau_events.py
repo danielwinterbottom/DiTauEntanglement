@@ -83,7 +83,8 @@ class RegressionDataset(Dataset):
         """
         Convert standardized outputs back to physical units.
         """
-        return y_norm * self.output_std + self.output_mean
+        device = y_norm.device
+        return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
 class EarlyStopper:
     def __init__(self, patience=10, min_delta=0):
@@ -532,7 +533,7 @@ if __name__ == '__main__':
     
     train_df = df.iloc[:train_size]
     test_df = df.iloc[train_size:]
-    
+
     # define datasets and normalize inputs (not outputs)
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
@@ -549,6 +550,12 @@ if __name__ == '__main__':
     print(f"Testing dataset size: {len(test_dataset)}")
 
     num_epochs = args.n_epochs
+
+    optimize = 1 in args.stages
+    train = 2 in args.stages
+    add_analytical_solutions = 3 in args.stages
+    test = 4 in args.stages
+
     # hyperparameters
     hp = {
         'batch_size': 1024, # 1024
@@ -558,6 +565,9 @@ if __name__ == '__main__':
         'n_nodes': 100, # 100
         'dropout': 0.0, # 0.0
     }
+
+    if optimize:
+        print("Starting hyperparameter optimization...")
 
     def setup_model_and_training(hp):
 
@@ -573,15 +583,7 @@ if __name__ == '__main__':
 
     model, criterion, optimizer, device, train_dataloader, test_dataloader = setup_model_and_training(hp)
     
-    
-    loss_values = []
-    val_loss_values = []
-    running_loss_values = []
     early_stopper = EarlyStopper(patience=10, min_delta=0.)
-    
-    train = 1 in args.stages
-    add_analytical_solutions = 2 in args.stages
-    test = 3 in args.stages
 
     if train:
     
@@ -685,8 +687,7 @@ if __name__ == '__main__':
     
         # load test dataframe with analytical solutions added
         test_df = pd.read_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
-    
-        print("Starting testing...")
+
     
         model_name = args.model_name
         model_path = f'{output_dir}/{model_name}.pth'
@@ -699,11 +700,12 @@ if __name__ == '__main__':
         model.eval()
     
         X_test, _ = test_dataset[:]
+        X_test = X_test.to(device)
         with torch.no_grad():
             predictions_norm = model(X_test)
     
         # destandardize predictions so that they are in physical units
-        predictions = test_dataset.destandardize_outputs(predictions_norm).numpy()
+        predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
 
         # predictions dont include E so we need to compute them
         # compute E for nu and nubar
@@ -784,10 +786,10 @@ if __name__ == '__main__':
             results_df[f'true_tau_plus_no_x_{comp}'] = results_df[f'true_tau_plus_{comp}'] - results_df[f'analytical_x_{comp}']
     
         # write the results dataframe to a pickle file
-        results_df.to_pickle("dummy_ditau_nu_regression_results.pkl")
+        results_df.to_pickle(f"{output_dir}/dummy_ditau_nu_regression_results.pkl")
     
         # write root file aswell
-        output_root_file = "dummy_ditau_nu_regression_results.root"
+        output_root_file = f"{output_dir}/dummy_ditau_nu_regression_results.root"
     
         with uproot3.recreate(output_root_file) as f:
             # Create the tree inside the file (name it "tree")
