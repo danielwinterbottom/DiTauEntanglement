@@ -7,34 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import os
-
-class RegressionDatasetOld(Dataset):
-    def __init__(self, dataframe, input_features, output_features):
-        # Convert entire dataset to tensors at initialization (avoids slow indexing)
-        self.X = torch.tensor(dataframe[input_features].values, dtype=torch.float32)
-        self.y = torch.tensor(dataframe[output_features].values, dtype=torch.float32)
-
-    def get_input_means_stds(self):
-        """
-        Compute the means and standard deviations of the input features.
-        """
-        means = self.X.mean(dim=0)
-        stds = self.X.std(dim=0)
-        return means, stds
-
-    def get_output_means_stds(self):
-        """
-        Compute the means and standard deviations of the output features.
-        """
-        means = self.y.mean(dim=0)
-        stds = self.y.std(dim=0)
-        return means, stds
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+import argparse
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features, 
@@ -119,6 +92,10 @@ class EarlyStopper:
         self.counter = 0
         self.min_validation_loss = float('inf')
 
+    def reset(self):
+        self.counter = 0
+        self.min_validation_loss = float('inf')
+
     def early_stop(self, validation_loss):
         if validation_loss < self.min_validation_loss:
             self.min_validation_loss = validation_loss
@@ -150,8 +127,6 @@ class SimpleNN(nn.Module):
 
         self.layers = nn.Sequential(layers)
 
-        #self.apply(initialize_weights)
-
         # print a summry of the model
         print('Model summary:')
         print(self.layers)
@@ -162,6 +137,131 @@ class SimpleNN(nn.Module):
     def forward(self, x):
         x = self.layers(x)
         return x
+
+def plot_loss(loss_values, val_loss_values, running_loss_values=None):
+    plt.figure()
+    plt.plot(range(1, len(loss_values)+1), loss_values[1:], label='train loss')
+    plt.plot(range(1, len(val_loss_values)+1), val_loss_values[1:], label='validation loss')
+    if running_loss_values is not None: plt.plot(range(1, len(running_loss_values)+1), running_loss_values[1:], label='running loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.legend()
+    plt.savefig(f'nn_plots/loss_vs_epoch_dummy.pdf')
+    plt.close()
+
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    criterion,
+    optimizer,
+    n_epochs=50,
+    device="cpu",
+    verbose=True,
+    recompute_train_loss=True,
+    early_stopper=None
+):
+    """
+    Train a PyTorch model and evaluate performance, with optional recomputation
+    of training loss at the end of each epoch (to match validation evaluation).
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        Model to train.
+    train_loader : DataLoader
+        DataLoader for the training dataset.
+    val_loader : DataLoader
+        DataLoader for the validation dataset.
+    criterion : torch.nn.Module
+        Loss function (e.g., nn.MSELoss()).
+    optimizer : torch.optim.Optimizer
+        Optimizer (e.g., torch.optim.Adam).
+    n_epochs : int
+        Number of training epochs.
+    device : str
+        "cpu" or "cuda".
+    verbose : bool
+        Whether to print epoch losses.
+    recompute_train_loss : bool
+        If True, recompute the training loss at the end of each epoch using
+        the final model weights (more accurate but slower).
+    early_stopper : EarlyStopper or None
+        Early stopping mechanism to halt training when validation loss stops improving.
+
+    Returns
+    -------
+    best_val_loss : float
+        Minimum validation loss achieved.
+    history : dict
+        Dictionary containing loss histories:
+        {
+            "train_loss": [...],
+            "val_loss": [...]
+        }
+    """
+
+    model.to(device)
+    best_val_loss = float("inf")
+    history = {"train_loss": [], "val_loss": []}
+
+    if early_stopper: early_stopper.reset()
+
+    for epoch in range(1, n_epochs + 1):
+        # --- Training phase ---
+        model.train()
+        running_train_loss = 0.0
+        for X, y in train_loader:
+            X, y = X.to(device), y.to(device)
+            optimizer.zero_grad()
+            y_pred = model(X)
+            loss = criterion(y_pred, y)
+            loss.backward()
+            optimizer.step()
+            running_train_loss += loss.item()
+
+        train_loss = running_train_loss / len(train_loader)
+
+        # --- Optional: recompute train loss with final weights ---
+        if recompute_train_loss:
+            model.eval()
+            with torch.no_grad():
+                running_train_loss = 0.0
+                for X, y in train_loader:
+                    X, y = X.to(device), y.to(device)
+                    y_pred = model(X)
+                    running_train_loss += criterion(y_pred, y).item()
+            train_loss = running_train_loss / len(train_loader)
+
+        # --- Validation phase ---
+        model.eval()
+        running_val_loss = 0.0
+        with torch.no_grad():
+            for X, y in val_loader:
+                X, y = X.to(device), y.to(device)
+                y_pred = model(X)
+                running_val_loss += criterion(y_pred, y).item()
+        val_loss = running_val_loss / len(val_loader)
+        best_val_loss = min(best_val_loss, val_loss)
+
+        if early_stopper and early_stopper.early_stop(val_loss):
+            print(f"Early stopping triggered for epoch {epoch+1}")
+            break
+
+        # --- Store results ---
+        history["train_loss"].append(train_loss)
+        history["val_loss"].append(val_loss)
+
+        if verbose:
+            width = len(str(n_epochs))
+            print(
+                f"Epoch {epoch:{width}d}/{n_epochs} | "
+                f"Train: {train_loss:.6f} | Val: {val_loss:.6f}"
+            )    
+
+        if epoch > 1: plot_loss(history["train_loss"], history["val_loss"])
+
+    return best_val_loss, history
 
 def combined_schedule(epoch, peak_lr, low_lr, start_epochs, ramp_epochs, gamma):
     ramp_factor = peak_lr / low_lr
@@ -175,28 +275,6 @@ def combined_schedule(epoch, peak_lr, low_lr, start_epochs, ramp_epochs, gamma):
         # phase 3: exponential decay from peak_lr
         decay_steps = epoch - (start_epochs + ramp_epochs)
         return ramp_factor * (gamma ** decay_steps)
-
-def RotateFrame(rot_vec, vec):
-    '''
-    Rotate the coordinate axis so that the z-axis is aligned with the direction of the rot_vec.
-    
-
-    Args:
-        rot_vec (TVector3): The vector to align the z-axis with.
-        vec (TVector3): The vector to rotate.
-
-    Returns:
-        TVector3: The rotated vector.
-    '''
-    vec_new = vec.Clone()
-    
-    # Define the rotation angles to allign with rot_vec direction
-    theta = rot_vec.Theta()
-    phi = rot_vec.Phi()
-    vec_new.RotateZ(-phi)
-    vec_new.RotateY(-theta)
-
-    return vec_new
 
 def project_4vec_euclidean_df(df, 
                               p_prefix='pred_tau_plus', 
@@ -424,18 +502,15 @@ def compare_analytical_pred_x(
 
         print(f"Saved x_{comp} plots to {output_dir}")
 
-def plot_loss(loss_values, val_loss_values, running_loss_values=None):
-    plt.figure()
-    plt.plot(range(2, len(loss_values)+1), loss_values[1:], label='train loss')
-    plt.plot(range(2, len(val_loss_values)+1), val_loss_values[1:], label='validation loss')
-    if running_loss_values is not None: plt.plot(range(2, len(running_loss_values)+1), running_loss_values[1:], label='running loss')
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
-    plt.legend()
-    plt.savefig(f'nn_plots/loss_vs_epoch_dummy.pdf')
-    plt.close()
-
 if __name__ == '__main__':
+
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument('--stages', '-s', help='a list of stages to run', type=int, nargs="+")
+    argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='dummy_ditau_nu_regression_model')
+    argparser.add_argument('--n_epochs', help='number of training epochs', type=int, default=10)
+    args = argparser.parse_args()
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     df = pd.read_pickle("dummy_z_ditau_events.pkl")
     
@@ -462,23 +537,30 @@ if __name__ == '__main__':
     print(f"Training dataset size: {len(train_dataset)}")
     print(f"Testing dataset size: {len(test_dataset)}")
 
+    num_epochs = args.n_epochs
     # hyperparameters
-    batch_size = 1024
-    lr = 0.001
-    weight_decay = 0.001
-    num_epochs = 100
-    n_hidden_layers = 4
-    n_nodes = 100
-    dropout = 0.
+    hp = {
+        'batch_size': 1024, # 1024
+        'lr': 0.0001, # 0.001
+        'weight_decay': 0.001, # 0.001
+        'n_hidden_layers': 4, # 4
+        'n_nodes': 100, # 100
+        'dropout': 0.0, # 0.0
+    }
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=n_hidden_layers, n_nodes=n_nodes, dropout=dropout)    
-    criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-    
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+    def setup_model_and_training(hp):
+
+        train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
+        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden_layers'], n_nodes=hp['n_nodes'], dropout=hp['dropout'])    
+        criterion = nn.MSELoss()
+        optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+        
+        model.to(device)
+
+        return model, criterion, optimizer, device, train_dataloader, test_dataloader
+
+    model, criterion, optimizer, device, train_dataloader, test_dataloader = setup_model_and_training(hp)
     
     
     loss_values = []
@@ -489,67 +571,83 @@ if __name__ == '__main__':
     train = True
     add_analytical_solutions = False
     test = True
-    
+
+
     if train:
     
         print("Starting training...")
+
+        best_val_loss, _ = train_model(
+            model,
+            train_dataloader,
+            test_dataloader,
+            criterion,
+            optimizer,
+            n_epochs=num_epochs,
+            device=device,
+            verbose=True,
+            recompute_train_loss=True,
+            early_stopper=early_stopper
+        )
     
-        for epoch in range(num_epochs):
-            #model.train()
-            running_loss= 0.0
-            for i, (X, y) in enumerate(train_dataloader):
-                # move data to GPU
-                X = X.to(device)
-                y = y.to(device)
-                optimizer.zero_grad()
-                outputs = model(X)
-                loss = criterion(outputs, y)
-                loss.backward()
-                optimizer.step()
+#        for epoch in range(num_epochs):
+#            #model.train()
+#            running_loss= 0.0
+#            for i, (X, y) in enumerate(train_dataloader):
+#                # move data to GPU
+#                X = X.to(device)
+#                y = y.to(device)
+#                optimizer.zero_grad()
+#                outputs = model(X)
+#                loss = criterion(outputs, y)
+#                loss.backward()
+#                optimizer.step()
+#    
+#                running_loss += loss.item()
+#    
+#            running_loss /= len(train_dataloader)
+#            running_loss_values.append(running_loss)
+#    
+#            # get the validation loss
+#            #model.eval()
+#            model.to(device)
+#            with torch.no_grad():
+#                val_loss = 0.0
+#                train_loss = 0.0
+#                for i, (X, y) in enumerate(train_dataloader):
+#                    X = X.to(device)
+#                    y = y.to(device)
+#                    outputs = model(X)
+#                    loss = criterion(outputs, y)
+#                    train_loss += loss.item()
+#                train_loss /= len(train_dataloader)
+#                loss_values.append(train_loss)
+#                val_loss = 0.0
+#                for i, (X, y) in enumerate(test_dataloader):
+#                    X = X.to(device)
+#                    y = y.to(device)
+#                    outputs = model(X)
+#                    loss = criterion(outputs, y)
+#                    val_loss += loss.item()
+#                val_loss /= len(test_dataloader)
+#                val_loss_values.append(val_loss)
+#    
+#                if early_stopper.early_stop(val_loss):
+#                    print(f"Early stopping triggered for epoch {epoch+1}")
+#                    break
+#    
+#            print(f'Epoch [{epoch+1}/{num_epochs}], loss: {train_loss:.6f}, val_loss: {val_loss:.6f}, running_loss: {running_loss:.6f}')
+#    
+#            if epoch > 1: plot_loss(loss_values, val_loss_values, running_loss_values)
     
-                running_loss += loss.item()
-    
-            running_loss /= len(train_dataloader)
-            running_loss_values.append(running_loss)
-    
-            # get the validation loss
-            #model.eval()
-            model.to(device)
-            with torch.no_grad():
-                val_loss = 0.0
-                train_loss = 0.0
-                for i, (X, y) in enumerate(train_dataloader):
-                    X = X.to(device)
-                    y = y.to(device)
-                    outputs = model(X)
-                    loss = criterion(outputs, y)
-                    train_loss += loss.item()
-                train_loss /= len(train_dataloader)
-                loss_values.append(train_loss)
-                val_loss = 0.0
-                for i, (X, y) in enumerate(test_dataloader):
-                    X = X.to(device)
-                    y = y.to(device)
-                    outputs = model(X)
-                    loss = criterion(outputs, y)
-                    val_loss += loss.item()
-                val_loss /= len(test_dataloader)
-                val_loss_values.append(val_loss)
-    
-                if early_stopper.early_stop(val_loss):
-                    print(f"Early stopping triggered for epoch {epoch+1}")
-                    break
-    
-            print(f'Epoch [{epoch+1}/{num_epochs}], loss: {train_loss:.6f}, val_loss: {val_loss:.6f}, running_loss: {running_loss:.6f}')
-    
-            if epoch > 1: plot_loss(loss_values, val_loss_values, running_loss_values)
-    
-        model_name = "dummy_ditau_nu_regression_model"
+        model_name = args.model_name
     
         torch.save(model.state_dict(), f'{model_name}.pth')
     
     
     if add_analytical_solutions:
+
+        print("Adding analytical solutions to test dataset...")
     
         import ROOT
         import sys
@@ -631,7 +729,7 @@ if __name__ == '__main__':
     
         print("Starting testing...")
     
-        model_name = "dummy_ditau_nu_regression_model"
+        model_name = args.model_name
         model_path = f'{model_name}.pth'
     
         try:
