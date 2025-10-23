@@ -138,15 +138,14 @@ class SimpleNN(nn.Module):
         x = self.layers(x)
         return x
 
-def plot_loss(loss_values, val_loss_values, running_loss_values=None):
+def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
     plt.figure()
-    plt.plot(range(1, len(loss_values)+1), loss_values[1:], label='train loss')
-    plt.plot(range(1, len(val_loss_values)+1), val_loss_values[1:], label='validation loss')
-    if running_loss_values is not None: plt.plot(range(1, len(running_loss_values)+1), running_loss_values[1:], label='running loss')
+    plt.plot(range(1, len(loss_values)+1), loss_values, label='train loss')
+    plt.plot(range(1, len(val_loss_values)+1), val_loss_values, label='validation loss')
     plt.xlabel('epoch')
     plt.ylabel('loss')
     plt.legend()
-    plt.savefig(f'nn_plots/loss_vs_epoch_dummy.pdf')
+    plt.savefig(f'{output_dir}/loss_vs_epoch_dummy.pdf')
     plt.close()
 
 def train_model(
@@ -159,7 +158,8 @@ def train_model(
     device="cpu",
     verbose=True,
     recompute_train_loss=True,
-    early_stopper=None
+    early_stopper=None,
+    output_plots_dir=None
 ):
     """
     Train a PyTorch model and evaluate performance, with optional recomputation
@@ -188,6 +188,8 @@ def train_model(
         the final model weights (more accurate but slower).
     early_stopper : EarlyStopper or None
         Early stopping mechanism to halt training when validation loss stops improving.
+    output_plots_dir : str or None
+        If given, directory to save loss plots after each epoch.
 
     Returns
     -------
@@ -259,7 +261,7 @@ def train_model(
                 f"Train: {train_loss:.6f} | Val: {val_loss:.6f}"
             )    
 
-        if epoch > 1: plot_loss(history["train_loss"], history["val_loss"])
+        if epoch > 1 and output_plots_dir: plot_loss(history["train_loss"], history["val_loss"], output_dir=output_plots_dir)
 
     return best_val_loss, history
 
@@ -510,6 +512,11 @@ if __name__ == '__main__':
     argparser.add_argument('--n_epochs', help='number of training epochs', type=int, default=10)
     args = argparser.parse_args()
 
+    # make output directory called outputs_{model_name}, with plots subdirectory
+    os.makedirs(f"outputs_{args.model_name}/plots", exist_ok=True)
+    output_dir = f"outputs_{args.model_name}"
+    output_plots_dir = f"outputs_{args.model_name}/plots"
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     df = pd.read_pickle("dummy_z_ditau_events.pkl")
@@ -517,8 +524,8 @@ if __name__ == '__main__':
     input_features = [ 'pi_minus_E', 'pi_minus_px', 'pi_minus_py', 'pi_minus_pz',
                        'pi_plus_E',  'pi_plus_px',  'pi_plus_py',  'pi_plus_pz' ]
     
-    output_features = [ 'nu_E', 'nu_px', 'nu_py', 'nu_pz',
-                        'nubar_E', 'nubar_px', 'nubar_py', 'nubar_pz' ]
+    output_features = [ 'nu_px', 'nu_py', 'nu_pz',
+                        'nubar_px', 'nubar_py', 'nubar_pz' ]
     
     train_size = int(0.8 * len(df))
     test_size = len(df) - train_size
@@ -532,8 +539,12 @@ if __name__ == '__main__':
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
     test_dataset = RegressionDataset(test_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
                                       input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
-    
-    
+
+    # store the means and stds used for normalization
+    np.savez(f'{output_dir}/normalization_params.npz',
+             input_mean=in_mean, input_std=in_std,
+             output_mean=out_mean, output_std=out_std)
+
     print(f"Training dataset size: {len(train_dataset)}")
     print(f"Testing dataset size: {len(test_dataset)}")
 
@@ -568,10 +579,9 @@ if __name__ == '__main__':
     running_loss_values = []
     early_stopper = EarlyStopper(patience=10, min_delta=0.)
     
-    train = True
-    add_analytical_solutions = False
-    test = True
-
+    train = 1 in args.stages
+    add_analytical_solutions = 2 in args.stages
+    test = 3 in args.stages
 
     if train:
     
@@ -587,62 +597,12 @@ if __name__ == '__main__':
             device=device,
             verbose=True,
             recompute_train_loss=True,
-            early_stopper=early_stopper
+            early_stopper=early_stopper,
+            output_plots_dir=output_plots_dir
         )
     
-#        for epoch in range(num_epochs):
-#            #model.train()
-#            running_loss= 0.0
-#            for i, (X, y) in enumerate(train_dataloader):
-#                # move data to GPU
-#                X = X.to(device)
-#                y = y.to(device)
-#                optimizer.zero_grad()
-#                outputs = model(X)
-#                loss = criterion(outputs, y)
-#                loss.backward()
-#                optimizer.step()
-#    
-#                running_loss += loss.item()
-#    
-#            running_loss /= len(train_dataloader)
-#            running_loss_values.append(running_loss)
-#    
-#            # get the validation loss
-#            #model.eval()
-#            model.to(device)
-#            with torch.no_grad():
-#                val_loss = 0.0
-#                train_loss = 0.0
-#                for i, (X, y) in enumerate(train_dataloader):
-#                    X = X.to(device)
-#                    y = y.to(device)
-#                    outputs = model(X)
-#                    loss = criterion(outputs, y)
-#                    train_loss += loss.item()
-#                train_loss /= len(train_dataloader)
-#                loss_values.append(train_loss)
-#                val_loss = 0.0
-#                for i, (X, y) in enumerate(test_dataloader):
-#                    X = X.to(device)
-#                    y = y.to(device)
-#                    outputs = model(X)
-#                    loss = criterion(outputs, y)
-#                    val_loss += loss.item()
-#                val_loss /= len(test_dataloader)
-#                val_loss_values.append(val_loss)
-#    
-#                if early_stopper.early_stop(val_loss):
-#                    print(f"Early stopping triggered for epoch {epoch+1}")
-#                    break
-#    
-#            print(f'Epoch [{epoch+1}/{num_epochs}], loss: {train_loss:.6f}, val_loss: {val_loss:.6f}, running_loss: {running_loss:.6f}')
-#    
-#            if epoch > 1: plot_loss(loss_values, val_loss_values, running_loss_values)
-    
         model_name = args.model_name
-    
-        torch.save(model.state_dict(), f'{model_name}.pth')
+        torch.save(model.state_dict(), f'{output_dir}/{model_name}.pth')
     
     
     if add_analytical_solutions:
@@ -653,9 +613,6 @@ if __name__ == '__main__':
         import sys
         sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
         from ReconstructTaus import ReconstructTauAnalytically, solve_abcd_values, compute_q
-    
-        #print length of test dataset
-        print(f"Test dataset size: {len(test_dataset)}")
     
         # loop over dataframe and add analytical solutions for each event
         
@@ -720,6 +677,8 @@ if __name__ == '__main__':
         test_df.to_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
     
     if test:
+
+        print("Starting testing...")
     
         import matplotlib.pyplot as plt
         import uproot3
@@ -730,7 +689,7 @@ if __name__ == '__main__':
         print("Starting testing...")
     
         model_name = args.model_name
-        model_path = f'{model_name}.pth'
+        model_path = f'{output_dir}/{model_name}.pth'
     
         try:
             model.load_state_dict(torch.load(model_path))
@@ -745,12 +704,36 @@ if __name__ == '__main__':
     
         # destandardize predictions so that they are in physical units
         predictions = test_dataset.destandardize_outputs(predictions_norm).numpy()
+
+        # predictions dont include E so we need to compute them
+        # compute E for nu and nubar
+        nu_px = predictions[:,0]
+        nu_py = predictions[:,1]
+        nu_pz = predictions[:,2]
+        nubar_px = predictions[:,3]
+        nubar_py = predictions[:,4]
+        nubar_pz = predictions[:,5]
+        nu_E = np.sqrt(nu_px**2 + nu_py**2 + nu_pz**2)
+        nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
+        predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
     
         true_values = test_df[output_features].values
+        # get E components for true values as well
+        true_nu_px = true_values[:,0]
+        true_nu_py = true_values[:,1]
+        true_nu_pz = true_values[:,2]
+        true_nubar_px = true_values[:,3]
+        true_nubar_py = true_values[:,4]
+        true_nubar_pz = true_values[:,5]
+        true_nu_E = np.sqrt(true_nu_px**2 + true_nu_py**2 + true_nu_pz**2)
+        true_nubar_E = np.sqrt(true_nubar_px**2 + true_nubar_py**2 + true_nubar_pz**2)
+        true_values = np.column_stack((true_nu_E, true_nu_px, true_nu_py, true_nu_pz,
+                                       true_nubar_E, true_nubar_px, true_nubar_py, true_nubar_pz))
     
         # get true taus by summing with pis
         pi_minus = test_df[['pi_minus_E', 'pi_minus_px', 'pi_minus_py', 'pi_minus_pz']].values
         pi_plus  = test_df[['pi_plus_E',  'pi_plus_px',  'pi_plus_py',  'pi_plus_pz']].values
+
         true_taus = true_values + np.concatenate([pi_minus, pi_plus], axis=1)
         pred_taus = predictions + np.concatenate([pi_minus, pi_plus], axis=1)
     
@@ -774,6 +757,12 @@ if __name__ == '__main__':
             for particle in ['nu', 'nubar', 'tau_plus', 'tau_minus']:
                 for comp in ['E', 'px', 'py', 'pz']:
                     results_df[f'analytical_sol_{sol}_{particle}_{comp}'] = test_df[f'analytical_sol_{sol}_{particle}_{comp}'].to_numpy()
+
+        # compute average of 2 analytical solutions and add to results_df
+        for particle in ['nu', 'nubar', 'tau_plus', 'tau_minus']:
+            for comp in ['E', 'px', 'py', 'pz']:
+                results_df[f'analytical_avg_{particle}_{comp}'] = 0.5 * (test_df[f'analytical_sol_0_{particle}_{comp}'].to_numpy() + test_df[f'analytical_sol_1_{particle}_{comp}'].to_numpy())
+
         # add analytical x and q as well
         for comp in ['E', 'px', 'py', 'pz']:
             results_df[f'analytical_x_{comp}'] = test_df[f'analytical_x_{comp}'].to_numpy()
@@ -810,15 +799,15 @@ if __name__ == '__main__':
     
         # make plots
     
-        compare_true_pred_kinematics(results_df, "nu")
-        compare_true_pred_kinematics(results_df, "nubar")
-        compare_true_pred_kinematics(results_df, "tau_minus")
-        compare_true_pred_kinematics(results_df, "tau_plus")
+        compare_true_pred_kinematics(results_df, "nu", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "nubar", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "tau_minus", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "tau_plus", output_dir=output_plots_dir)
     
-        compare_true_pred_kinematics(results_df, "nu_no_x")
-        compare_true_pred_kinematics(results_df, "nubar_no_x")
-        compare_true_pred_kinematics(results_df, "tau_minus_no_x")
-        compare_true_pred_kinematics(results_df, "tau_plus_no_x")
+        compare_true_pred_kinematics(results_df, "nu_no_x", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "nubar_no_x", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "tau_minus_no_x", output_dir=output_plots_dir)
+        compare_true_pred_kinematics(results_df, "tau_plus_no_x", output_dir=output_plots_dir)
     
-        compare_analytical_pred_x(results_df)
+        compare_analytical_pred_x(results_df, output_dir=output_plots_dir)
     
