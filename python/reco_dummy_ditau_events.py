@@ -109,7 +109,7 @@ class EarlyStopper:
 
 class SimpleNN(nn.Module):
 
-    def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes, dropout=0):
+    def __init__(self, input_dim, output_dim, n_hidden_layers, n_nodes, dropout=0, verbose=True):
         super(SimpleNN, self).__init__()
 
         layers = OrderedDict()
@@ -128,11 +128,12 @@ class SimpleNN(nn.Module):
 
         self.layers = nn.Sequential(layers)
 
-        # print a summry of the model
-        print('Model summary:')
-        print(self.layers)
-        n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        print(f'Number of parameters: {n_params}')
+        if verbose:
+            # print a summry of the model
+            print('Model summary:')
+            print(self.layers)
+            n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+            print(f'Number of parameters: {n_params}')
  
 
     def forward(self, x):
@@ -510,13 +511,14 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--stages', '-s', help='a list of stages to run', type=int, nargs="+")
     argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='dummy_ditau_nu_regression_model')
-    argparser.add_argument('--n_epochs', help='number of training epochs', type=int, default=10)
+    argparser.add_argument('--n_epochs', '-n', help='number of training epochs', type=int, default=10)
+    argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=10)
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
-    os.makedirs(f"outputs_{args.model_name}/plots", exist_ok=True)
-    output_dir = f"outputs_{args.model_name}"
-    output_plots_dir = f"outputs_{args.model_name}/plots"
+    output_dir = f"outputs_{args.model_name}_max_epochs_{args.n_epochs}"
+    output_plots_dir = f"{output_dir}/plots"
+    os.makedirs(output_plots_dir, exist_ok=True)
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -556,6 +558,121 @@ if __name__ == '__main__':
     add_analytical_solutions = 3 in args.stages
     test = 4 in args.stages
 
+    def setup_model_and_training(hp, verbose=True):
+
+        train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
+        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden_layers'], n_nodes=hp['n_nodes'], dropout=hp['dropout'], verbose=verbose)  
+        criterion = nn.MSELoss()
+        optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+        
+        model.to(device)
+
+        return model, criterion, optimizer, device, train_dataloader, test_dataloader
+
+    if optimize:
+        print("Starting hyperparameter optimization...")
+
+        import optuna
+        import torch.optim as optim
+        import optuna.visualization.matplotlib as optplt
+
+        def live_plot_callback(study, trial):
+            plt.figure(figsize=(6, 4))
+            optplt.plot_optimization_history(study)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history.pdf"))
+            plt.yscale("log")
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history_log.pdf"))
+            plt.close()
+
+            # now make a linear plot with high outliers removed
+
+            losses = np.array([t.value for t in study.trials if t.value is not None])
+
+            # Define cutoff for very large losses - e.g., 95th percentile
+            high_cut = np.quantile(losses, 0.95)
+
+            # Keep all trials with reasonable (non-outlier) losses
+            trimmed_trials = [t for t in study.trials if t.value is not None and t.value <= high_cut]
+
+            # Create a temporary filtered study for plotting
+            filtered_study = optuna.create_study(direction=study.direction)
+            filtered_study.add_trials(trimmed_trials)
+
+            plt.figure(figsize=(6, 4))
+            optplt.plot_optimization_history(filtered_study)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history_filtered.pdf"))
+            plt.close()
+
+        def objective(trial):
+
+            print(f"\n🔹 Starting trial {trial.number}...")
+            
+            hp = {
+                'batch_size': trial.suggest_categorical('batch_size', [128, 256, 512, 1024, 2048]),
+                'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+                'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
+                'n_hidden_layers': trial.suggest_int('n_hidden_layers', 2, 8),
+                'n_nodes': trial.suggest_int('n_nodes', 10, 300, step=10),
+                'dropout': trial.suggest_float('dropout', 0.0, 0.5, step=0.1),
+            }
+
+            #hp = {
+            #    'batch_size': 1024,
+            #    'lr': trial.suggest_loguniform('lr', 1e-5, 1e-2),
+            #    'weight_decay': 0.001,
+            #    'n_hidden_layers': trial.suggest_int('n_hidden_layers', 2, 6),
+            #    'n_nodes': trial.suggest_categorical('n_nodes', [32, 64, 128, 256]),
+            #    'dropout': 0.0,
+            #}
+
+            model, criterion, optimizer, device, train_loader, val_loader = setup_model_and_training(hp, verbose=False)
+
+            es = EarlyStopper(patience=5, min_delta=0.)
+
+            best_val_loss, _ = train_model(
+                model,
+                train_loader,
+                val_loader,
+                criterion,
+                optimizer,
+                n_epochs=num_epochs,
+                device=device,
+                verbose=False,
+                recompute_train_loss=False,
+                early_stopper=es,
+            )
+
+            return best_val_loss
+
+        db_path = os.path.join(output_dir, "nn_optuna_study.db")
+
+        study = optuna.create_study(
+            study_name="nn_hyperparam_optimization",
+            direction="minimize",
+            storage=f"sqlite:///{db_path}",  # store the study in the output_dir
+            load_if_exists=True  # if file exists, load it instead of creating new
+        )
+
+        study.optimize(objective, n_trials=args.n_trials, callbacks=[live_plot_callback])
+
+        best_trial = study.best_trial
+
+        print("Best trial:")
+        print(f"  Validation loss: {best_trial.value:.6f}")
+        print("  Hyperparameters:")
+        for key, value in best_trial.params.items():
+            print(f"    {key}: {value}")
+        # also print the hyper parameters that were fixed
+        fixed_hyperparams = {k: v for k, v in hp.items() if k not in best_trial.params}
+        print("  Fixed hyperparameters:")
+        for key, value in fixed_hyperparams.items():
+            print(f"    {key}: {value}")
+
+        exit()
+
     # hyperparameters
     hp = {
         'batch_size': 1024, # 1024
@@ -566,20 +683,17 @@ if __name__ == '__main__':
         'dropout': 0.0, # 0.0
     }
 
-    if optimize:
-        print("Starting hyperparameter optimization...")
-
-    def setup_model_and_training(hp):
-
-        train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
-        test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
-        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden_layers'], n_nodes=hp['n_nodes'], dropout=hp['dropout'])    
-        criterion = nn.MSELoss()
-        optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
-        
-        model.to(device)
-
-        return model, criterion, optimizer, device, train_dataloader, test_dataloader
+    # check if optuna file exists in output_dir, if so load hyper parameters from there and overwrite hp dictionary
+    db_path = os.path.join(output_dir, "nn_optuna_study.db")
+    if os.path.exists(db_path):
+        print("Loading hyperparameters from Optuna study...")
+        study = optuna.load_study(study_name="nn_hyperparam_optimization", storage=f"sqlite:///{db_path}")
+        best_trial = study.best_trial
+        hp.update(best_trial.params)
+    
+    print("Using hyperparameters:")
+    for key, value in hp.items():
+        print(f"  {key}: {value}")
 
     model, criterion, optimizer, device, train_dataloader, test_dataloader = setup_model_and_training(hp)
     
