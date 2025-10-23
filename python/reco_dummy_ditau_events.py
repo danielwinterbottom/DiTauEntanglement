@@ -8,6 +8,7 @@ from collections import OrderedDict
 import matplotlib.pyplot as plt
 import os
 import argparse
+import optuna
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features, 
@@ -161,6 +162,7 @@ def train_model(
     verbose=True,
     recompute_train_loss=True,
     early_stopper=None,
+    scheduler=None,
     output_plots_dir=None
 ):
     """
@@ -252,19 +254,26 @@ def train_model(
             print(f"Early stopping triggered for epoch {epoch+1}")
             break
 
+        if scheduler:
+            lr = scheduler.get_last_lr()
+            scheduler.step(val_loss)
+
         # --- Store results ---
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
 
         if verbose:
             width = len(str(n_epochs))
+            LR_string = f" | LR: {lr[0]:.2e}" if scheduler else ""
             print(
                 f"Epoch {epoch:{width}d}/{n_epochs} | "
                 f"Train: {train_loss:.6f} | Val: {val_loss:.6f}"
-            )    
+                f"{LR_string}"
+            )
 
         if epoch > 1 and output_plots_dir: plot_loss(history["train_loss"], history["val_loss"], output_dir=output_plots_dir)
 
+    print("Training Completed. Trained for {} epochs.".format(epoch))
     return best_val_loss, history
 
 def combined_schedule(epoch, peak_lr, low_lr, start_epochs, ramp_epochs, gamma):
@@ -512,7 +521,7 @@ if __name__ == '__main__':
     argparser.add_argument('--stages', '-s', help='a list of stages to run', type=int, nargs="+")
     argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='dummy_ditau_nu_regression_model')
     argparser.add_argument('--n_epochs', '-n', help='number of training epochs', type=int, default=10)
-    argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=10)
+    argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=100)
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -558,6 +567,7 @@ if __name__ == '__main__':
     add_analytical_solutions = 3 in args.stages
     test = 4 in args.stages
 
+
     def setup_model_and_training(hp, verbose=True):
 
         train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
@@ -565,15 +575,15 @@ if __name__ == '__main__':
         model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden_layers'], n_nodes=hp['n_nodes'], dropout=hp['dropout'], verbose=verbose)  
         criterion = nn.MSELoss()
         optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1**.5, min_lr=1e-6, verbose=True)
         
         model.to(device)
 
-        return model, criterion, optimizer, device, train_dataloader, test_dataloader
+        return model, criterion, optimizer, device, train_dataloader, test_dataloader, scheduler
 
     if optimize:
         print("Starting hyperparameter optimization...")
 
-        import optuna
         import torch.optim as optim
         import optuna.visualization.matplotlib as optplt
 
@@ -609,7 +619,7 @@ if __name__ == '__main__':
         def objective(trial):
 
             print(f"\n🔹 Starting trial {trial.number}...")
-            
+
             hp = {
                 'batch_size': trial.suggest_categorical('batch_size', [128, 256, 512, 1024, 2048]),
                 'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
@@ -628,9 +638,9 @@ if __name__ == '__main__':
             #    'dropout': 0.0,
             #}
 
-            model, criterion, optimizer, device, train_loader, val_loader = setup_model_and_training(hp, verbose=False)
+            model, criterion, optimizer, device, train_loader, val_loader, scheduler = setup_model_and_training(hp, verbose=False)
 
-            es = EarlyStopper(patience=5, min_delta=0.)
+            es = EarlyStopper(patience=10, min_delta=0.)
 
             best_val_loss, _ = train_model(
                 model,
@@ -643,6 +653,7 @@ if __name__ == '__main__':
                 verbose=False,
                 recompute_train_loss=False,
                 early_stopper=es,
+                scheduler=scheduler,
             )
 
             return best_val_loss
@@ -695,7 +706,7 @@ if __name__ == '__main__':
     for key, value in hp.items():
         print(f"  {key}: {value}")
 
-    model, criterion, optimizer, device, train_dataloader, test_dataloader = setup_model_and_training(hp)
+    model, criterion, optimizer, device, train_dataloader, test_dataloader, scheduler = setup_model_and_training(hp)
     
     early_stopper = EarlyStopper(patience=10, min_delta=0.)
 
@@ -714,6 +725,7 @@ if __name__ == '__main__':
             verbose=True,
             recompute_train_loss=True,
             early_stopper=early_stopper,
+            scheduler=scheduler,
             output_plots_dir=output_plots_dir
         )
     
@@ -768,8 +780,8 @@ if __name__ == '__main__':
                 an_sol_taup = solution[0]
                 an_sol_taun = solution[1]
     
-                an_sol_nu = an_sol_taup - P_taup_pi
-                an_sol_nubar = an_sol_taun - P_taun_pi
+                an_sol_nu = an_sol_taun - P_taun_pi
+                an_sol_nubar = an_sol_taup - P_taup_pi
     
                 # store analytical solutions on the dataframe
                 test_df.at[index, f'analytical_sol_{i}_nu_E'] = an_sol_nu.E()
