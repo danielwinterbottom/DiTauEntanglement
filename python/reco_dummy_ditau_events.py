@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 import optuna
+from schedules import CosineAnnealingExpDecayLR
+
+from FourVecNN import *
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features, 
@@ -84,6 +87,7 @@ class RegressionDataset(Dataset):
         """
         Convert standardized outputs back to physical units.
         """
+        #return y_norm * self.output_std + self.output_mean
         device = y_norm.device
         return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
@@ -141,6 +145,58 @@ class SimpleNN(nn.Module):
         x = self.layers(x)
         return x
 
+class ResidualBlock(nn.Module):
+    def __init__(self, n_nodes, n_layers, dropout=0.0):
+        super(ResidualBlock, self).__init__()
+
+        layers = []
+        for i in range(n_layers):
+            layers.append(nn.Linear(n_nodes, n_nodes))
+            layers.append(nn.BatchNorm1d(n_nodes))
+            # ReLU + Dropout for all but the last layer
+            if i < n_layers - 1:
+                layers.append(nn.ReLU())
+                if dropout > 0:
+                    layers.append(nn.Dropout(dropout))
+
+        self.layers = nn.Sequential(*layers)
+        self.final_activation = nn.ReLU()
+
+    def forward(self, x):
+        out = self.layers(x)
+        out = out + x
+        out = self.final_activation(out)
+        return out
+
+class ResidualNN(nn.Module):
+    def __init__(self, input_dim, output_dim, n_hidden_blocks, n_nodes,
+                 n_layers_per_block=2, dropout=0.0, verbose=True):
+        super(ResidualNN, self).__init__()
+
+        self.input_block = nn.Sequential(OrderedDict([
+            ('input', nn.Linear(input_dim, n_nodes)),
+            ('bn_input', nn.BatchNorm1d(n_nodes)),
+            ('relu_input', nn.ReLU())
+        ]))
+
+        self.res_blocks = nn.Sequential(
+            *[ResidualBlock(n_nodes, n_layers_per_block, dropout) for _ in range(n_hidden_blocks)]
+        )
+
+        self.output_layer = nn.Linear(n_nodes, output_dim)
+
+        if verbose:
+            print('Residual Model summary:')
+            print(self)
+            n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+            print(f'Number of parameters: {n_params}')
+
+    def forward(self, x):
+        x = self.input_block(x)
+        x = self.res_blocks(x)
+        x = self.output_layer(x)
+        return x
+
 def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
     plt.figure()
     plt.plot(range(1, len(loss_values)+1), loss_values, label='train loss')
@@ -163,7 +219,8 @@ def train_model(
     recompute_train_loss=True,
     early_stopper=None,
     scheduler=None,
-    output_plots_dir=None
+    output_plots_dir=None,
+    save_every_N=None,
 ):
     """
     Train a PyTorch model and evaluate performance, with optional recomputation
@@ -272,6 +329,9 @@ def train_model(
             )
 
         if epoch > 1 and output_plots_dir: plot_loss(history["train_loss"], history["val_loss"], output_dir=output_plots_dir)
+        if save_every_N and epoch % save_every_N == 0 and output_plots_dir:
+            print(f"Saving model checkpoint at epoch {epoch}...")
+            torch.save(model.state_dict(), f'{output_plots_dir}/partial_model.pth')
 
     print("Training Completed. Trained for {} epochs.".format(epoch))
     return best_val_loss, history
@@ -515,13 +575,76 @@ def compare_analytical_pred_x(
 
         print(f"Saved x_{comp} plots to {output_dir}")
 
+def mass_plots(
+    df,
+    bins=60,
+    output_dir="nn_plots",
+    frac=0.95,
+):
+    """
+    Generate and save plots comparing predicted tau and Z boson masses.
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing 'pred_tau_minus_mass', 'pred_tau_plus_mass', and 'pred_z_mass' columns.
+    bins : int
+        Number of histogram bins.
+    output_dir : str
+        Directory to save plots.
+    frac : float
+        Fraction of events to keep for axis limits (e.g. 0.99 keeps central 99%).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    mass_columns = {
+        'pred_tau_minus_mass': 'Tau Minus Mass [GeV]',
+        'pred_tau_plus_mass': 'Tau Plus Mass [GeV]',
+        'pred_z_mass': 'Z Boson Mass [GeV]'
+    }
+
+    for col, label in mass_columns.items():
+        if col not in df.columns:
+            print(f"Skipping {col}: column not found.")
+            continue
+
+        mass_vals = df[col].to_numpy()
+
+        # --- 1. Shape comparison
+        plt.figure(figsize=(5.5, 3.8))
+        plt.hist(mass_vals, bins=bins, alpha=0.7, label="Predicted", density=True, histtype="stepfilled")
+
+        # Add mean & RMS annotation
+        txt = f"μ={np.mean(mass_vals):.2f}, σ={np.std(mass_vals):.2f}"
+        plt.text(
+            0.97, 0.95, txt, transform=plt.gca().transAxes,
+            fontsize=9, ha="right", va="top",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.7, edgecolor="none")
+        )
+
+        plt.xlabel(label)
+        plt.ylabel("Normalized counts")
+        # draw dashed line at 1.777 for tau mass plots and at 91 for Z mass plot
+        if 'tau' in col:
+            plt.axvline(x=1.777, color='r', linestyle='--', label='True Tau Mass')
+        elif 'z' in col:
+            plt.axvline(x=91., color='r', linestyle='--', label='True Z Mass')
+
+        plt.legend(frameon=False)
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"{col}_shape.pdf"))
+        plt.close()
+
+        print(f"Saved PDF plot with stats for {col}")
+
+
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--stages', '-s', help='a list of stages to run', type=int, nargs="+")
-    argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='dummy_ditau_nu_regression_model')
+    argparser.add_argument('--model_name', '-m', help='the name of the model output name', type=str, default='dummy_ditau_nu_regression_model_residualNN')
     argparser.add_argument('--n_epochs', '-n', help='number of training epochs', type=int, default=10)
     argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=100)
+    argparser.add_argument('--more_events', help='use the 10M event sample', action='store_true', default=False)
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -531,7 +654,9 @@ if __name__ == '__main__':
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    df = pd.read_pickle("dummy_z_ditau_events.pkl")
+    if args.more_events:
+        df = pd.read_pickle("dummy_z_ditau_events_10M.pkl")
+    else: df = pd.read_pickle("dummy_z_ditau_events.pkl")
     
     input_features = [ 'pi_minus_E', 'pi_minus_px', 'pi_minus_py', 'pi_minus_pz',
                        'pi_plus_E',  'pi_plus_px',  'pi_plus_py',  'pi_plus_pz' ]
@@ -567,16 +692,21 @@ if __name__ == '__main__':
     add_analytical_solutions = 3 in args.stages
     test = 4 in args.stages
 
+    residualNN = True
+
 
     def setup_model_and_training(hp, verbose=True):
 
         train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
         test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
-        model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden_layers'], n_nodes=hp['n_nodes'], dropout=hp['dropout'], verbose=verbose)  
+        if residualNN:
+            model = ResidualNN(len(input_features), len(output_features), n_hidden_blocks=hp['n_hidden'], n_nodes=hp['n_nodes'], dropout=hp['dropout'], verbose=verbose)
+        else:
+            model = SimpleNN(len(input_features), len(output_features), n_hidden_layers=hp['n_hidden'], n_nodes=hp['n_nodes'], dropout=hp['dropout'], verbose=verbose)  
         criterion = nn.MSELoss()
         optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.1**.5, min_lr=1e-6, verbose=True)
-        
+
         model.to(device)
 
         return model, criterion, optimizer, device, train_dataloader, test_dataloader, scheduler
@@ -620,23 +750,34 @@ if __name__ == '__main__':
 
             print(f"\n🔹 Starting trial {trial.number}...")
 
-            hp = {
-                'batch_size': trial.suggest_categorical('batch_size', [128, 256, 512, 1024, 2048]),
-                'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
-                'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
-                'n_hidden_layers': trial.suggest_int('n_hidden_layers', 2, 8),
-                'n_nodes': trial.suggest_int('n_nodes', 10, 300, step=10),
-                'dropout': trial.suggest_float('dropout', 0.0, 0.5, step=0.1),
-            }
-
-            #hp = {
-            #    'batch_size': 1024,
-            #    'lr': trial.suggest_loguniform('lr', 1e-5, 1e-2),
-            #    'weight_decay': 0.001,
-            #    'n_hidden_layers': trial.suggest_int('n_hidden_layers', 2, 6),
-            #    'n_nodes': trial.suggest_categorical('n_nodes', [32, 64, 128, 256]),
-            #    'dropout': 0.0,
-            #}
+            if args.more_events:
+                if residualNN:
+                    hp = {
+                        'batch_size': trial.suggest_categorical('batch_size', [1024, 2048, 4096, 8192]),
+                        'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+                        'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
+                        'n_hidden': trial.suggest_int('n_hidden', 1, 8),
+                        'n_nodes': trial.suggest_int('n_nodes', 50, 300, step=50),
+                        'dropout': 0.0,
+                    }
+                else:
+                    hp = {
+                        'batch_size': trial.suggest_categorical('batch_size', [1024, 2048, 4096, 8192]),
+                        'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+                        'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
+                        'n_hidden': trial.suggest_int('n_hidden', 2, 8),
+                        'n_nodes': trial.suggest_int('n_nodes', 50, 300, step=50),
+                        'dropout': trial.suggest_float('dropout', 0.0, 0.5, step=0.1),
+                    }
+            else:
+                hp = {
+                    'batch_size': trial.suggest_categorical('batch_size', [128, 256, 512, 1024, 2048]),
+                    'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+                    'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-2, log=True),
+                    'n_hidden': trial.suggest_int('n_hidden', 2, 8),
+                    'n_nodes': trial.suggest_int('n_nodes', 10, 300, step=10),
+                    'dropout': trial.suggest_float('dropout', 0.0, 0.5, step=0.1),
+                }
 
             model, criterion, optimizer, device, train_loader, val_loader, scheduler = setup_model_and_training(hp, verbose=False)
 
@@ -686,13 +827,23 @@ if __name__ == '__main__':
 
     # hyperparameters
     hp = {
-        'batch_size': 1024, # 1024
-        'lr': 0.0001, # 0.001
-        'weight_decay': 0.001, # 0.001
-        'n_hidden_layers': 4, # 4
-        'n_nodes': 100, # 100
-        'dropout': 0.0, # 0.0
+        'batch_size': 2048,
+        'lr': 0.0031,
+        'weight_decay': 0.0066,
+        'n_hidden': 3,
+        'n_nodes': 250,
+        'dropout': 0.0,
     }
+    if residualNN:
+        #{'batch_size': 1024, 'lr': 0.0006621113942001246, 'weight_decay': 0.001147416174747807, 'n_hidden': 8, 'n_nodes': 150}.
+        hp = {
+            'batch_size': 1024,
+            'lr':  0.0006621113942001246,
+            'weight_decay': 0.001147416174747807,
+            'n_hidden': 8,
+            'n_nodes': 150,
+            'dropout': 0.0,
+        }
 
     # check if optuna file exists in output_dir, if so load hyper parameters from there and overwrite hp dictionary
     db_path = os.path.join(output_dir, "nn_optuna_study.db")
@@ -700,6 +851,9 @@ if __name__ == '__main__':
         print("Loading hyperparameters from Optuna study...")
         study = optuna.load_study(study_name="nn_hyperparam_optimization", storage=f"sqlite:///{db_path}")
         best_trial = study.best_trial
+        #print best trial number
+        print(f"Best trial number: {best_trial.number}")
+        print(f"Best trial validation loss: {best_trial.value:.6f}")
         hp.update(best_trial.params)
     
     print("Using hyperparameters:")
@@ -724,9 +878,10 @@ if __name__ == '__main__':
             device=device,
             verbose=True,
             recompute_train_loss=True,
-            early_stopper=early_stopper,
+            #early_stopper=early_stopper,
             scheduler=scheduler,
-            output_plots_dir=output_plots_dir
+            output_plots_dir=output_plots_dir,
+            save_every_N=10
         )
     
         model_name = args.model_name
@@ -746,6 +901,10 @@ if __name__ == '__main__':
         
         P_Z = ROOT.TLorentzVector(0,0,0,91.0) # Z boson at rest
         for index, row in test_df.iterrows():
+
+            # print every 100000 events
+            if index % 100000 == 0:
+                print(f"Processing event {index} / {len(test_df)}")
     
             P_taun_pi = ROOT.TLorentzVector(row['pi_minus_px'], row['pi_minus_py'], row['pi_minus_pz'], row['pi_minus_E'])
             P_taup_pi  = ROOT.TLorentzVector(row['pi_plus_px'],  row['pi_plus_py'],  row['pi_plus_pz'],  row['pi_plus_E'])
@@ -802,7 +961,10 @@ if __name__ == '__main__':
                 test_df.at[index, f'analytical_sol_{i}_tau_minus_pz'] = an_sol_taun.Pz()
     
         # save test_df with analytical solutions added
-        test_df.to_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
+        if args.more_events:
+            test_df.to_pickle("dummy_ditau_events_10M_test_df_with_analytical_solutions.pkl")
+        else:
+            test_df.to_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
     
     if test:
 
@@ -812,7 +974,10 @@ if __name__ == '__main__':
         import uproot3
     
         # load test dataframe with analytical solutions added
-        test_df = pd.read_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
+        if args.more_events:
+            test_df = pd.read_pickle("dummy_ditau_events_10M_test_df_with_analytical_solutions.pkl")
+        else:
+            test_df = pd.read_pickle("dummy_ditau_events_test_df_with_analytical_solutions.pkl")
 
     
         model_name = args.model_name
@@ -880,6 +1045,15 @@ if __name__ == '__main__':
                                             'pi_plus_E',  'pi_plus_px',  'pi_plus_py',  'pi_plus_pz'
                                            ])
     
+        # compute predicted mass of taus and Z boson and store on dataframe
+        pred_tau_minus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
+        pred_tau_plus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
+        pred_z_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
+        results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
+        results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
+        results_df['pred_z_mass'] = pred_z_mass
+
+
         # add analytical results from test_df to results_df, loop obver E, px, py, pz, loop over particle types, loop over sol 0 and 1
         for sol in [0,1]:
             for particle in ['nu', 'nubar', 'tau_plus', 'tau_minus']:
@@ -890,6 +1064,14 @@ if __name__ == '__main__':
         for particle in ['nu', 'nubar', 'tau_plus', 'tau_minus']:
             for comp in ['E', 'px', 'py', 'pz']:
                 results_df[f'analytical_avg_{particle}_{comp}'] = 0.5 * (test_df[f'analytical_sol_0_{particle}_{comp}'].to_numpy() + test_df[f'analytical_sol_1_{particle}_{comp}'].to_numpy())
+
+        # get average analytical tau masses and z masses and add to results_df
+        analytical_tau_minus_mass = np.sqrt(np.maximum(results_df['analytical_avg_tau_minus_E']**2 - results_df['analytical_avg_tau_minus_px']**2 - results_df['analytical_avg_tau_minus_py']**2 - results_df['analytical_avg_tau_minus_pz']**2, 0))
+        analytical_tau_plus_mass  = np.sqrt(np.maximum(results_df['analytical_avg_tau_plus_E']**2 - results_df['analytical_avg_tau_plus_px']**2 - results_df['analytical_avg_tau_plus_py']**2 - results_df['analytical_avg_tau_plus_pz']**2, 0))
+        analytical_z_mass = np.sqrt(np.maximum((results_df['analytical_avg_tau_minus_E'] + results_df['analytical_avg_tau_plus_E'])**2 - (results_df['analytical_avg_tau_minus_px'] + results_df['analytical_avg_tau_plus_px'])**2 - (results_df['analytical_avg_tau_minus_py'] + results_df['analytical_avg_tau_plus_py'])**2 - (results_df['analytical_avg_tau_minus_pz'] + results_df['analytical_avg_tau_plus_pz'])**2, 0))
+        results_df['analytical_avg_tau_minus_mass'] = analytical_tau_minus_mass
+        results_df['analytical_avg_tau_plus_mass'] = analytical_tau_plus_mass
+        results_df['analytical_avg_z_mass'] = analytical_z_mass
 
         # add analytical x and q as well
         for comp in ['E', 'px', 'py', 'pz']:
@@ -938,4 +1120,6 @@ if __name__ == '__main__':
         compare_true_pred_kinematics(results_df, "tau_plus_no_x", output_dir=output_plots_dir)
     
         compare_analytical_pred_x(results_df, output_dir=output_plots_dir)
+
+        mass_plots(results_df, output_dir=output_plots_dir)
     
