@@ -28,8 +28,10 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
         print(f"Total number of model parameters: {total_params}")
     optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
-    gamma = -math.log(0.1)/(40 * len(train_dataloader))
-    scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
+    #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
+    #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
+
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=0.0)    
 
     # check if reload is true, if so load model from output_dir if it exists
     if reload:
@@ -103,6 +105,11 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
+
+        # save model if its loss is better than the previous best
+        if val_loss < best_val_loss and output_plots_dir:
+            print(f"New best model found at epoch {epoch} with val_loss {val_loss}. Saving model...")
+            torch.save(model.state_dict(), f'{output_plots_dir}/best_model.pth')
         best_val_loss = min(best_val_loss, val_loss)
 
         if verbose and epoch % 1 == 0:
@@ -128,6 +135,73 @@ def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
     plt.legend()
     plt.savefig(f'{output_dir}/loss_vs_epoch_dummy.pdf')
     plt.close()
+
+def save_sampled_pdfs(
+    model,
+    dataset,
+    df,
+    output_features,
+    event_number,
+    num_samples=50000,
+    bins=100,
+    outdir="pdf_slices_sampled"
+):
+    """
+    Estimate 1D marginals p(x_i | context) by directly sampling the conditional flow
+    and plotting *normalized histograms* (no KDE).
+    """
+
+    os.makedirs(outdir, exist_ok=True)
+
+    model.eval()
+
+    X = dataset.X
+    y = dataset.y
+
+    # select just one event from row = event_number
+
+    X = X[event_number].unsqueeze(0)
+
+    with torch.no_grad():
+        predictions_norm = model.sample(num_samples=num_samples, context=X).squeeze()
+
+    predictions = dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+
+
+    n_bins = bins   # preserve the integer
+
+    for i, v in enumerate(output_features):
+
+        # find binning to show 98% of the PDF distribution
+        v_values = predictions[:, i]
+        lower_bound = np.percentile(v_values, 0.5)
+        upper_bound = np.percentile(v_values, 99.5)
+        bins = np.linspace(lower_bound, upper_bound, n_bins)
+
+        pred_i = predictions[:, i]
+        plt.figure(figsize=(6, 4))
+        plt.hist(pred_i, bins=bins, density=True, histtype='step', linewidth=2)
+        # draw true value as an arrow
+        true_value = dataset.destandardize_outputs(y[event_number].unsqueeze(0)).cpu().numpy()[0, i]
+        plt.axvline(true_value, color='r', linestyle='--', linewidth=2, label='True Value')
+
+        # also get analytical solutions if available
+        analytical_col_0 = f'ana_pred_{v}'
+        analytical_col_1 = f'ana_alt_pred_{v}'
+        
+        if analytical_col_0 in df.columns and analytical_col_1 in df.columns:
+            analytical_sol_0 = df.iloc[event_number][analytical_col_0]
+            analytical_sol_1 = df.iloc[event_number][analytical_col_1]
+            plt.axvline(analytical_sol_0, color='g', linestyle='--', linewidth=2, label='Preferred Analytical Solution')
+            plt.axvline(analytical_sol_1, color='b', linestyle=':', linewidth=2, label='Alternative Analytical Solution')
+            plt.legend()
+
+        plt.xlabel(v)
+        plt.ylabel("pdf (sampled)")
+        plt.title(f"Sampled p({v} | context of event {event_number})")
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
+        plt.close()
 
 if __name__ == '__main__':
 
@@ -157,6 +231,14 @@ if __name__ == '__main__':
                        'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
                        'BS_x', 'BS_y', 'BS_z',
                        'taup_haspizero', 'taun_haspizero']
+
+    if args.inc_reco_taus:
+        input_features += [
+            'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
+            'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
+            'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
+        ]
 
     output_features = [
         'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
@@ -245,6 +327,94 @@ if __name__ == '__main__':
              output_mean=out_mean, output_std=out_std)
 
     # leave stage 2 for not - this will involve optimising NN using optuna
+    if 2 in args.stages:
+        print("Starting hyperparameter optimization...")
+
+        import optuna
+        import optuna.visualization.matplotlib as optplt
+
+        def live_plot_callback(study, trial):
+            plt.figure(figsize=(6, 4))
+            optplt.plot_optimization_history(study)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history.pdf"))
+            plt.yscale("log")
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history_log.pdf"))
+            plt.close()
+
+            # now make a linear plot with high outliers removed
+
+            losses = np.array([t.value for t in study.trials if t.value is not None])
+
+            # Define cutoff for very large losses - e.g., 95th percentile
+            high_cut = np.quantile(losses, 0.95)
+
+            # Keep all trials with reasonable (non-outlier) losses
+            trimmed_trials = [t for t in study.trials if t.value is not None and t.value <= high_cut]
+
+            # Create a temporary filtered study for plotting
+            filtered_study = optuna.create_study(direction=study.direction)
+            filtered_study.add_trials(trimmed_trials)
+
+            plt.figure(figsize=(6, 4))
+            optplt.plot_optimization_history(filtered_study)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_plots_dir, "optimization_history_filtered.pdf"))
+            plt.close()
+
+        def objective(trial):
+
+            print(f"\n🔹 Starting trial {trial.number}...")
+
+            hp = {
+                'batch_size': trial.suggest_categorical('batch_size', [2048, 4096, 8192, 16384]),
+                'num_layers': trial.suggest_int('num_layers', 2, 10),
+                'num_bins': trial.suggest_int('num_bins', 8, 20, step=2),
+                'tail_bound': trial.suggest_float('tail_bound', 1.0, 5.0, step=1.0),
+                'hidden_size': trial.suggest_int('hidden_size', 50, 300, step=50),
+                'num_blocks': trial.suggest_int('num_blocks', 1, 2),
+                'affine_hidden_size': trial.suggest_int('affine_hidden_size', 50, 300, step=50),
+                'affine_num_blocks': trial.suggest_int('affine_num_blocks', 1, 2),
+                'lr': trial.suggest_loguniform('lr', 1e-6, 1e-2),
+                'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
+                'weight_decay': trial.suggest_loguniform('weight_decay', 1e-6, 1e-3),
+                'condition_net_hidden_size': trial.suggest_int('condition_net_hidden_size', 50, 300, step=50),
+                'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 1, 5),
+                'condition_net_output_size': trial.suggest_int('condition_net_output_size', 6, 30),
+                'num_epochs': args.n_epochs,
+            }
+
+            model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, verbose=False)
+
+            best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=num_epochs, device=device, verbose=False, output_plots_dir=None,
+                save_every_N=None, scheduler=scheduler, recompute_train_loss=False,)
+
+            return best_val_loss
+        db_path = os.path.join(output_dir, "nn_optuna_study.db")
+
+        study = optuna.create_study(
+            study_name="nn_hyperparam_optimization",
+            direction="minimize",
+            storage=f"sqlite:///{db_path}",  # store the study in the output_dir
+            load_if_exists=True  # if file exists, load it instead of creating new
+        )
+
+        study.optimize(objective, n_trials=args.n_trials, callbacks=[live_plot_callback])
+
+        best_trial = study.best_trial
+
+        print("Best trial:")
+        print(f"  Validation loss: {best_trial.value:.6f}")
+        print("  Hyperparameters:")
+        for key, value in best_trial.params.items():
+            print(f"    {key}: {value}")
+        # also print the hyper parameters that were fixed
+        fixed_hyperparams = {k: v for k, v in hp.items() if k not in best_trial.params}
+        print("  Fixed hyperparameters:")
+        for key, value in fixed_hyperparams.items():
+            print(f"    {key}: {value}")
+
+        exit()
 
     # load the model with the best hyperparameters found in stage 2
     # for now we just hard code the hyperparameters
@@ -259,9 +429,11 @@ if __name__ == '__main__':
         'affine_num_blocks': 1,
         'lr': 0.001,
         'weight_decay': 1e-4,
+        'epochs_to_10perc_lr': 100,
         'condition_net_hidden_size': 200,
         'condition_net_num_blocks': 4,
         'condition_net_output_size': 20,
+        'num_epochs': args.n_epochs,
     }
     model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
 
@@ -282,8 +454,7 @@ if __name__ == '__main__':
 
         print('Evaluating final model on test dataset...')
 
-        model_name = args.model_name
-        model_path = f'{output_dir}/{model_name}.pth'
+        model_path = f'{output_dir}/best_model.pth'
         # check if model exists, if not take  partial model
         if not os.path.exists(model_path):
             model_path = f'{output_plots_dir}/partial_model.pth'
@@ -310,24 +481,25 @@ if __name__ == '__main__':
 
         # predictions dont include E so we need to compute them
         # compute E for nu and nubar
-        nu_px = predictions[:,0]
-        nu_py = predictions[:,1]
-        nu_pz = predictions[:,2]
-        nubar_px = predictions[:,3]
-        nubar_py = predictions[:,4]
-        nubar_pz = predictions[:,5]
+        nubar_px = predictions[:,0]
+        nubar_py = predictions[:,1]
+        nubar_pz = predictions[:,2]
+        nu_px = predictions[:,3]
+        nu_py = predictions[:,4]
+        nu_pz = predictions[:,5]
         nu_E = np.sqrt(nu_px**2 + nu_py**2 + nu_pz**2)
         nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
         predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
+
         true_values = test_df[output_features].values
 
         # get E components for true values as well
-        true_nu_px = true_values[:,0]
-        true_nu_py = true_values[:,1]
-        true_nu_pz = true_values[:,2]
-        true_nubar_px = true_values[:,3]
-        true_nubar_py = true_values[:,4]
-        true_nubar_pz = true_values[:,5]
+        true_nubar_px = true_values[:,0]
+        true_nubar_py = true_values[:,1]
+        true_nubar_pz = true_values[:,2]
+        true_nu_px = true_values[:,3]
+        true_nu_py = true_values[:,4]
+        true_nu_pz = true_values[:,5]
         true_nu_E = np.sqrt(true_nu_px**2 + true_nu_py**2 + true_nu_pz**2)
         true_nubar_E = np.sqrt(true_nubar_px**2 + true_nubar_py**2 + true_nubar_pz**2)
         true_values = np.column_stack((true_nu_E, true_nu_px, true_nu_py, true_nu_pz,
@@ -364,7 +536,7 @@ if __name__ == '__main__':
         reco_taup_nu = np.column_stack((reco_taup_nu_E, reco_taup_nu))
         reco_taun_nu = np.column_stack((reco_taun_nu_E, reco_taun_nu))
 
-        ana_pred_values = np.concatenate([reco_taup_nu, reco_taun_nu], axis=1)
+        ana_pred_values = np.concatenate([reco_taun_nu, reco_taup_nu], axis=1)
 
         # get the predicted taus as well
         ana_pred_taup = reco_taup_nu + taup_pi + taup_pizero
@@ -380,7 +552,7 @@ if __name__ == '__main__':
         reco_alt_taup_nu = np.column_stack((reco_alt_taup_nu_E, reco_alt_taup_nu))
         reco_alt_taun_nu = np.column_stack((reco_alt_taun_nu_E, reco_alt_taun_nu))
 
-        ana_alt_pred_values = np.concatenate([reco_alt_taup_nu, reco_alt_taun_nu], axis=1)
+        ana_alt_pred_values = np.concatenate([reco_alt_taun_nu, reco_alt_taup_nu], axis=1)
 
         # get the predicted taus as well
         ana_alt_pred_taup = reco_alt_taup_nu + taup_pi + taup_pizero
@@ -414,6 +586,8 @@ if __name__ == '__main__':
         pred_tau_minus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
         pred_tau_plus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
         pred_z_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
+        results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
+        results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
         results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
         results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
         results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
@@ -432,3 +606,17 @@ if __name__ == '__main__':
         
             # Fill the tree
             f["tree"].extend(results_df.to_dict(orient='list'))
+
+        # make a few plots of the samples PDFs vs the analytical solutions for some events
+        for event_number in [0, 1, 2, 3, 4]:
+            save_sampled_pdfs(
+                model=model,
+                dataset=test_dataset,
+                df=results_df,
+                output_features=['nubar_px', 'nubar_py', 'nubar_pz',
+                                 'nu_px', 'nu_py', 'nu_pz'],
+                event_number=event_number,
+                num_samples=50000,
+                bins=100,
+                outdir=f"{output_dir}/pdf_slices_sampled"
+            )
