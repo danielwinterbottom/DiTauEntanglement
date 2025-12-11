@@ -28,6 +28,8 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
         print(f"Total number of model parameters: {total_params}")
     optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
+    scheduler = None
+
     #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
     #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
 
@@ -126,6 +128,98 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
 
     return best_val_loss, history
 
+def flow_map_predict(
+    model,
+    X,
+    test_dataset=None,
+    num_draws=100,
+    chunk_size=5000,
+):
+    """
+    Compute MAP (maximum log-probability) predictions from a normalizing flow.
+    
+    Parameters
+    ----------
+    model : flow model
+        The trained normalizing flow model.
+    X : torch.Tensor
+        Conditioning features of shape [B, context_dim].
+    test_dataset : object, optional
+        Must supply .destandardize_outputs(tensor). If None, no destandardization is performed.
+    num_draws : int
+        Number of samples per event to approximate the MAP estimate.
+    chunk_size : int
+        Number of events to process at once (controls memory usage).
+
+    Returns
+    -------
+    samples_norm_alt : torch.Tensor, shape [B, features]
+        MAP-selected samples in normalized (flow) space.
+    samples_alt : np.ndarray or None
+        Destandardized samples, or None if test_dataset not provided.
+    """
+
+    model.eval()
+
+    B = X.shape[0]
+
+    all_best_samples = []
+
+    for start in range(0, B, chunk_size):
+        end = min(start + chunk_size, B)
+        X_chunk = X[start:end]
+        C = X_chunk.shape[0]
+
+        # -----------------------------------------------------------
+        # 1. Sample num_draws from the flow for this chunk
+        #    samples_norm_chunk: [C, num_draws, features]
+        # -----------------------------------------------------------
+        with torch.no_grad():
+            samples_norm_chunk = model.sample(num_samples=num_draws, context=X_chunk)
+
+        # Flatten for log_prob input
+        # [C, D, F] → [C*D, F]
+        flat_samples = samples_norm_chunk.reshape(C * num_draws, -1)
+
+        # Repeat context for each sample
+        # [C, ctx] → [C*D, ctx]
+        flat_context = X_chunk.repeat_interleave(num_draws, dim=0)
+
+        # -----------------------------------------------------------
+        # 2. Compute log_prob for all C*D samples
+        # -----------------------------------------------------------
+        with torch.no_grad():
+            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
+
+        # Reshape back to [C, D]
+        log_probs = flat_log_probs.view(C, num_draws)
+
+        # -----------------------------------------------------------
+        # 3. Select the best (MAP) sample per event
+        # -----------------------------------------------------------
+        best_idx = torch.argmax(log_probs, dim=1)   # [C]
+        batch_idx = torch.arange(C)
+
+        best_samples_chunk = samples_norm_chunk[batch_idx, best_idx]  # [C, F]
+
+        all_best_samples.append(best_samples_chunk.cpu())
+
+    # -----------------------------------------------------------
+    # Combine chunks → [B, F]
+    # -----------------------------------------------------------
+    samples_norm_alt = torch.cat(all_best_samples, dim=0)
+
+    # -----------------------------------------------------------
+    # Optional destandardization
+    # -----------------------------------------------------------
+    if test_dataset is not None:
+        samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
+    else:
+        samples_alt = None
+
+    return samples_norm_alt, samples_alt
+
+
 def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
     plt.figure()
     plt.plot(range(1, len(loss_values)+1), loss_values, label='train loss')
@@ -188,7 +282,7 @@ def save_sampled_pdfs(
         # also get analytical solutions if available
         analytical_col_0 = f'ana_pred_{v}'
         analytical_col_1 = f'ana_alt_pred_{v}'
-        
+
         if analytical_col_0 in df.columns and analytical_col_1 in df.columns:
             analytical_sol_0 = df.iloc[event_number][analytical_col_0]
             analytical_sol_1 = df.iloc[event_number][analytical_col_1]
@@ -376,7 +470,7 @@ if __name__ == '__main__':
                 'affine_hidden_size': trial.suggest_int('affine_hidden_size', 50, 300, step=50),
                 'affine_num_blocks': trial.suggest_int('affine_num_blocks', 1, 2),
                 'lr': trial.suggest_loguniform('lr', 1e-6, 1e-2),
-                'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
+                #'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
                 'weight_decay': trial.suggest_loguniform('weight_decay', 1e-6, 1e-3),
                 'condition_net_hidden_size': trial.suggest_int('condition_net_hidden_size', 50, 300, step=50),
                 'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 1, 5),
@@ -386,7 +480,7 @@ if __name__ == '__main__':
 
             model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, verbose=False)
 
-            best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=num_epochs, device=device, verbose=False, output_plots_dir=None,
+            best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=False, output_plots_dir=None,
                 save_every_N=None, scheduler=scheduler, recompute_train_loss=False,)
 
             return best_val_loss
@@ -429,7 +523,7 @@ if __name__ == '__main__':
         'affine_num_blocks': 1,
         'lr': 0.001,
         'weight_decay': 1e-4,
-        'epochs_to_10perc_lr': 100,
+        #'epochs_to_10perc_lr': 100,
         'condition_net_hidden_size': 200,
         'condition_net_num_blocks': 4,
         'condition_net_output_size': 20,
@@ -491,6 +585,60 @@ if __name__ == '__main__':
         nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
         predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
 
+        # define alternative prediction by taking most probable value from flow instead of sampling
+        # to do this we sample 100 times and take the case with the best log probability
+
+#        num_draws = 100
+#        
+#        with torch.no_grad():
+#            samples_norm = model.sample(num_samples=num_draws, context=X_test)
+#
+#        B, D, F = samples_norm.shape
+#        
+#        flat_samples = samples_norm.reshape(B * D, F)
+#        flat_context = X_test.repeat_interleave(D, dim=0)
+#        
+#        with torch.no_grad():
+#            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
+#        
+#        log_probs = flat_log_probs.view(B, D)
+#
+#        best_idx = torch.argmax(log_probs, dim=1)
+#        batch_idx = torch.arange(B, device=samples_norm.device)
+#        samples_norm_alt = samples_norm[batch_idx, best_idx]
+#        
+#        # destandardize
+#        samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
+
+        # estimate most likely solution using flow_map_predict function
+        samples_norm_alt, samples_alt = flow_map_predict(
+            model,
+            X_test,
+            test_dataset=test_dataset,
+            num_draws=100,
+            chunk_size=50000
+        )
+
+        # unpack MAP outputs → **use alt_* names here only**
+        alt_nubar_px = samples_alt[:,0]
+        alt_nubar_py = samples_alt[:,1]
+        alt_nubar_pz = samples_alt[:,2]
+        alt_nu_px    = samples_alt[:,3]
+        alt_nu_py    = samples_alt[:,4]
+        alt_nu_pz    = samples_alt[:,5]
+        
+        # energies
+        alt_nu_E    = np.sqrt(alt_nu_px**2    + alt_nu_py**2    + alt_nu_pz**2)
+        alt_nubar_E = np.sqrt(alt_nubar_px**2 + alt_nubar_py**2 + alt_nubar_pz**2)
+        
+        # final MAP / "alternative" array
+        predictions_alt = np.column_stack(
+            (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
+             alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
+        )
+
+
+
         true_values = test_df[output_features].values
 
         # get E components for true values as well
@@ -525,6 +673,11 @@ if __name__ == '__main__':
         taup_pred = predictions[:, 4:8] + taup_pi + taup_pizero
         
         pred_taus = np.concatenate([taun_pred, taup_pred], axis=1)
+
+        # get alternative predictions
+        alt_taun_pred = predictions_alt[:, 0:4] + taun_pi + taun_pizero
+        alt_taup_pred = predictions_alt[:, 4:8] + taup_pi + taup_pizero
+        pred_taus_alt = np.concatenate([alt_taun_pred, alt_taup_pred], axis=1)
 
         # get analytical precitions using reco_taup_nu and reco_taun_nu
         # first get the pis and pizeros again
@@ -561,11 +714,16 @@ if __name__ == '__main__':
 
         # collect true and predicted nus true and predicted taus AND pi's into pandas dataframe, lable the collumns
 
-        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus], axis=1),
+        taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
+        taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
+
+        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, predictions_alt, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, pred_taus_alt, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
                                   columns=['true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                            'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
                                            'pred_nubar_E', 'pred_nubar_px', 'pred_nubar_py', 'pred_nubar_pz',
+                                           'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
+                                           'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
                                            'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
                                            'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
                                            'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
@@ -574,10 +732,13 @@ if __name__ == '__main__':
                                            'true_tau_plus_E',  'true_tau_plus_px',  'true_tau_plus_py',  'true_tau_plus_pz',
                                            'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
                                            'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
+                                           'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
+                                           'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
                                            'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
                                            'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
                                            'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
                                            'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
+                                           'taun_haspizero', 'taup_haspizero'
                                            ])
 
 
@@ -590,6 +751,8 @@ if __name__ == '__main__':
         results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
         results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
         results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
+        results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
+        results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
         results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
         results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass

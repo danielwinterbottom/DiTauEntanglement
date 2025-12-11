@@ -98,7 +98,10 @@ def NormalizingFlow(input_size=8,
                     num_blocks=2,
                     affine_hidden_size=64,
                     affine_num_blocks=2,
-                    batch_norm=False):
+                    batch_norm=False,
+                    #activation=nn.PReLU()):
+                    #activation=nn.LeakyReLU(0.1)):
+                    activation=nn.ReLU()):
     """Creates a normalizing flow model using nflows library."""
     transforms = []
 
@@ -107,14 +110,14 @@ def NormalizingFlow(input_size=8,
             in_features, out_features, context_features=context_features,
             hidden_features=hidden_size, num_blocks=num_blocks,
             use_batch_norm=batch_norm,
-            activation=nn.ReLU())
+            activation=activation)
 
     def create_affine_net(in_features, out_features):
         return nets.ResidualNet(
             in_features, out_features, context_features=context_features,
             hidden_features=affine_hidden_size, num_blocks=affine_num_blocks,
             use_batch_norm=batch_norm,
-            activation=nn.ReLU())
+            activation=activation)
 
     for _ in range(num_layers):
         mask = nflows.utils.torchutils.create_mid_split_binary_mask(input_size) 
@@ -141,6 +144,7 @@ class ConditionalFlow(nn.Module):
                  context_dim,
                  cond_hidden_dim=64,
                  batch_norm=False,
+                 activation=nn.ReLU(),
                  **flow_kwargs
     ):
         super().__init__()
@@ -150,7 +154,7 @@ class ConditionalFlow(nn.Module):
             out_features=context_dim,
             hidden_features=cond_hidden_dim,
             num_blocks=2,
-            activation=nn.ReLU(),
+            activation=activation,
             use_batch_norm=batch_norm
         )
 
@@ -167,3 +171,115 @@ class ConditionalFlow(nn.Module):
     def sample(self, num_samples, context):
         cond_embed = self.condition_net(context)
         return self.flow.sample(num_samples=num_samples, context=cond_embed)
+
+class ConditionalMorphingFlow(nn.Module):
+    """
+    A pair of conditional normalizing flows following the same pattern as your ConditionalFlow:
+      - self.condition_net produces context embeddings
+      - self.flow_data  models analytic estimates    p_data(x | context)
+      - self.flow_truth models MC truth distribution p_truth(x | context)
+    Both flows map x -> z into the SAME latent normal distribution.
+    
+    Flow-based morphing:
+        z_data = f_data.forward(x_data | context)
+        x_corr = f_truth.inverse(z_data | context)
+    """
+
+    def __init__(
+        self,
+        input_dim,              # 6 for your neutrino px,py,pz (nu & nubar)
+        raw_condition_dim,      # dimension of your feature vector
+        context_dim,            # matches context_features
+        cond_hidden_dim=64,
+        cond_num_blocks=2,
+        batch_norm=False,
+        activation=nn.ReLU(),
+        flow_kwargs_data=None,      # kwargs for data flow
+        flow_kwargs_truth=None,     # kwargs for truth flow
+    ):
+        super().__init__()
+
+        if flow_kwargs_data is None:
+            flow_kwargs_data = {}
+        if flow_kwargs_truth is None:
+            flow_kwargs_truth = {}
+
+        # ----------------------------------------------------
+        # 1. Condition network  (same style as your code)
+        # ----------------------------------------------------
+        self.condition_net = nets.ResidualNet(
+            in_features=raw_condition_dim,
+            out_features=context_dim,
+            hidden_features=cond_hidden_dim,
+            num_blocks=cond_num_blocks,
+            activation=activation,
+            use_batch_norm=batch_norm,
+        )
+
+        # ----------------------------------------------------
+        # 2. Two conditional flows (same structure as your ConditionalFlow)
+        # ----------------------------------------------------
+        self.flow_data = NormalizingFlow(
+            input_size=input_dim,
+            context_features=context_dim,
+            **flow_kwargs_data
+        )
+
+        self.flow_truth = NormalizingFlow(
+            input_size=input_dim,
+            context_features=context_dim,
+            **flow_kwargs_truth
+        )
+
+    # ======================================================
+    #  LOG PROBABILITIES
+    # ======================================================
+
+    def log_prob_data(self, inputs, context):
+        """Log-probability under the analytic flow."""
+        cond_embed = self.condition_net(context)
+        return self.flow_data.log_prob(inputs=inputs, context=cond_embed)
+
+    def log_prob_truth(self, inputs, context):
+        """Log-probability under the truth flow."""
+        cond_embed = self.condition_net(context)
+        return self.flow_truth.log_prob(inputs=inputs, context=cond_embed)
+
+    # ======================================================
+    #  SAMPLING
+    # ======================================================
+
+    def sample_data(self, num_samples, context):
+        cond_embed = self.condition_net(context)
+        return self.flow_data.sample(num_samples=num_samples, context=cond_embed)
+
+    def sample_truth(self, num_samples, context):
+        cond_embed = self.condition_net(context)
+        return self.flow_truth.sample(num_samples=num_samples, context=cond_embed)
+
+    # ======================================================
+    #  FLOW-BASED MORPHING (DATA → TRUTH)
+    # ======================================================
+
+    def morph_data_to_truth(self, x_data, context):
+        """
+        Takes analytic (data-like) inputs x_data and returns a corrected version
+        distributed like the truth flow:
+        
+            z = f_data.forward(x_data | context)
+            x_corr = f_truth.inverse(z | context)
+        """
+        with torch.no_grad():
+            cond_embed = self.condition_net(context)
+
+            # x → z using data flow
+            z, _ = self.flow_data._transform.forward(
+                x_data, context=cond_embed
+            )
+
+            # z → corrected x using inverse of truth flow
+            x_corr, _ = self.flow_truth._transform.inverse(
+                z, context=cond_embed
+            )
+
+        return x_corr
