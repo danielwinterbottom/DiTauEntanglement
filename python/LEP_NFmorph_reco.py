@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import os
-from NN_tools_new import RegressionDataset, ConditionalFlow
+from NN_tools_new import MorphDataset, ConditionalMorphingFlow
 from schedules import CosineAnnealingExpDecayLR
 import torch
 from torch.utils.data import DataLoader
@@ -14,13 +14,37 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
-    model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
-                            context_dim=hp['condition_net_output_size'],
-                            cond_hidden_dim=hp['condition_net_hidden_size'],
-                            cond_num_blocks=hp['condition_net_num_blocks'],
-                            num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
-                            hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
-                            affine_hidden_size=hp['affine_hidden_size'], affine_num_blocks=hp['affine_num_blocks'],batch_norm=batch_norm)
+    model = ConditionalMorphingFlow(
+        input_dim=len(output_features),
+        raw_condition_dim=len(context_features),
+        context_dim=hp['condition_net_output_size'],
+        cond_hidden_dim=hp['condition_net_hidden_size'],
+        cond_num_blocks=hp['condition_net_num_blocks'],
+        batch_norm=batch_norm,
+    
+        # Here you pass *your* flow settings (same as before)
+        flow_kwargs_data=dict(
+            num_layers=hp['num_layers'],
+            num_bins=hp['num_bins'],
+            tail_bound=hp['tail_bound'],
+            hidden_size=hp['hidden_size'],
+            num_blocks=hp['num_blocks'],
+            affine_hidden_size=hp['affine_hidden_size'],
+            affine_num_blocks=hp['affine_num_blocks'],
+            batch_norm=batch_norm,
+        ),
+    
+        flow_kwargs_truth=dict(
+            num_layers=hp['num_layers'],
+            num_bins=hp['num_bins'],
+            tail_bound=hp['tail_bound'],
+            hidden_size=hp['hidden_size'],
+            num_blocks=hp['num_blocks'],
+            affine_hidden_size=hp['affine_hidden_size'],
+            affine_num_blocks=hp['affine_num_blocks'],
+            batch_norm=batch_norm,
+        ),
+    )
 
     if verbose:
         print(model)
@@ -68,10 +92,16 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
 
     for epoch in range(1, num_epochs+1):
         running_loss=0
-        for batch, (X, y) in enumerate(train_dataloader):
-            X, y = X.to(device), y.to(device)
+        for batch, (X, y, c) in enumerate(train_dataloader):
+            X, y, c = X.to(device), y.to(device), c.to(device)
+
             optimizer.zero_grad()
-            loss = -model.log_prob(inputs=y, context=X).mean()
+
+            log_p_data = model.log_prob_data(inputs=X, context=c).mean()
+            log_p_truth = model.log_prob_truth(inputs=y, context=c).mean()
+
+            loss = -(log_p_data + log_p_truth)
+
             loss.backward()
             optimizer.step()
 
@@ -91,9 +121,10 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             # recompute train loss for better estimate
             sum_train_loss = 0
             with torch.no_grad():
-                for X_train, y_train in train_dataloader:
-                    X_train, y_train = X_train.to(device), y_train.to(device)
-                    train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
+                for X_train, y_train, c_train in train_dataloader:
+                    X_train, y_train, c_train = X_train.to(device), y_train.to(device), c_train.to(device)
+                    train_loss = -(model.log_prob_data(inputs=X_train, context=c_train).mean() +
+                                   model.log_prob_truth(inputs=y_train, context=c_train).mean())
                     sum_train_loss += train_loss.item()
             train_loss = sum_train_loss / len(train_dataloader)
 
@@ -102,9 +133,10 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         # validation phase
         val_running_loss = 0
         with torch.no_grad():
-            for X_val, y_val in test_dataloader:
-                X_val, y_val = X_val.to(device), y_val.to(device)
-                val_loss = -model.log_prob(inputs=y_val, context=X_val).mean()
+            for X_val, y_val, c_val in test_dataloader:
+                X_val, y_val, c_val = X_val.to(device), y_val.to(device), c_val.to(device)
+                val_loss = -(model.log_prob_data(inputs=X_val, context=c_val).mean() +
+                             model.log_prob_truth(inputs=y_val, context=c_val).mean())
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
@@ -129,6 +161,7 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
 
     return best_val_loss, history
 
+#TODO: can probs remove it
 def flow_map_predict(
     model,
     X,
@@ -307,7 +340,7 @@ if __name__ == '__main__':
     argparser.add_argument('--n_epochs', '-n', help='number of training epochs', type=int, default=10)
     argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=100)
     argparser.add_argument('--reload', '-r', help='reload from existing model', action='store_true')
-    argparser.add_argument('--inc_reco_taus', help='whether to include the taus reconstructed by the analytical model as inputs', action='store_true')
+    argparser.add_argument('--inc_alt_reco_taus', help='whether to include the unprefferred tau solution reconstructed by the analytical model as inputs', action='store_true')
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -317,7 +350,7 @@ if __name__ == '__main__':
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    input_features = ['dmin_x', 'dmin_y', 'dmin_z',
+    context_features = ['dmin_x', 'dmin_y', 'dmin_z',
                        'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
                        'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
                        'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
@@ -327,10 +360,8 @@ if __name__ == '__main__':
                        'BS_x', 'BS_y', 'BS_z',
                        'taup_haspizero', 'taun_haspizero']
 
-    if args.inc_reco_taus:
+    if args.inc_alt_reco_taus:
         input_features += [
-            'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
-            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
             'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
             'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
         ]
@@ -338,6 +369,11 @@ if __name__ == '__main__':
     output_features = [
         'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
         'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+    ]
+
+    input_features = [
+        'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+        'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz'
     ]
 
     # stage one prepares the dataframe
@@ -410,16 +446,18 @@ if __name__ == '__main__':
     test_df = df.iloc[train_size:]
 
     # define datasets and normalize inputs and outputs
-    train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
+    train_dataset = MorphDataset(train_df, input_features, output_features, context_features=context_features, normalize_inputs=True, normalize_outputs=True, normalize_context=True)
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
-    test_dataset = RegressionDataset(test_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
-                                      input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
+    context_mean, context_std = train_dataset.context_mean, train_dataset.context_std
+    test_dataset = MorphDataset(test_df, input_features, output_features, context_features=context_features, normalize_inputs=True, normalize_outputs=True, normalize_context=True,
+                                      input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std, context_mean=context_mean, context_std=context_std)
 
     # store the means and stds used for normalization
     np.savez(f'{output_dir}/normalization_params.npz',
              input_mean=in_mean, input_std=in_std,
-             output_mean=out_mean, output_std=out_std)
+             output_mean=out_mean, output_std=out_std,
+             context_mean=context_mean, context_std=context_std)
 
     # leave stage 2 for not - this will involve optimising NN using optuna
     if 2 in args.stages:
@@ -586,60 +624,6 @@ if __name__ == '__main__':
         nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
         predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
 
-        # define alternative prediction by taking most probable value from flow instead of sampling
-        # to do this we sample 100 times and take the case with the best log probability
-
-#        num_draws = 100
-#        
-#        with torch.no_grad():
-#            samples_norm = model.sample(num_samples=num_draws, context=X_test)
-#
-#        B, D, F = samples_norm.shape
-#        
-#        flat_samples = samples_norm.reshape(B * D, F)
-#        flat_context = X_test.repeat_interleave(D, dim=0)
-#        
-#        with torch.no_grad():
-#            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
-#        
-#        log_probs = flat_log_probs.view(B, D)
-#
-#        best_idx = torch.argmax(log_probs, dim=1)
-#        batch_idx = torch.arange(B, device=samples_norm.device)
-#        samples_norm_alt = samples_norm[batch_idx, best_idx]
-#        
-#        # destandardize
-#        samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
-
-        # estimate most likely solution using flow_map_predict function
-        samples_norm_alt, samples_alt = flow_map_predict(
-            model,
-            X_test,
-            test_dataset=test_dataset,
-            num_draws=100,
-            chunk_size=50000
-        )
-
-        # unpack MAP outputs → **use alt_* names here only**
-        alt_nubar_px = samples_alt[:,0]
-        alt_nubar_py = samples_alt[:,1]
-        alt_nubar_pz = samples_alt[:,2]
-        alt_nu_px    = samples_alt[:,3]
-        alt_nu_py    = samples_alt[:,4]
-        alt_nu_pz    = samples_alt[:,5]
-        
-        # energies
-        alt_nu_E    = np.sqrt(alt_nu_px**2    + alt_nu_py**2    + alt_nu_pz**2)
-        alt_nubar_E = np.sqrt(alt_nubar_px**2 + alt_nubar_py**2 + alt_nubar_pz**2)
-        
-        # final MAP / "alternative" array
-        predictions_alt = np.column_stack(
-            (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
-             alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
-        )
-
-
-
         true_values = test_df[output_features].values
 
         # get E components for true values as well
@@ -718,13 +702,11 @@ if __name__ == '__main__':
         taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
         taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
-        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, predictions_alt, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, pred_taus_alt, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
+        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
                                   columns=['true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                            'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
                                            'pred_nubar_E', 'pred_nubar_px', 'pred_nubar_py', 'pred_nubar_pz',
-                                           'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
-                                           'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
                                            'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
                                            'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
                                            'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
@@ -737,8 +719,6 @@ if __name__ == '__main__':
                                            'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
                                            'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
                                            'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
-                                           'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
-                                           'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
                                            'taun_haspizero', 'taup_haspizero'
                                            ])
 
@@ -752,8 +732,6 @@ if __name__ == '__main__':
         results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
         results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
         results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
-        results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
-        results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
         results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
         results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass

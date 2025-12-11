@@ -87,6 +87,104 @@ class RegressionDataset(Dataset):
         device = y_norm.device
         return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
+
+class MorphDataset(Dataset):
+    def __init__(self, dataframe, input_features, output_features, context_features,
+                 input_mean=None, input_std=None, 
+                 output_mean=None, output_std=None,
+                 context_mean=None, context_std=None,
+                 normalize_inputs=False, normalize_outputs=False, normalize_context=True, eps=1e-8):
+        """
+        A regression dataset that can standardize features using provided means/stds.
+
+        Parameters
+        ----------
+        dataframe : pd.DataFrame
+            Input data.
+        input_features : list[str]
+            Names of input columns.
+        output_features : list[str]
+            Names of target columns.
+        context_features : list[str]
+            Names of context columns.
+        input_mean, input_std : torch.Tensor or None
+            If given, used for input normalization.
+            If None, computed from the current dataframe.
+        output_mean, output_std : torch.Tensor or None
+            Same as above, for outputs.
+        normalize_inputs, normalize_outputs : bool
+            Whether to apply standardization.
+        eps : float
+            Small value to prevent division by zero.
+        """
+        X = torch.tensor(dataframe[input_features].values, dtype=torch.float32)
+        y = torch.tensor(dataframe[output_features].values, dtype=torch.float32)
+        c = torch.tensor(dataframe[context_features].values, dtype=torch.float32)
+
+        self.normalize_inputs = normalize_inputs
+        self.normalize_outputs = normalize_outputs
+        self.eps = eps
+
+        # ---- Context normalization ----
+        if normalize_context:
+            if context_mean is None or context_std is None:
+                self.context_mean = c.mean(dim=0, keepdim=True)
+                self.context_std = c.std(dim=0, keepdim=True).clamp_min(eps)
+            else:
+                self.context_mean = context_mean
+                self.context_std = context_std.clamp_min(eps)
+
+            c = (c - self.context_mean) / self.context_std
+        else:
+            self.context_mean = torch.zeros(c.shape[1])
+            self.context_std = torch.ones(c.shape[1])
+
+
+        # ---- Input normalization ----
+        if normalize_inputs:
+            if input_mean is None or input_std is None:
+                self.input_mean = X.mean(dim=0, keepdim=True)
+                self.input_std = X.std(dim=0, keepdim=True).clamp_min(eps)
+            else:
+                self.input_mean = input_mean
+                self.input_std = input_std.clamp_min(eps)
+
+            X = (X - self.input_mean) / self.input_std
+        else:
+            self.input_mean = torch.zeros(X.shape[1])
+            self.input_std = torch.ones(X.shape[1])
+
+        # ---- Output normalization ----
+        if normalize_outputs:
+            if output_mean is None or output_std is None:
+                self.output_mean = y.mean(dim=0, keepdim=True)
+                self.output_std = y.std(dim=0, keepdim=True).clamp_min(eps)
+            else:
+                self.output_mean = output_mean
+                self.output_std = output_std.clamp_min(eps)
+
+            y = (y - self.output_mean) / self.output_std
+        else:
+            self.output_mean = torch.zeros(y.shape[1])
+            self.output_std = torch.ones(y.shape[1])
+
+        self.c = c
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx], self.c[idx]
+
+    def destandardize_outputs(self, y_norm):
+        """
+        Convert standardized outputs back to physical units.
+        """
+        device = y_norm.device
+        return y_norm * self.output_std.to(device) + self.output_mean.to(device)
+
 # normalizing flow definitions
 
 def NormalizingFlow(input_size=8, 
@@ -143,6 +241,7 @@ class ConditionalFlow(nn.Module):
                  raw_condition_dim,
                  context_dim,
                  cond_hidden_dim=64,
+                 cond_num_blocks=2,
                  batch_norm=False,
                  activation=nn.ReLU(),
                  **flow_kwargs
@@ -153,7 +252,7 @@ class ConditionalFlow(nn.Module):
             in_features=raw_condition_dim,
             out_features=context_dim,
             hidden_features=cond_hidden_dim,
-            num_blocks=2,
+            num_blocks=cond_num_blocks,
             activation=activation,
             use_batch_norm=batch_norm
         )
@@ -187,9 +286,9 @@ class ConditionalMorphingFlow(nn.Module):
 
     def __init__(
         self,
-        input_dim,              # 6 for your neutrino px,py,pz (nu & nubar)
-        raw_condition_dim,      # dimension of your feature vector
-        context_dim,            # matches context_features
+        input_dim,
+        raw_condition_dim,
+        context_dim,
         cond_hidden_dim=64,
         cond_num_blocks=2,
         batch_norm=False,
@@ -205,7 +304,7 @@ class ConditionalMorphingFlow(nn.Module):
             flow_kwargs_truth = {}
 
         # ----------------------------------------------------
-        # 1. Condition network  (same style as your code)
+        # 1. Condition network
         # ----------------------------------------------------
         self.condition_net = nets.ResidualNet(
             in_features=raw_condition_dim,
@@ -213,11 +312,11 @@ class ConditionalMorphingFlow(nn.Module):
             hidden_features=cond_hidden_dim,
             num_blocks=cond_num_blocks,
             activation=activation,
-            use_batch_norm=batch_norm,
+            use_batch_norm=batch_norm
         )
 
         # ----------------------------------------------------
-        # 2. Two conditional flows (same structure as your ConditionalFlow)
+        # 2. Two conditional flows
         # ----------------------------------------------------
         self.flow_data = NormalizingFlow(
             input_size=input_dim,
