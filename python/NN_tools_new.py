@@ -139,20 +139,19 @@ class MorphDataset(Dataset):
             self.context_mean = torch.zeros(c.shape[1])
             self.context_std = torch.ones(c.shape[1])
 
-
-        # ---- Input normalization ----
-        if normalize_inputs:
-            if input_mean is None or input_std is None:
-                self.input_mean = X.mean(dim=0, keepdim=True)
-                self.input_std = X.std(dim=0, keepdim=True).clamp_min(eps)
-            else:
-                self.input_mean = input_mean
-                self.input_std = input_std.clamp_min(eps)
-
-            X = (X - self.input_mean) / self.input_std
-        else:
-            self.input_mean = torch.zeros(X.shape[1])
-            self.input_std = torch.ones(X.shape[1])
+        ## ---- Input normalization ----
+        #if normalize_inputs:
+        #    if input_mean is None or input_std is None:
+        #        self.input_mean = X.mean(dim=0, keepdim=True)
+        #        self.input_std = X.std(dim=0, keepdim=True).clamp_min(eps)
+        #    else:
+        #        self.input_mean = input_mean
+        #        self.input_std = input_std.clamp_min(eps)
+#
+        #    X = (X - self.input_mean) / self.input_std
+        #else:
+        #    self.input_mean = torch.zeros(X.shape[1])
+        #    self.input_std = torch.ones(X.shape[1])
 
         # ---- Output normalization ----
         if normalize_outputs:
@@ -167,6 +166,14 @@ class MorphDataset(Dataset):
         else:
             self.output_mean = torch.zeros(y.shape[1])
             self.output_std = torch.ones(y.shape[1])
+
+        # normalize inputs using same means as if used for outputs
+        if normalize_outputs:
+            X = (X - self.output_mean) / self.output_std  
+            #TODO: trying to understand is these really need to be standardized in consistent way with the outputs  
+        self.input_mean = self.output_mean
+        self.input_std = self.output_std
+
 
         self.c = c
         self.X = X
@@ -217,7 +224,7 @@ def NormalizingFlow(input_size=8,
             use_batch_norm=batch_norm,
             activation=activation)
 
-    for _ in range(num_layers):
+    for i in range(num_layers):
         mask = nflows.utils.torchutils.create_mid_split_binary_mask(input_size) 
         # if features are ordered so that tau- features come first and then tau+ features and they have the same number 
         # then this mask will alternate which use tau is used to learn the spline parameters for the other tau  
@@ -227,8 +234,40 @@ def NormalizingFlow(input_size=8,
         transforms.append(ReversePermutation(features=input_size))
         transforms.append(nflows.transforms.LULinear(input_size))
         transforms.append(PiecewiseRationalQuadraticCouplingTransform(mask, create_net, tails='linear', num_bins=num_bins, tail_bound=tail_bound))
-        # add a LU triangular layer
-        #transforms.append(nflows.transforms.LULinear(input_size))
+
+    transform = CompositeTransform(transforms)
+    distribution = StandardNormal([input_size])
+    flow = Flow(transform, distribution)
+    return flow 
+
+def NormalizingFlowNew(input_size=8, 
+                    context_features=6, 
+                    num_layers=8, 
+                    num_bins=8, 
+                    tail_bound=2.0, 
+                    hidden_size=64, 
+                    num_blocks=2,
+                    batch_norm=False,
+                    #activation=nn.PReLU()):
+                    #activation=nn.LeakyReLU(0.1)):
+                    activation=nn.ReLU()):
+    """Creates a normalizing flow model using nflows library."""
+    transforms = []
+
+    def create_net(in_features, out_features):
+        return nets.ResidualNet(
+            in_features, out_features, context_features=context_features,
+            hidden_features=hidden_size, num_blocks=num_blocks,
+            use_batch_norm=batch_norm,
+            activation=activation)
+
+    for i in range(num_layers):
+        mask = nflows.utils.torchutils.create_mid_split_binary_mask(input_size) 
+        # if features are ordered so that tau- features come first and then tau+ features and they have the same number 
+        # then this mask will alternate which use tau is used to learn the spline parameters for the other tau  
+        if i>0: transforms.append(ReversePermutation(features=input_size))
+        if i>1: transforms.append(nflows.transforms.LULinear(input_size)) # idea is to only introduce this after the first 2 layers so that 1D corrections of each tau are learned first
+        transforms.append(PiecewiseRationalQuadraticCouplingTransform(mask, create_net, tails='linear', num_bins=num_bins, tail_bound=tail_bound))
 
     transform = CompositeTransform(transforms)
     distribution = StandardNormal([input_size])
@@ -248,16 +287,22 @@ class ConditionalFlow(nn.Module):
     ):
         super().__init__()
 
-        self.condition_net = nets.ResidualNet(
-            in_features=raw_condition_dim,
-            out_features=context_dim,
-            hidden_features=cond_hidden_dim,
-            num_blocks=cond_num_blocks,
-            activation=activation,
-            use_batch_norm=batch_norm
-        )
+        # if cond_num_blocks = 0 we just skip the condition network
+        if cond_num_blocks == 0:
+            self.condition_net = nn.Identity()
+            context_dim = raw_condition_dim
 
-        self.flow = NormalizingFlow(
+        else:
+            self.condition_net = nets.ResidualNet(
+                in_features=raw_condition_dim,
+                out_features=context_dim,
+                hidden_features=cond_hidden_dim,
+                num_blocks=cond_num_blocks,
+                activation=activation,
+                use_batch_norm=batch_norm
+            )
+
+        self.flow = NormalizingFlowNew(
             input_size=input_dim,
             context_features=context_dim,
             **flow_kwargs
@@ -270,6 +315,23 @@ class ConditionalFlow(nn.Module):
     def sample(self, num_samples, context):
         cond_embed = self.condition_net(context)
         return self.flow.sample(num_samples=num_samples, context=cond_embed)
+
+    def encode(self, inputs, context):
+        """
+        Map data space -> latent space (x -> z)
+        """
+        cond_embed = self.condition_net(context)
+        z, logabsdet = self.flow._transform.forward(inputs, context=cond_embed)
+        return z, logabsdet
+
+    def decode(self, z, context):
+        """
+        Map latent space -> data space (z -> x)
+        """
+        cond_embed = self.condition_net(context)
+        x, logabsdet = self.flow._transform.inverse(z, context=cond_embed)
+        return x, logabsdet
+    
 
 class ConditionalMorphingFlow(nn.Module):
     """
@@ -318,13 +380,13 @@ class ConditionalMorphingFlow(nn.Module):
         # ----------------------------------------------------
         # 2. Two conditional flows
         # ----------------------------------------------------
-        self.flow_data = NormalizingFlow(
+        self.flow_data = NormalizingFlowNew(
             input_size=input_dim,
             context_features=context_dim,
             **flow_kwargs_data
         )
 
-        self.flow_truth = NormalizingFlow(
+        self.flow_truth = NormalizingFlowNew(
             input_size=input_dim,
             context_features=context_dim,
             **flow_kwargs_truth
@@ -371,12 +433,12 @@ class ConditionalMorphingFlow(nn.Module):
         with torch.no_grad():
             cond_embed = self.condition_net(context)
 
-            # x → z using data flow
+            # x -> z using data flow
             z, _ = self.flow_data._transform.forward(
                 x_data, context=cond_embed
             )
 
-            # z → corrected x using inverse of truth flow
+            # z -> corrected x using inverse of truth flow
             x_corr, _ = self.flow_truth._transform.inverse(
                 z, context=cond_embed
             )

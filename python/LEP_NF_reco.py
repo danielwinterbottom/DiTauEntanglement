@@ -20,7 +20,7 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
                             cond_num_blocks=hp['condition_net_num_blocks'],
                             num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
                             hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
-                            affine_hidden_size=hp['affine_hidden_size'], affine_num_blocks=hp['affine_num_blocks'],batch_norm=batch_norm)
+                            batch_norm=batch_norm)
 
     if verbose:
         print(model)
@@ -298,6 +298,38 @@ def save_sampled_pdfs(
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
 
+def augment_with_analytical(
+    df: pd.DataFrame,
+    output_features: list,
+    analytical_output_features: list,
+    shuffle: bool = True,
+) -> pd.DataFrame:
+
+    if len(output_features) != len(analytical_output_features):
+        raise ValueError("output_features and analytical_output_features must have the same length")
+
+    # True dataframe
+    df_true = df.copy()
+    df_true["is_analytical"] = 0.0
+
+    # Analytical dataframe
+    df_analytical = df.copy()
+    # first drop the truth features
+    df_analytical = df_analytical.drop(columns=output_features)
+    df_analytical["is_analytical"] = 1.0
+
+    #don't drop the analytical values, but make a copy of these with the output_feature nameings
+    for out_feat, ana_feat in zip(output_features, analytical_output_features):
+        df_analytical[out_feat] = df_analytical[ana_feat] 
+
+    # Combine dataframes
+    df_out = pd.concat([df_true, df_analytical], ignore_index=True)
+
+    if shuffle:
+        df_out = df_out.sample(frac=1).reset_index(drop=True)
+
+    return df_out
+
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()   
@@ -308,6 +340,7 @@ if __name__ == '__main__':
     argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=100)
     argparser.add_argument('--reload', '-r', help='reload from existing model', action='store_true')
     argparser.add_argument('--inc_reco_taus', help='whether to include the taus reconstructed by the analytical model as inputs', action='store_true')
+    argparser.add_argument('--mix_true_and_analytical', help='If set then produce mixed dataset using both truth and analytical neutrino solutions and add flag as input variable that determines which one is used', action='store_true')
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -395,12 +428,6 @@ if __name__ == '__main__':
     else: # load the dataframe
         df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
 
-    #print the names of all the columns and information on the number of events in the dataframe
-    print('Columns in dataframe:', df.columns.tolist())
-    print('Number of events in dataframe:', len(df))
-    # print number of input features
-    print('Number of input features:', len(input_features))
-
     # split dataset into train and test
 
     train_size = int(0.9 * len(df))
@@ -410,6 +437,38 @@ if __name__ == '__main__':
     test_df = df.iloc[train_size:]
 
     # define datasets and normalize inputs and outputs
+
+    if args.mix_true_and_analytical:
+        # now produce dataset using analytical solutions as the output variables as well
+        analytical_output_features = [
+            'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz'
+        ]
+
+        # ensure these are dropped from input features if present
+        input_features = [f for f in input_features if f not in analytical_output_features]
+
+        # add the is_analytical flag to input features
+        input_features.append("is_analytical")
+
+        train_df = augment_with_analytical(
+            train_df,
+            output_features,
+            analytical_output_features,
+        )
+        test_df_copy = test_df.copy()
+        test_df = augment_with_analytical(
+            test_df,
+            output_features,
+            analytical_output_features,
+        )
+
+    #print the names of all the columns and information on the number of events in the dataframe
+    print('Columns in dataframe:', df.columns.tolist())
+    print('Number of events in dataframe:', len(df))
+    # print number of input features
+    print('Number of input features:', len(input_features))
+
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
@@ -468,8 +527,6 @@ if __name__ == '__main__':
                 'tail_bound': trial.suggest_float('tail_bound', 1.0, 5.0, step=1.0),
                 'hidden_size': trial.suggest_int('hidden_size', 50, 300, step=50),
                 'num_blocks': trial.suggest_int('num_blocks', 1, 2),
-                'affine_hidden_size': trial.suggest_int('affine_hidden_size', 50, 300, step=50),
-                'affine_num_blocks': trial.suggest_int('affine_num_blocks', 1, 2),
                 'lr': trial.suggest_loguniform('lr', 1e-6, 1e-2),
                 #'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
                 'weight_decay': trial.suggest_loguniform('weight_decay', 1e-6, 1e-3),
@@ -515,19 +572,17 @@ if __name__ == '__main__':
     # for now we just hard code the hyperparameters
     hp = {
         'batch_size': 8192,
-        'num_layers': 7,
+        'num_layers': 10,
         'num_bins': 16,
         'tail_bound': 3.0,
         'hidden_size': 200,
-        'num_blocks': 1,
-        'affine_hidden_size': 100,
-        'affine_num_blocks': 1,
+        'num_blocks': 2,
         'lr': 0.001,
         'weight_decay': 1e-4,
         #'epochs_to_10perc_lr': 100,
         'condition_net_hidden_size': 200,
-        'condition_net_num_blocks': 4,
-        'condition_net_output_size': 20,
+        'condition_net_num_blocks': 0, #4
+        'condition_net_output_size': 10,
         'num_epochs': args.n_epochs,
     }
     model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
@@ -564,63 +619,66 @@ if __name__ == '__main__':
 
         model.eval()
 
-        X_test, _ = test_dataset[:]
-        # move X_test and model to CPU
-        X_test = X_test.cpu()
-        model = model.cpu()
-        with torch.no_grad():
-            predictions_norm = model.sample(num_samples=1, context=X_test).squeeze()     
+        if args.mix_true_and_analytical:
+            # in this case we have to build the test dataset again starting from test_df, since it is used differently during the training and evaluation
+            # select the input, output, and context features from test_df
+            #first split test_df into is_analytical = 0 and 1
+            test_df = test_df_copy.copy()
+            test_df['is_analytical'] = 1.0
+            test_dataset = RegressionDataset(test_df, input_features, analytical_output_features, normalize_inputs=True, normalize_outputs=True,
+                                              input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
 
-        # destandardize predictions so that they are in physical units
-        predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+            #now flip the is_analytical flag to 0 for the true dataset
+            test_df['is_analytical'] = 0.0
+            test_dataset_true = RegressionDataset(test_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
+                                              input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
 
-        # predictions dont include E so we need to compute them
-        # compute E for nu and nubar
-        nubar_px = predictions[:,0]
-        nubar_py = predictions[:,1]
-        nubar_pz = predictions[:,2]
-        nu_px = predictions[:,3]
-        nu_py = predictions[:,4]
-        nu_pz = predictions[:,5]
-        nu_E = np.sqrt(nu_px**2 + nu_py**2 + nu_pz**2)
-        nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
-        predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
+            X_analytical, y_analytical = test_dataset[:]
+            X_true, y_true = test_dataset_true[:]
+            # now we map to latent space
+            with torch.no_grad():
+                X_analytical = X_analytical.to(device)
+                y_analytical = y_analytical.to(device)
+                X_true = X_true.to(device)
+                y_true = y_true.to(device)
 
-        # define alternative prediction by taking most probable value from flow instead of sampling
+                z, _ = model.encode(inputs=y_analytical, context=X_analytical)
+                # now we decode with the true context
+                predictions_norm, _ = model.decode(z=z, context=X_true)
+
+                predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+                #true_values = test_dataset.destandardize_outputs(y_true).cpu().numpy()
+                #ana_values = test_dataset_true.destandardize_outputs(y_analytical).cpu().numpy()
+                predictions_alt = None
+
+            test_df = test_df_copy.copy()
+
+            X_test, _ = test_dataset_true[:]
+
+        else:
+            X_test, _ = test_dataset[:]
+
+            # move X_test and model to CPU
+            X_test = X_test.cpu()
+            model = model.cpu()
+            with torch.no_grad():
+                predictions_norm = model.sample(num_samples=1, context=X_test).squeeze()     
+
+            # destandardize predictions so that they are in physical units
+            predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+
+        # define alternative prediction by taking most probable value from flow 
         # to do this we sample 100 times and take the case with the best log probability
-
-#        num_draws = 100
-#        
-#        with torch.no_grad():
-#            samples_norm = model.sample(num_samples=num_draws, context=X_test)
-#
-#        B, D, F = samples_norm.shape
-#        
-#        flat_samples = samples_norm.reshape(B * D, F)
-#        flat_context = X_test.repeat_interleave(D, dim=0)
-#        
-#        with torch.no_grad():
-#            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
-#        
-#        log_probs = flat_log_probs.view(B, D)
-#
-#        best_idx = torch.argmax(log_probs, dim=1)
-#        batch_idx = torch.arange(B, device=samples_norm.device)
-#        samples_norm_alt = samples_norm[batch_idx, best_idx]
-#        
-#        # destandardize
-#        samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
-
         # estimate most likely solution using flow_map_predict function
         samples_norm_alt, samples_alt = flow_map_predict(
             model,
             X_test,
             test_dataset=test_dataset,
             num_draws=100,
-            chunk_size=50000
+            chunk_size=5000 if device.type == 'cpu' else 50000,
         )
 
-        # unpack MAP outputs → **use alt_* names here only**
+        # unpack MAP outputs
         alt_nubar_px = samples_alt[:,0]
         alt_nubar_py = samples_alt[:,1]
         alt_nubar_pz = samples_alt[:,2]
@@ -637,10 +695,22 @@ if __name__ == '__main__':
             (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
              alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
         )
-
-
-
+    
         true_values = test_df[output_features].values
+        ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values 
+
+        # predictions dont include E so we need to compute them
+        # compute E for nu and nubar
+        nubar_px = predictions[:,0]
+        nubar_py = predictions[:,1]
+        nubar_pz = predictions[:,2]
+        nu_px = predictions[:,3]
+        nu_py = predictions[:,4]
+        nu_pz = predictions[:,5]
+        nu_E = np.sqrt(nu_px**2 + nu_py**2 + nu_pz**2)
+        nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
+        predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
 
         # get E components for true values as well
         true_nubar_px = true_values[:,0]
@@ -676,9 +746,10 @@ if __name__ == '__main__':
         pred_taus = np.concatenate([taun_pred, taup_pred], axis=1)
 
         # get alternative predictions
-        alt_taun_pred = predictions_alt[:, 0:4] + taun_pi + taun_pizero
-        alt_taup_pred = predictions_alt[:, 4:8] + taup_pi + taup_pizero
-        pred_taus_alt = np.concatenate([alt_taun_pred, alt_taup_pred], axis=1)
+        if predictions_alt is not None:
+            alt_taun_pred = predictions_alt[:, 0:4] + taun_pi + taun_pizero
+            alt_taup_pred = predictions_alt[:, 4:8] + taup_pi + taup_pizero
+            pred_taus_alt = np.concatenate([alt_taun_pred, alt_taup_pred], axis=1)
 
         # get analytical precitions using reco_taup_nu and reco_taun_nu
         # first get the pis and pizeros again
@@ -718,13 +789,11 @@ if __name__ == '__main__':
         taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
         taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
-        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, predictions_alt, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, pred_taus_alt, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
+        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
                                   columns=['true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                            'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
                                            'pred_nubar_E', 'pred_nubar_px', 'pred_nubar_py', 'pred_nubar_pz',
-                                           'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
-                                           'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
                                            'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
                                            'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
                                            'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
@@ -733,16 +802,22 @@ if __name__ == '__main__':
                                            'true_tau_plus_E',  'true_tau_plus_px',  'true_tau_plus_py',  'true_tau_plus_pz',
                                            'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
                                            'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
-                                           'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
-                                           'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
                                            'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
                                            'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
                                            'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
                                            'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
                                            'taun_haspizero', 'taup_haspizero'
+                                           ])    
+
+        if predictions_alt is not None:
+            results_sf_extra = pd.DataFrame(data=np.concatenate([predictions_alt, pred_taus_alt], axis=1),
+                                  columns=[
+                                           'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
+                                           'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
+                                             'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
+                                             'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
                                            ])
-
-
+            results_df = pd.concat([results_df, results_sf_extra], axis=1)    
     
         # compute predicted mass of taus and Z boson and store on dataframe
         pred_tau_minus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
@@ -752,8 +827,9 @@ if __name__ == '__main__':
         results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
         results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
         results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
-        results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
-        results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
+        if predictions_alt is not None:
+            results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
+            results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
         results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
         results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass
