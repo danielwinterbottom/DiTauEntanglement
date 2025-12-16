@@ -826,7 +826,7 @@ if __name__ == '__main__':
             model,
             X_test,
             test_dataset=test_dataset,
-            num_draws=1, #TODO: change back to 100!!!!
+            num_draws=100,
             chunk_size=5000 if device.type == 'cpu' else 50000,
         )
 
@@ -1003,7 +1003,15 @@ if __name__ == '__main__':
         results_df['pred_z_mass'] = pred_z_mass
 
         # get spin vars for true_tau
+        print("Computing spin variables...")
         results_df = compute_spin_vars(results_df, tau_prefix='true_')
+        # get spin vars for ana_pred_tau
+        results_df = compute_spin_vars(results_df, tau_prefix='ana_pred_')
+        # get spin vars for pred_tau
+        results_df = compute_spin_vars(results_df, tau_prefix='pred_')
+        # get spin vars for alt_pred_tau if present
+        if predictions_alt is not None:
+            results_df = compute_spin_vars(results_df, tau_prefix='alt_pred_')
 
 
         # write the results dataframe to a pickle file
