@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import math
 import matplotlib.pyplot as plt
+from helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost
 
 def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
@@ -330,6 +331,102 @@ def augment_with_analytical(
 
     return df_out
 
+def ConvertToPolar(df,prefix):
+    # convert the px, py, pz columns with given prefix to polar coordinates (pt, eta, phi)
+    px = df[f'{prefix}x']
+    py = df[f'{prefix}y']
+    pz = df[f'{prefix}z']
+
+    pt = np.sqrt(px**2 + py**2)
+    p = np.sqrt(px**2 + py**2 + pz**2)
+    # to avoid division by zero
+    theta = np.arccos(np.clip(pz / p, -1.0, 1.0))
+    eta = -np.log(np.tan(theta / 2))
+    phi = np.arctan2(py, px)
+
+    df[f'{prefix}_pt'] = pt
+    df[f'{prefix}_eta'] = eta
+    df[f'{prefix}_phi'] = phi
+
+    # drop the original x, y, z columns
+    df = df.drop(columns=[f'{prefix}x', f'{prefix}y', f'{prefix}z'])
+
+    return df
+
+def ConvertToCartesian(df,prefix):
+    # convert the pt, eta, phi columns with given prefix to cartesian coordinates (px, py, pz)
+    pt = df[f'{prefix}_pt']
+    eta = df[f'{prefix}_eta']
+    phi = df[f'{prefix}_phi']
+
+    px = pt * np.cos(phi)
+    py = pt * np.sin(phi)
+    pz = pt * np.sinh(eta)
+
+    df[f'{prefix}x'] = px
+    df[f'{prefix}y'] = py
+    df[f'{prefix}z'] = pz
+
+    # drop the original pt, eta, phi columns
+    df = df.drop(columns=[f'{prefix}_pt', f'{prefix}_eta', f'{prefix}_phi'])
+
+    return df
+
+# make a similar function for converting back the predictions which aren't labelled with a prefix
+def ConvertPredictionsToCartesian(predictions, output_features):
+    # predictions is a numpy array of shape [N_events, N_features]
+    predictions_df = pd.DataFrame(predictions, columns=output_features)
+
+    # find all prefixes by removing the _pt, _eta, _phi suffixes
+    prefixes = set()
+    for col in predictions_df.columns:
+        if col.endswith('_pt'):
+            prefixes.add(col[:-3])
+        elif col.endswith('_eta'):
+            prefixes.add(col[:-4])
+        elif col.endswith('_phi'):
+            prefixes.add(col[:-4])
+
+    for prefix in prefixes:
+        predictions_df = ConvertToCartesian(predictions_df, prefix)
+
+    # return as numpy array
+    return predictions_df.values
+
+def compute_spin_vars(df, tau_prefix='true_'):
+
+    taup = df[[f'{tau_prefix}tau_plus_E', f'{tau_prefix}tau_plus_px', f'{tau_prefix}tau_plus_py', f'{tau_prefix}tau_plus_pz']].values
+    taun = df[[f'{tau_prefix}tau_minus_E', f'{tau_prefix}tau_minus_px', f'{tau_prefix}tau_minus_py', f'{tau_prefix}tau_minus_pz']].values
+    taup_pi1 = df[['taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
+    taup_pizero1 = df[['taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
+    taun_pi1 = df[['taun_pi1_E', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
+    taun_pizero1 = df[['taun_pizero1_E', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
+
+    com_boost_vec = boost_vector(taup + taun)
+    taup = boost(taup, -com_boost_vec)
+    taun = boost(taun, -com_boost_vec)
+
+    taup_s = polarimetric_vector_tau(
+        taup, taup_pi1, taup_pizero1,
+        np.ones_like(df['taup_haspizero'].values), df['taup_haspizero'].values
+    )
+    taun_s = polarimetric_vector_tau(
+        taun, taun_pi1, taun_pizero1,
+        np.ones_like(df['taun_haspizero'].values), df['taun_haspizero'].values
+    )
+
+    spin_angles = compute_spin_angles(
+        taup, taun,
+        taup_s, taun_s,
+        p_axis=None
+    )
+
+    # now add these to the dataframe
+    for key, values in spin_angles.items():
+        df[f'{tau_prefix}{key}'] = values
+
+    return df
+
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()   
@@ -341,6 +438,7 @@ if __name__ == '__main__':
     argparser.add_argument('--reload', '-r', help='reload from existing model', action='store_true')
     argparser.add_argument('--inc_reco_taus', help='whether to include the taus reconstructed by the analytical model as inputs', action='store_true')
     argparser.add_argument('--mix_true_and_analytical', help='If set then produce mixed dataset using both truth and analytical neutrino solutions and add flag as input variable that determines which one is used', action='store_true')
+    argparser.add_argument('--use_polar', help='whether to use polar coordinates for inputs and outputs', action='store_true')
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -368,10 +466,16 @@ if __name__ == '__main__':
             'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
         ]
 
-    output_features = [
-        'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-        'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
-    ]
+    if args.use_polar:
+        output_features = [
+            'taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi',
+            'taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'
+        ]
+    else:
+        output_features = [
+            'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+            'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+        ]
 
     # stage one prepares the dataframe
     if 1 in args.stages:
@@ -419,14 +523,38 @@ if __name__ == '__main__':
         # compute the d_min vector by subrtacting the 2 impact parameters
         df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
         df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
-        df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']       
+        df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']  
 
-        df.to_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
+        if args.use_polar:
+            # convert output to polar coordinates
+            df = ConvertToPolar(df, 'taup_nu_p')
+            df = ConvertToPolar(df, 'taun_nu_p')
+
+            ## uncomment to convert inputs to polar coordinates as well
+            #df = ConvertToPolar(df, 'reco_taup_pi1_p')
+            #df = ConvertToPolar(df, 'reco_taup_pizero1_p')
+            #df = ConvertToPolar(df, 'reco_taun_pi1_p')
+            #df = ConvertToPolar(df, 'reco_taun_pizero1_p')
+            #df = ConvertToPolar(df, 'reco_taup_nu_p')
+            #df = ConvertToPolar(df, 'reco_taun_nu_p ')
+            #df = ConvertToPolar(df, 'reco_alt_taup_nu_p')
+            #df = ConvertToPolar(df, 'reco_alt_taun_nu_p')
+            #df = ConvertToPolar(df, 'reco_taup_pi1_ip')
+            #df = ConvertToPolar(df, 'reco_taun_pi1_ip')
+            #df = ConvertToPolar(df, 'dmin_')
+
+            df.to_pickle('ditau_nu_regression_ee_to_tauhtauh_polar_dataframe.pkl')
+
+        else:
+            df.to_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
 
         print("Dataframe prepared and saved.")
 
     else: # load the dataframe
-        df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
+        if args.use_polar:
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_polar_dataframe.pkl')
+        else:
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
 
     # split dataset into train and test
 
@@ -440,10 +568,7 @@ if __name__ == '__main__':
 
     if args.mix_true_and_analytical:
         # now produce dataset using analytical solutions as the output variables as well
-        analytical_output_features = [
-            'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
-            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz'
-        ]
+        analytical_output_features = ['reco_' + x for x in output_features] #TODO: this wont work at the moment for polar coordinates
 
         # ensure these are dropped from input features if present
         input_features = [f for f in input_features if f not in analytical_output_features]
@@ -492,9 +617,6 @@ if __name__ == '__main__':
             optplt.plot_optimization_history(study)
             plt.tight_layout()
             plt.savefig(os.path.join(output_plots_dir, "optimization_history.pdf"))
-            plt.yscale("log")
-            plt.savefig(os.path.join(output_plots_dir, "optimization_history_log.pdf"))
-            plt.close()
 
             # now make a linear plot with high outliers removed
 
@@ -521,22 +643,29 @@ if __name__ == '__main__':
             print(f"\n🔹 Starting trial {trial.number}...")
 
             hp = {
-                'batch_size': trial.suggest_categorical('batch_size', [2048, 4096, 8192, 16384]),
+                'batch_size': trial.suggest_categorical('batch_size', [4096, 8192, 16384]),
                 'num_layers': trial.suggest_int('num_layers', 2, 10),
                 'num_bins': trial.suggest_int('num_bins', 8, 20, step=2),
                 'tail_bound': trial.suggest_float('tail_bound', 1.0, 5.0, step=1.0),
                 'hidden_size': trial.suggest_int('hidden_size', 50, 300, step=50),
-                'num_blocks': trial.suggest_int('num_blocks', 1, 2),
-                'lr': trial.suggest_loguniform('lr', 1e-6, 1e-2),
+                'num_blocks': trial.suggest_int('num_blocks', 1, 4),
+                'lr': trial.suggest_loguniform('lr', 1e-5, 1e-2),
                 #'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
                 'weight_decay': trial.suggest_loguniform('weight_decay', 1e-6, 1e-3),
                 'condition_net_hidden_size': trial.suggest_int('condition_net_hidden_size', 50, 300, step=50),
-                'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 1, 5),
+                'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 0, 5),
                 'condition_net_output_size': trial.suggest_int('condition_net_output_size', 6, 30),
                 'num_epochs': args.n_epochs,
             }
 
             model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, verbose=False)
+
+            # prine if model has too many parameters
+            num_params = sum(p.numel() for p in model.parameters())
+            trial.set_user_attr("n_params", num_params)
+            max_N_params = 2*1e6
+            if num_params > max_N_params:
+                raise optuna.TrialPruned(f"Too many parameters: {num_params}")
 
             best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=False, output_plots_dir=None,
                 save_every_N=None, scheduler=scheduler, recompute_train_loss=False,)
@@ -568,21 +697,41 @@ if __name__ == '__main__':
 
         exit()
 
+#Trial 9 finished with value: -19.865106669339266 and parameters: {'batch_s
+#ize': 8192, 'num_layers': 4, 'num_bins': 18, 'tail_bound': 5.0, 'hidden_size': 50, 'num_blocks': 1, 'lr': 0.0009381276074910463, 'weight_decay': 1.3195987584367093e-05, 'condition_net_hidden_size': 300, '
+#condition_net_num_blocks': 1, 'condition_net_output_size': 17}. Best is trial 9 with value: -19.865106669339266.
+
     # load the model with the best hyperparameters found in stage 2
     # for now we just hard code the hyperparameters
+    #hp = {
+    #    'batch_size': 8192,
+    #    'num_layers': 10,
+    #    'num_bins': 16,
+    #    'tail_bound': 3.0,
+    #    'hidden_size': 200,
+    #    'num_blocks': 2,
+    #    'lr': 0.001,
+    #    'weight_decay': 1e-4,
+    #    #'epochs_to_10perc_lr': 100,
+    #    'condition_net_hidden_size': 200,
+    #    'condition_net_num_blocks': 0, #4
+    #    'condition_net_output_size': 10,
+    #    'num_epochs': args.n_epochs,
+    #}
+    # best hps so far from trial 9
     hp = {
         'batch_size': 8192,
-        'num_layers': 10,
-        'num_bins': 16,
-        'tail_bound': 3.0,
-        'hidden_size': 200,
-        'num_blocks': 2,
-        'lr': 0.001,
-        'weight_decay': 1e-4,
+        'num_layers': 4,
+        'num_bins': 18,
+        'tail_bound': 5.0,
+        'hidden_size': 50,
+        'num_blocks': 1,
+        'lr': 0.00094,
+        'weight_decay': 1.32e-05,
         #'epochs_to_10perc_lr': 100,
-        'condition_net_hidden_size': 200,
-        'condition_net_num_blocks': 0, #4
-        'condition_net_output_size': 10,
+        'condition_net_hidden_size': 300,
+        'condition_net_num_blocks': 1, #4
+        'condition_net_output_size': 17,
         'num_epochs': args.n_epochs,
     }
     model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
@@ -647,8 +796,7 @@ if __name__ == '__main__':
                 predictions_norm, _ = model.decode(z=z, context=X_true)
 
                 predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
-                #true_values = test_dataset.destandardize_outputs(y_true).cpu().numpy()
-                #ana_values = test_dataset_true.destandardize_outputs(y_analytical).cpu().numpy()
+
                 predictions_alt = None
 
             test_df = test_df_copy.copy()
@@ -667,6 +815,10 @@ if __name__ == '__main__':
             # destandardize predictions so that they are in physical units
             predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
 
+        if args.use_polar:
+            # convert predictions back to cartesian coordinates
+            predictions = ConvertPredictionsToCartesian(predictions, output_features)
+
         # define alternative prediction by taking most probable value from flow 
         # to do this we sample 100 times and take the case with the best log probability
         # estimate most likely solution using flow_map_predict function
@@ -674,9 +826,13 @@ if __name__ == '__main__':
             model,
             X_test,
             test_dataset=test_dataset,
-            num_draws=100,
+            num_draws=1, #TODO: change back to 100!!!!
             chunk_size=5000 if device.type == 'cpu' else 50000,
         )
+
+        if args.use_polar:
+            # convert predictions_alt back to cartesian coordinates
+            samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)       
 
         # unpack MAP outputs
         alt_nubar_px = samples_alt[:,0]
@@ -695,8 +851,14 @@ if __name__ == '__main__':
             (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
              alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
         )
+
     
         true_values = test_df[output_features].values
+
+        if args.use_polar:
+            # convert true values back to cartesian coordinates
+            true_values = ConvertPredictionsToCartesian(true_values, output_features)
+
         ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
             'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values 
 
@@ -789,7 +951,9 @@ if __name__ == '__main__':
         taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
         taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
-        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero], axis=1),
+
+        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero,
+                                  taup_pi, taup_pizero, taun_pi, taun_pizero], axis=1),
                                   columns=['true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                            'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
@@ -806,7 +970,11 @@ if __name__ == '__main__':
                                            'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
                                            'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
                                            'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
-                                           'taun_haspizero', 'taup_haspizero'
+                                           'taun_haspizero', 'taup_haspizero',
+                                           'taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz',
+                                           'taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz',
+                                           'taun_pi1_E', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz',
+                                           'taun_pizero1_E', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz',
                                            ])    
 
         if predictions_alt is not None:
@@ -833,6 +1001,10 @@ if __name__ == '__main__':
         results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
         results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass
+
+        # get spin vars for true_tau
+        results_df = compute_spin_vars(results_df, tau_prefix='true_')
+
 
         # write the results dataframe to a pickle file
         results_df.to_pickle(f"{output_dir}/output_results.pkl")

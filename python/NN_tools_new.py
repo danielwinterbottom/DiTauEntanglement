@@ -267,6 +267,8 @@ def NormalizingFlowNew(input_size=8,
         # then this mask will alternate which use tau is used to learn the spline parameters for the other tau  
         if i>0: transforms.append(ReversePermutation(features=input_size))
         if i>1: transforms.append(nflows.transforms.LULinear(input_size)) # idea is to only introduce this after the first 2 layers so that 1D corrections of each tau are learned first
+        #TODO: perhaps try doing the LULinear only every other layer?
+        #if i % 2 == 0: transforms.append(nflows.transforms.LULinear(input_size))
         transforms.append(PiecewiseRationalQuadraticCouplingTransform(mask, create_net, tails='linear', num_bins=num_bins, tail_bound=tail_bound))
 
     transform = CompositeTransform(transforms)
