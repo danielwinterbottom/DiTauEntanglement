@@ -261,14 +261,13 @@ def NormalizingFlowNew(input_size=8,
             use_batch_norm=batch_norm,
             activation=activation)
 
+    mask = nflows.utils.torchutils.create_mid_split_binary_mask(input_size)
+
     for i in range(num_layers):
-        mask = nflows.utils.torchutils.create_mid_split_binary_mask(input_size) 
-        # if features are ordered so that tau- features come first and then tau+ features and they have the same number 
-        # then this mask will alternate which use tau is used to learn the spline parameters for the other tau  
-        if i>0: transforms.append(ReversePermutation(features=input_size))
-        if i>1: transforms.append(nflows.transforms.LULinear(input_size)) # idea is to only introduce this after the first 2 layers so that 1D corrections of each tau are learned first
-        #TODO: perhaps try doing the LULinear only every other layer?
-        #if i % 2 == 0: transforms.append(nflows.transforms.LULinear(input_size))
+        if i > 0: transforms.append(nflows.transforms.LULinear(input_size))
+        transforms.append(ReversePermutation(features=input_size))
+        transforms.append(PiecewiseRationalQuadraticCouplingTransform(mask, create_net, tails='linear', num_bins=num_bins, tail_bound=tail_bound))
+        transforms.append(ReversePermutation(features=input_size))
         transforms.append(PiecewiseRationalQuadraticCouplingTransform(mask, create_net, tails='linear', num_bins=num_bins, tail_bound=tail_bound))
 
     transform = CompositeTransform(transforms)
@@ -307,6 +306,7 @@ class ConditionalFlow(nn.Module):
         self.flow = NormalizingFlowNew(
             input_size=input_dim,
             context_features=context_dim,
+            activation=activation,
             **flow_kwargs
         )
 
@@ -446,3 +446,24 @@ class ConditionalMorphingFlow(nn.Module):
             )
 
         return x_corr
+
+class EarlyStopper:
+    def __init__(self, patience=10, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = float('inf')
+
+    def reset(self):
+        self.counter = 0
+        self.min_validation_loss = float('inf')
+
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss)*(1. + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False

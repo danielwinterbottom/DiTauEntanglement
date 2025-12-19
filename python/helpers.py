@@ -40,9 +40,14 @@ def boost(v, beta):
     bp = np.sum(beta * v[...,1:], axis=-1, keepdims=True)
 
     v0 = gamma * (v[...,0:1] + bp)
+
+    gamma2 = np.zeros_like(beta2)
+    mask = beta2 > 0.0
+    gamma2[mask] = (gamma[mask] - 1.0) / beta2[mask]
+
     vvec = (
         v[...,1:]
-        + (gamma - 1.0) * bp * beta / beta2
+        + gamma2 * bp * beta
         + gamma * beta * v[...,0:1]
     )
 
@@ -162,6 +167,98 @@ def polarimetric_vector_tau_root(tau, pi1, piz1, tau_npi, tau_npizero):
 
     return tau_s   
 
+def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0],[0],[0]])):
+    '''
+    Compute concurrence and m12 variables
+    Note Bplus and Bminus are not expected to affect these variables at all but they are used as optional inputs in case some intermediate matrices are to be returned as well 
+    '''
+
+    # Pauli matrices
+    sig1 = np.array([[0, 1],
+                     [1, 0]])
+    
+    sig2 = np.array([[0, -1j],
+                     [1j, 0]], dtype=complex)
+    
+    sig3 = np.array([[1, 0],
+                     [0, -1]])
+    
+    pauli_matrices = [sig1, sig2, sig3]
+    
+    # identity matrix
+    I    = np.array([[1, 0],
+                     [0, 1]])
+    
+    rho1 = np.kron(I, I)
+    
+    rho2=sum(Bplus[i] * np.kron(pauli_matrices[i], I) for i in range(3))
+    
+    rho3=sum(Bminus[j] * np.kron(I, pauli_matrices[j]) for j in range(3))
+    
+    rho4 = np.zeros((4, 4), dtype=complex)  # Initialize a 4x4 complex matrix
+    for i in range(3):
+        for j in range(3):
+            rho4 += C[i, j] * np.kron(pauli_matrices[i], pauli_matrices[j])
+    
+    
+    rho = 1./4*(rho1+rho2+rho3+rho4) 
+
+   
+    trace = np.trace(rho)
+
+    rhostar = np.conj(rho)
+    
+    z = np.kron(pauli_matrices[1], pauli_matrices[1])
+   
+    # using formulas from https://journals.aps.org/prd/pdf/10.1103/PhysRevD.107.093002 
+    # seems to be different to https://arxiv.org/pdf/2405.09201 but gives the expected answer
+    rho_tilde = z*rhostar*z
+    
+    R = np.sqrt(np.sqrt(rho)*rho_tilde*np.sqrt(rho))
+    R_EVs = sorted(np.linalg.eigvals(R),reverse=True)
+    con = R_EVs[0]-sum(R_EVs[1:])
+
+
+    M = C*C.T
+    M_EVs = sorted(np.linalg.eigvals(M),reverse=True)
+    m12 = M_EVs[0]+M_EVs[1]
+  
+    # out also try alternative formulation from https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.80.2245
+
+    return (con.real, m12)
+
+def compute_spin_density_vars(df, prefix='true_'):
+
+    # note currently not sure where the minus signs come from below but they are needed to get the correct matrix, although it doesn't change the entanglement variables at all anyway...
+    C11 = -(df[f"{prefix}cosn_plus"]*df[f"{prefix}cosn_minus"]).mean()*9
+    C22 = -(df[f"{prefix}cosr_plus"]*df[f"{prefix}cosr_minus"]).mean()*9
+    C33 = -(df[f"{prefix}cosk_plus"]*df[f"{prefix}cosk_minus"]).mean()*9
+    C12 = -(df[f"{prefix}cosn_plus"]*df[f"{prefix}cosr_minus"]).mean()*9
+    C13 = -(df[f"{prefix}cosn_plus"]*df[f"{prefix}cosk_minus"]).mean()*9
+    C23 = -(df[f"{prefix}cosr_plus"]*df[f"{prefix}cosk_minus"]).mean()*9
+    C21 = -(df[f"{prefix}cosr_plus"]*df[f"{prefix}cosn_minus"]).mean()*9
+    C31 = -(df[f"{prefix}cosk_plus"]*df[f"{prefix}cosn_minus"]).mean()*9
+    C32 = -(df[f"{prefix}cosk_plus"]*df[f"{prefix}cosr_minus"]).mean()*9
+
+
+    Bplus1 = -df[f"{prefix}cosn_plus"].mean() * 3
+    Bplus2 = -df[f"{prefix}cosr_plus"].mean() * 3
+    Bplus3 = -df[f"{prefix}cosk_plus"].mean() * 3
+    Bminus1 = df[f"{prefix}cosn_minus"].mean() * 3
+    Bminus2 = df[f"{prefix}cosr_minus"].mean() * 3
+    Bminus3 = df[f"{prefix}cosk_minus"].mean() * 3
+
+    Bplus = np.array([Bplus1, Bplus2, Bplus3])
+    Bminus = np.array([Bminus1, Bminus2, Bminus3])
+
+    C = np.array([[C11, C12, C13],
+                  [C21, C22, C23],
+                  [C31, C32, C33]])
+
+    con, m12 = EntanglementVariables(C)
+   
+    return(Bplus, Bminus, C, con, m12)
+
 if __name__ == "__main__":
 
     # Test vectors
@@ -242,3 +339,4 @@ if __name__ == "__main__":
     s_root = polarimetric_vector_tau_root(tau_root, pi1_root, piz1_root, 1, 0)
     print("ROOT polarimetric vector (0 pizero):", s_root.X(), s_root.Y(), s_root.Z())
     print()
+

@@ -2,14 +2,15 @@ import argparse
 import numpy as np
 import pandas as pd
 import os
-from NN_tools_new import RegressionDataset, ConditionalFlow
+from NN_tools_new import RegressionDataset, ConditionalFlow, EarlyStopper
 from schedules import CosineAnnealingExpDecayLR
 import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
 import math
 import matplotlib.pyplot as plt
-from helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost
+from helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
+import torch.nn as nn
 
 def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
@@ -21,7 +22,7 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
                             cond_num_blocks=hp['condition_net_num_blocks'],
                             num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
                             hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
-                            batch_norm=batch_norm)
+                            batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
 
     if verbose:
         print(model)
@@ -35,7 +36,10 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
     #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=0.0)    
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=0.0)    
+
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.1**.5)
+    es = EarlyStopper(patience=6, min_delta=0.)
 
     # check if reload is true, if so load model from output_dir if it exists
     if reload:
@@ -59,13 +63,15 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
         except:
             print(f"Loading model from {model_path} failed. Trying to load from CPU.")
             model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    return model, optimizer, train_dataloader, test_dataloader, scheduler
+    return model, optimizer, train_dataloader, test_dataloader, scheduler, es
 
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
-    save_every_N=None, recompute_train_loss=True, scheduler=None):
+    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None):
     model.to(device)
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
+
+    if early_stopper: early_stopper.reset()
 
     for epoch in range(1, num_epochs+1):
         running_loss=0
@@ -76,9 +82,9 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             loss.backward()
             optimizer.step()
 
-            # changing learning rate per batch
-            if scheduler:
-                lr = scheduler.get_last_lr()
+            lr = scheduler.get_last_lr()
+            # changing learning rate per batch - only if scheduler is defined and is not ReduceLROnPlateau
+            if scheduler and not isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
                 scheduler.step()
         
             if verbose and epoch<5 and batch % 100 == 0:
@@ -115,6 +121,14 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             print(f"New best model found at epoch {epoch} with val_loss {val_loss}. Saving model...")
             torch.save(model.state_dict(), f'{output_plots_dir}/best_model.pth')
         best_val_loss = min(best_val_loss, val_loss)
+
+        if early_stopper and early_stopper.early_stop(val_loss):
+            print(f"Early stopping triggered for epoch {epoch+1}")
+            break
+
+        if scheduler and isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+            lr = scheduler.get_last_lr()
+            scheduler.step(val_loss)
 
         if verbose and epoch % 1 == 0:
             LR_string = f" | LR: {lr[0]:.2e}" if scheduler else ""
@@ -427,6 +441,12 @@ def compute_spin_vars(df, tau_prefix='true_'):
 
     return df
 
+def powers_of_two(min_power, max_power):
+    """
+    Return [2**n] for n in [min_power, max_power] (inclusive).
+    """
+    return [2 ** n for n in range(min_power, max_power + 1)]
+
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()   
@@ -483,77 +503,85 @@ if __name__ == '__main__':
         print("Preparing dataframe...")
 
         import uproot3
-        input_file_name = '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root'
-        tree = uproot3.open(input_file_name)['new_tree']
+        file_names = {
+            #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+        }
 
-        variables = [
-            'taup_npi', 'taup_npizero',
-            'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
-            'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
-            'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
-            'taun_npi', 'taun_npizero',
-            'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
-            'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
-            'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
-            'reco_mass',
-            'BS_x', 'BS_y', 'BS_z',
-            'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-            'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
-            'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
-            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
-            'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
-            'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
-        ]
+        for key, input_file_name in file_names.items():
+            tree = uproot3.open(input_file_name)['new_tree']
 
-        df = tree.pandas.df(variables)
-        # filter the non pi and pipizero decay modes
-        df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
-        df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
+            variables = [
+                'taup_npi', 'taup_npizero',
+                'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                'taun_npi', 'taun_npizero',
+                'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                'reco_mass',
+                'BS_x', 'BS_y', 'BS_z',
+                'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+                'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
+                'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+                'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
+                'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
+                'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
+            ]
+    
+            df = tree.pandas.df(variables)
+            # filter the non pi and pipizero decay modes
+            df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
+            df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
+    
+            # now we add a float which is 0 or 1 depending on whether tau is pi or pipizero, then delete the npi and npizero columns
+            df['taup_haspizero'] = (df['taup_npizero'] > 0).astype(float)
+            df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
+            df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])
+    
+            # also apply a reco_mass cut to select events close to the Z pole with little boost
+            df = df[(df['reco_mass'] > 91)]
+            # now remove the reco_mass column
+            df = df.drop(columns=['reco_mass'])
+    
+            # compute the d_min vector by subrtacting the 2 impact parameters
+            df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
+            df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
+            df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']  
+    
+            if args.use_polar:
+                # convert output to polar coordinates
+                df = ConvertToPolar(df, 'taup_nu_p')
+                df = ConvertToPolar(df, 'taun_nu_p')
+    
+                ## uncomment to convert inputs to polar coordinates as well
+                #df = ConvertToPolar(df, 'reco_taup_pi1_p')
+                #df = ConvertToPolar(df, 'reco_taup_pizero1_p')
+                #df = ConvertToPolar(df, 'reco_taun_pi1_p')
+                #df = ConvertToPolar(df, 'reco_taun_pizero1_p')
+                #df = ConvertToPolar(df, 'reco_taup_nu_p')
+                #df = ConvertToPolar(df, 'reco_taun_nu_p ')
+                #df = ConvertToPolar(df, 'reco_alt_taup_nu_p')
+                #df = ConvertToPolar(df, 'reco_alt_taun_nu_p')
+                #df = ConvertToPolar(df, 'reco_taup_pi1_ip')
+                #df = ConvertToPolar(df, 'reco_taun_pi1_ip')
+                #df = ConvertToPolar(df, 'dmin_')
 
-        # now we add a float which is 0 or 1 depending on whether tau is pi or pipizero, then delete the npi and npizero columns
-        df['taup_haspizero'] = (df['taup_npizero'] > 0).astype(float)
-        df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
-        df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])
+                df.to_pickle(f'ditau_nu_regression_{key}_polar_dataframe.pkl')
 
-        # also apply a reco_mass cut to select events close to the Z pole with little boost
-        df = df[(df['reco_mass'] > 91)]
-        # now remove the reco_mass column
-        df = df.drop(columns=['reco_mass'])
+            else:
+                df.to_pickle(f'ditau_nu_regression_{key}_dataframe.pkl')
 
-        # compute the d_min vector by subrtacting the 2 impact parameters
-        df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
-        df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
-        df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']  
-
-        if args.use_polar:
-            # convert output to polar coordinates
-            df = ConvertToPolar(df, 'taup_nu_p')
-            df = ConvertToPolar(df, 'taun_nu_p')
-
-            ## uncomment to convert inputs to polar coordinates as well
-            #df = ConvertToPolar(df, 'reco_taup_pi1_p')
-            #df = ConvertToPolar(df, 'reco_taup_pizero1_p')
-            #df = ConvertToPolar(df, 'reco_taun_pi1_p')
-            #df = ConvertToPolar(df, 'reco_taun_pizero1_p')
-            #df = ConvertToPolar(df, 'reco_taup_nu_p')
-            #df = ConvertToPolar(df, 'reco_taun_nu_p ')
-            #df = ConvertToPolar(df, 'reco_alt_taup_nu_p')
-            #df = ConvertToPolar(df, 'reco_alt_taun_nu_p')
-            #df = ConvertToPolar(df, 'reco_taup_pi1_ip')
-            #df = ConvertToPolar(df, 'reco_taun_pi1_ip')
-            #df = ConvertToPolar(df, 'dmin_')
-
-            df.to_pickle('ditau_nu_regression_ee_to_tauhtauh_polar_dataframe.pkl')
-
-        else:
-            df.to_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
-
-        print("Dataframe prepared and saved.")
+            print(f"Dataframe {key} prepared and saved.")
 
     else: # load the dataframe
         if args.use_polar:
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_polar_dataframe.pkl')
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
         else:
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
 
     # split dataset into train and test
@@ -643,34 +671,49 @@ if __name__ == '__main__':
             print(f"\n🔹 Starting trial {trial.number}...")
 
             hp = {
-                'batch_size': trial.suggest_categorical('batch_size', [4096, 8192, 16384]),
+                'batch_size': trial.suggest_categorical('batch_size', powers_of_two(12, 15)),
                 'num_layers': trial.suggest_int('num_layers', 2, 10),
                 'num_bins': trial.suggest_int('num_bins', 8, 20, step=2),
-                'tail_bound': trial.suggest_float('tail_bound', 1.0, 5.0, step=1.0),
-                'hidden_size': trial.suggest_int('hidden_size', 50, 300, step=50),
+                'tail_bound': trial.suggest_float('tail_bound', 3.0, 5.0, step=1.0),
+                'hidden_size': trial.suggest_categorical('hidden_size', powers_of_two(6, 9)),
                 'num_blocks': trial.suggest_int('num_blocks', 1, 4),
-                'lr': trial.suggest_loguniform('lr', 1e-5, 1e-2),
-                #'epochs_to_10perc_lr': trial.suggest_int('epochs_to_10perc_lr', 20, 100, step=10),
-                'weight_decay': trial.suggest_loguniform('weight_decay', 1e-6, 1e-3),
-                'condition_net_hidden_size': trial.suggest_int('condition_net_hidden_size', 50, 300, step=50),
-                'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 0, 5),
-                'condition_net_output_size': trial.suggest_int('condition_net_output_size', 6, 30),
+                'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+                'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
+                'condition_net_hidden_size': trial.suggest_categorical('condition_net_hidden_size', powers_of_two(6, 9)),
+                'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 0, 4),
+                'condition_net_output_size': trial.suggest_categorical('condition_net_output_size', powers_of_two(3, 8)),
                 'num_epochs': args.n_epochs,
             }
 
-            model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, verbose=False)
+            model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, verbose=False)
 
-            # prine if model has too many parameters
+            # prune if model has too many parameters
             num_params = sum(p.numel() for p in model.parameters())
             trial.set_user_attr("n_params", num_params)
-            max_N_params = 2*1e6
-            if num_params > max_N_params:
-                raise optuna.TrialPruned(f"Too many parameters: {num_params}")
+            #max_N_params = 2*1e6
+            #if num_params > max_N_params:
+            #    raise optuna.TrialPruned(f"Too many parameters: {num_params}")
 
             best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=False, output_plots_dir=None,
-                save_every_N=None, scheduler=scheduler, recompute_train_loss=False,)
+                save_every_N=None, scheduler=scheduler, recompute_train_loss=False, early_stopper=es)
+
+            # save model if it doesnt already exist or if loss is better than previous best
+            # first load loss if there has been a previous trial
+            best_trial_loss_path = os.path.join(output_dir, "best_trial_loss.txt")
+            if os.path.exists(best_trial_loss_path):
+                with open(best_trial_loss_path, "r") as f:
+                    best_trial_loss = float(f.read())
+            else:
+                best_trial_loss = float("inf")
+            if best_val_loss < best_trial_loss:
+                with open(best_trial_loss_path, "w") as f:
+                    f.write(str(best_val_loss))
+                # save model
+                model_path = os.path.join(output_dir, f"best_trial_model.pth")
+                torch.save(model.state_dict(), model_path)
 
             return best_val_loss
+
         db_path = os.path.join(output_dir, "nn_optuna_study.db")
 
         study = optuna.create_study(
@@ -689,58 +732,33 @@ if __name__ == '__main__':
         print("  Hyperparameters:")
         for key, value in best_trial.params.items():
             print(f"    {key}: {value}")
-        # also print the hyper parameters that were fixed
-        fixed_hyperparams = {k: v for k, v in hp.items() if k not in best_trial.params}
-        print("  Fixed hyperparameters:")
-        for key, value in fixed_hyperparams.items():
-            print(f"    {key}: {value}")
 
         exit()
 
-#Trial 9 finished with value: -19.865106669339266 and parameters: {'batch_s
-#ize': 8192, 'num_layers': 4, 'num_bins': 18, 'tail_bound': 5.0, 'hidden_size': 50, 'num_blocks': 1, 'lr': 0.0009381276074910463, 'weight_decay': 1.3195987584367093e-05, 'condition_net_hidden_size': 300, '
-#condition_net_num_blocks': 1, 'condition_net_output_size': 17}. Best is trial 9 with value: -19.865106669339266.
-
     # load the model with the best hyperparameters found in stage 2
     # for now we just hard code the hyperparameters
-    #hp = {
-    #    'batch_size': 8192,
-    #    'num_layers': 10,
-    #    'num_bins': 16,
-    #    'tail_bound': 3.0,
-    #    'hidden_size': 200,
-    #    'num_blocks': 2,
-    #    'lr': 0.001,
-    #    'weight_decay': 1e-4,
-    #    #'epochs_to_10perc_lr': 100,
-    #    'condition_net_hidden_size': 200,
-    #    'condition_net_num_blocks': 0, #4
-    #    'condition_net_output_size': 10,
-    #    'num_epochs': args.n_epochs,
-    #}
-    # best hps so far from trial 9
+ 
     hp = {
         'batch_size': 8192,
-        'num_layers': 4,
-        'num_bins': 18,
-        'tail_bound': 5.0,
-        'hidden_size': 50,
-        'num_blocks': 1,
-        'lr': 0.00094,
-        'weight_decay': 1.32e-05,
-        #'epochs_to_10perc_lr': 100,
-        'condition_net_hidden_size': 300,
-        'condition_net_num_blocks': 1, #4
-        'condition_net_output_size': 17,
+        'num_layers': 6,
+        'num_bins': 16,
+        'tail_bound': 4.0,
+        'hidden_size': 256,
+        'num_blocks': 3,
+        'lr': 0.001,
+        'weight_decay': 1e-05,
+        'condition_net_hidden_size': 128,
+        'condition_net_num_blocks': 2,
+        'condition_net_output_size': 128,
         'num_epochs': args.n_epochs,
     }
-    model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
+    model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
 
     if 3 in args.stages:
 
         print("Starting training...")
 
-        best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=output_plots_dir,save_every_N=1, scheduler=scheduler)
+        best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=output_plots_dir,save_every_N=1, scheduler=scheduler, early_stopper=es)
 
         model_name = args.model_name
         torch.save(model.state_dict(), f'{output_dir}/{model_name}.pth')
@@ -819,10 +837,11 @@ if __name__ == '__main__':
             # convert predictions back to cartesian coordinates
             predictions = ConvertPredictionsToCartesian(predictions, output_features)
 
+        samples_alt = None
         # define alternative prediction by taking most probable value from flow 
         # to do this we sample 100 times and take the case with the best log probability
         # estimate most likely solution using flow_map_predict function
-        samples_norm_alt, samples_alt = flow_map_predict(
+        _, samples_alt = flow_map_predict(
             model,
             X_test,
             test_dataset=test_dataset,
@@ -830,27 +849,28 @@ if __name__ == '__main__':
             chunk_size=5000 if device.type == 'cpu' else 50000,
         )
 
-        if args.use_polar:
-            # convert predictions_alt back to cartesian coordinates
-            samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)       
+        if samples_alt is not None:
+            if args.use_polar:
+                # convert predictions_alt back to cartesian coordinates
+                samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)       
 
-        # unpack MAP outputs
-        alt_nubar_px = samples_alt[:,0]
-        alt_nubar_py = samples_alt[:,1]
-        alt_nubar_pz = samples_alt[:,2]
-        alt_nu_px    = samples_alt[:,3]
-        alt_nu_py    = samples_alt[:,4]
-        alt_nu_pz    = samples_alt[:,5]
-        
-        # energies
-        alt_nu_E    = np.sqrt(alt_nu_px**2    + alt_nu_py**2    + alt_nu_pz**2)
-        alt_nubar_E = np.sqrt(alt_nubar_px**2 + alt_nubar_py**2 + alt_nubar_pz**2)
-        
-        # final MAP / "alternative" array
-        predictions_alt = np.column_stack(
-            (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
-             alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
-        )
+            # unpack MAP outputs
+            alt_nubar_px = samples_alt[:,0]
+            alt_nubar_py = samples_alt[:,1]
+            alt_nubar_pz = samples_alt[:,2]
+            alt_nu_px    = samples_alt[:,3]
+            alt_nu_py    = samples_alt[:,4]
+            alt_nu_pz    = samples_alt[:,5]
+            
+            # energies
+            alt_nu_E    = np.sqrt(alt_nu_px**2    + alt_nu_py**2    + alt_nu_pz**2)
+            alt_nubar_E = np.sqrt(alt_nubar_px**2 + alt_nubar_py**2 + alt_nubar_pz**2)
+            
+            # final MAP / "alternative" array
+            predictions_alt = np.column_stack(
+                (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
+                 alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
+            )
 
     
         true_values = test_df[output_features].values
@@ -1012,6 +1032,51 @@ if __name__ == '__main__':
         # get spin vars for alt_pred_tau if present
         if predictions_alt is not None:
             results_df = compute_spin_vars(results_df, tau_prefix='alt_pred_')
+
+        # loop over dm categories and compute spin density matrix variables for each
+        for dm_category in ['all','dm_0_0','dm_0_1','dm_1_1']:
+
+            if dm_category == 'dm_0_0':
+                results_df_dm = results_df[(results_df['taup_haspizero'] == 0) & (results_df['taun_haspizero'] == 0)]
+            elif dm_category == 'dm_0_1':
+                results_df_dm = results_df[((results_df['taup_haspizero'] == 0) & (results_df['taun_haspizero'] == 1)) | ((results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 0))]
+            elif dm_category == 'dm_1_1':
+                results_df_dm = results_df[(results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 1)]
+            else:
+                results_df_dm = results_df
+
+            true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_') 
+            ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='ana_pred_')
+            pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
+            if predictions_alt is not None:
+                alt_pred_Bplus, alt_pred_Bminus, alt_pred_C, alt_pred_con, alt_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='alt_pred_')
+    
+            print('\n===== DM CATEGORY:', dm_category, '=====')
+            print('True spin density matrix variables:')
+            print(true_Bplus)
+            print(true_Bminus)
+            print(true_C)
+            print(true_con, true_m12)
+            print()
+            print('Analytical predicted spin density matrix variables:')
+            print(ana_pred_Bplus)
+            print(ana_pred_Bminus)
+            print(ana_pred_C)
+            print(ana_pred_con, ana_pred_m12)
+            print()
+            print('NN predicted spin density matrix variables:')
+            print(pred_Bplus)
+            print(pred_Bminus)
+            print(pred_C)
+            print(pred_con, pred_m12)
+            print()
+            if predictions_alt is not None:
+                print('Alternative NN predicted spin density matrix variables:')
+                print(alt_pred_Bplus)
+                print(alt_pred_Bminus)
+                print(alt_pred_C)
+                print(alt_pred_con, alt_pred_m12)
+        #exit()
 
 
         # write the results dataframe to a pickle file
