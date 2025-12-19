@@ -1,0 +1,9 @@
+executable = scripts/run_lep_nf_reco.sh
+getenv = True
+arguments = "-s 3 -n 100 -m LEP_nflow_inc_reco_taus_Dec19 --inc_reco_taus"
+output = jobs/nflows_Dec19_$(CLUSTER).out
+error = jobs/nflows_Dec19_$(CLUSTER).err
+log = jobs/nflows_Dec19_$(CLUSTER).log
+request_gpus = 1
++MaxRuntime = 86400
+queue
