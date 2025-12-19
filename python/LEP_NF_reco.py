@@ -581,8 +581,7 @@ if __name__ == '__main__':
         if args.use_polar:
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
         else:
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
 
     # split dataset into train and test
 
