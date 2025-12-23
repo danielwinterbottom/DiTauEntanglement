@@ -32,14 +32,15 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
     scheduler = None
+    es = None
 
     #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
     #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
 
     #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=0.0)    
 
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=3, factor=0.1**.5)
-    es = EarlyStopper(patience=6, min_delta=0.)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1**.5)
+    es = EarlyStopper(patience=10, min_delta=0.)
 
     # check if reload is true, if so load model from output_dir if it exists
     if reload:
@@ -506,8 +507,9 @@ if __name__ == '__main__':
         file_names = {
             #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
         }
 
         for key, input_file_name in file_names.items():
@@ -582,6 +584,9 @@ if __name__ == '__main__':
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
         else:
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_dataframe_reduced.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe_reduced.pkl')
 
     # split dataset into train and test
 
@@ -670,7 +675,7 @@ if __name__ == '__main__':
             print(f"\n🔹 Starting trial {trial.number}...")
 
             hp = {
-                'batch_size': trial.suggest_categorical('batch_size', powers_of_two(12, 15)),
+                'batch_size': trial.suggest_categorical('batch_size', powers_of_two(13, 15)),
                 'num_layers': trial.suggest_int('num_layers', 2, 10),
                 'num_bins': trial.suggest_int('num_bins', 8, 20, step=2),
                 'tail_bound': trial.suggest_float('tail_bound', 3.0, 5.0, step=1.0),
@@ -684,7 +689,7 @@ if __name__ == '__main__':
                 'num_epochs': args.n_epochs,
             }
 
-            model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, verbose=False)
+            model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, verbose=True)
 
             # prune if model has too many parameters
             num_params = sum(p.numel() for p in model.parameters())
@@ -693,7 +698,7 @@ if __name__ == '__main__':
             #if num_params > max_N_params:
             #    raise optuna.TrialPruned(f"Too many parameters: {num_params}")
 
-            best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=False, output_plots_dir=None,
+            best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=None,
                 save_every_N=None, scheduler=scheduler, recompute_train_loss=False, early_stopper=es)
 
             # save model if it doesnt already exist or if loss is better than previous best
