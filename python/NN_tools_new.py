@@ -275,6 +275,24 @@ def NormalizingFlowNew(input_size=8,
     flow = Flow(transform, distribution)
     return flow 
 
+def MLP (input_size=8,
+    num_blocks=3,
+    hidden_size=64,
+    output_size=8,
+    batch_norm=False,
+    activation=nn.ReLU()):
+
+    # define a simple feed-forward neural network using resisual blocks
+    def create_net(in_features, out_features):
+        return nets.ResidualNet(
+            in_features, out_features,
+            hidden_features=hidden_size, num_blocks=num_blocks,
+            use_batch_norm=batch_norm,
+            activation=activation)
+
+    net = create_net(input_size, output_size)
+    return net
+
 class ConditionalFlow(nn.Module):
     def __init__(self, 
                  input_dim,

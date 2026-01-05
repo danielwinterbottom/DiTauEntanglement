@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import os
-from NN_tools_new import RegressionDataset, ConditionalFlow, EarlyStopper
+from NN_tools_new import RegressionDataset, ConditionalFlow, EarlyStopper, MLP
 from schedules import CosineAnnealingExpDecayLR
 import torch
 from torch.utils.data import DataLoader
@@ -12,17 +12,21 @@ import matplotlib.pyplot as plt
 from helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
 import torch.nn as nn
 
-def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
+def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False, useMLP=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
-    model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
-                            context_dim=hp['condition_net_output_size'],
-                            cond_hidden_dim=hp['condition_net_hidden_size'],
-                            cond_num_blocks=hp['condition_net_num_blocks'],
-                            num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
-                            hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
-                            batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
+    if not useMLP:
+        model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
+                                context_dim=hp['condition_net_output_size'],
+                                cond_hidden_dim=hp['condition_net_hidden_size'],
+                                cond_num_blocks=hp['condition_net_num_blocks'],
+                                num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
+                                hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
+                                batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
+    else:    
+        model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
+                    hidden_size=hp['hidden_size'], activation=nn.LeakyReLU(0.05))
 
     if verbose:
         print(model)
@@ -67,7 +71,7 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
     return model, optimizer, train_dataloader, test_dataloader, scheduler, es
 
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
-    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None):
+    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False):
     model.to(device)
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
@@ -76,10 +80,16 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
 
     for epoch in range(1, num_epochs+1):
         running_loss=0
+        mlp_loss_fn = nn.MSELoss()
         for batch, (X, y) in enumerate(train_dataloader):
             X, y = X.to(device), y.to(device)
             optimizer.zero_grad()
-            loss = -model.log_prob(inputs=y, context=X).mean()
+            if not useMLP:
+                loss = -model.log_prob(inputs=y, context=X).mean()
+            else:
+                # for MLP use MSE loss
+                predictions = model(X)
+                loss = mlp_loss_fn(predictions, y)
             loss.backward()
             optimizer.step()
 
@@ -101,7 +111,11 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             with torch.no_grad():
                 for X_train, y_train in train_dataloader:
                     X_train, y_train = X_train.to(device), y_train.to(device)
-                    train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
+                    if not useMLP:
+                        train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
+                    else:
+                        predictions = model(X_train)
+                        train_loss = mlp_loss_fn(predictions, y_train)
                     sum_train_loss += train_loss.item()
             train_loss = sum_train_loss / len(train_dataloader)
 
@@ -112,7 +126,11 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         with torch.no_grad():
             for X_val, y_val in test_dataloader:
                 X_val, y_val = X_val.to(device), y_val.to(device)
-                val_loss = -model.log_prob(inputs=y_val, context=X_val).mean()
+                if not useMLP:
+                    val_loss = -model.log_prob(inputs=y_val, context=X_val).mean()
+                else:
+                    predictions = model(X_val)
+                    val_loss = mlp_loss_fn(predictions, y_val)
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
@@ -283,7 +301,7 @@ def save_sampled_pdfs(
 
     for i, v in enumerate(output_features):
 
-        # find binning to show 98% of the PDF distribution
+        # find binning to show 99% of the PDF distribution
         v_values = predictions[:, i]
         lower_bound = np.percentile(v_values, 0.5)
         upper_bound = np.percentile(v_values, 99.5)
@@ -460,6 +478,7 @@ if __name__ == '__main__':
     argparser.add_argument('--inc_reco_taus', help='whether to include the taus reconstructed by the analytical model as inputs', action='store_true')
     argparser.add_argument('--mix_true_and_analytical', help='If set then produce mixed dataset using both truth and analytical neutrino solutions and add flag as input variable that determines which one is used', action='store_true')
     argparser.add_argument('--use_polar', help='whether to use polar coordinates for inputs and outputs', action='store_true')
+    argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -510,6 +529,7 @@ if __name__ == '__main__':
             #'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
             'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
         }
 
         for key, input_file_name in file_names.items():
@@ -583,10 +603,11 @@ if __name__ == '__main__':
         if args.use_polar:
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
         else:
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
             #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
             #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_dataframe_reduced.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe_reduced.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_reduced_dataframe.pkl')
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe.pkl')
 
     # split dataset into train and test
 
@@ -689,7 +710,7 @@ if __name__ == '__main__':
                 'num_epochs': args.n_epochs,
             }
 
-            model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, verbose=True)
+            model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, verbose=True, useMLP=args.useMLP)
 
             # prune if model has too many parameters
             num_params = sum(p.numel() for p in model.parameters())
@@ -699,7 +720,7 @@ if __name__ == '__main__':
             #    raise optuna.TrialPruned(f"Too many parameters: {num_params}")
 
             best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=None,
-                save_every_N=None, scheduler=scheduler, recompute_train_loss=False, early_stopper=es)
+                save_every_N=None, scheduler=scheduler, recompute_train_loss=False, early_stopper=es, useMLP=args.useMLP)
 
             # save model if it doesnt already exist or if loss is better than previous best
             # first load loss if there has been a previous trial
@@ -741,28 +762,41 @@ if __name__ == '__main__':
 
     # load the model with the best hyperparameters found in stage 2
     # for now we just hard code the hyperparameters
- 
-    hp = {
-        'batch_size': 8192,
-        'num_layers': 6,
-        'num_bins': 16,
-        'tail_bound': 4.0,
-        'hidden_size': 256,
-        'num_blocks': 3,
-        'lr': 0.001,
-        'weight_decay': 1e-05,
-        'condition_net_hidden_size': 128,
-        'condition_net_num_blocks': 2,
-        'condition_net_output_size': 128,
-        'num_epochs': args.n_epochs,
-    }
-    model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
+
+#{'batch_size': 8192, 'num_layers': 4, 'num_bins': 8, 'tail_bound': 4.0, 'hidden_size': 256, 'num_blocks': 3, 'lr': 0.0007341093816928968, 'weight_decay': 2.2485362723311364e-05, 'condition_net_hidden_size': 128, 'condition_net_num_blocks': 4, 'condition_net_output_size': 256} to be tried...
+
+    if not args.useMLP:
+        hp = {
+            'batch_size': 8192,
+            'num_layers': 6,
+            'num_bins': 16,
+            'tail_bound': 4.0,
+            'hidden_size': 256,
+            'num_blocks': 3,
+            'lr': 0.001,
+            'weight_decay': 1e-05,
+            'condition_net_hidden_size': 128,
+            'condition_net_num_blocks': 2,
+            'condition_net_output_size': 128,
+            'num_epochs': args.n_epochs,
+        }
+    else:
+        hp = {
+            'batch_size': 8192,
+            'num_blocks': 6,
+            'hidden_size': 512,
+            'lr': 0.001,
+            'weight_decay': 1e-05,
+            'num_epochs': args.n_epochs,
+        }
+
+    model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, reload=args.reload, batch_norm=False, useMLP=args.useMLP)
 
     if 3 in args.stages:
 
         print("Starting training...")
 
-        best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=output_plots_dir,save_every_N=1, scheduler=scheduler, early_stopper=es)
+        best_val_loss, history = train_model(model, optimizer, train_loader, test_loader, num_epochs=args.n_epochs, device=device, verbose=True, output_plots_dir=output_plots_dir,save_every_N=1, scheduler=scheduler, early_stopper=es, useMLP=args.useMLP)
 
         model_name = args.model_name
         torch.save(model.state_dict(), f'{output_dir}/{model_name}.pth')
@@ -790,7 +824,17 @@ if __name__ == '__main__':
 
         model.eval()
 
-        if args.mix_true_and_analytical:
+        if args.useMLP:
+            # for MLP we just do a forward pass
+            X_test, _ = test_dataset[:]
+            X_test = X_test.to(device)
+            with torch.no_grad():
+                predictions_norm = model(X_test)
+            predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+
+            predictions_alt = None
+
+        elif args.mix_true_and_analytical:
             # in this case we have to build the test dataset again starting from test_df, since it is used differently during the training and evaluation
             # select the input, output, and context features from test_df
             #first split test_df into is_analytical = 0 and 1
@@ -842,16 +886,17 @@ if __name__ == '__main__':
             predictions = ConvertPredictionsToCartesian(predictions, output_features)
 
         samples_alt = None
-        # define alternative prediction by taking most probable value from flow 
-        # to do this we sample 100 times and take the case with the best log probability
-        # estimate most likely solution using flow_map_predict function
-        _, samples_alt = flow_map_predict(
-            model,
-            X_test,
-            test_dataset=test_dataset,
-            num_draws=100,
-            chunk_size=5000 if device.type == 'cpu' else 50000,
-        )
+        if not args.useMLP:
+            # define alternative prediction by taking most probable value from flow 
+            # to do this we sample 100 times and take the case with the best log probability
+            # estimate most likely solution using flow_map_predict function
+            _, samples_alt = flow_map_predict(
+                model,
+                X_test,
+                test_dataset=test_dataset,
+                num_draws=100,
+                chunk_size=5000 if device.type == 'cpu' else 50000,
+            )
 
         if samples_alt is not None:
             if args.use_polar:
@@ -1097,15 +1142,16 @@ if __name__ == '__main__':
             f["tree"].extend(results_df.to_dict(orient='list'))
 
         # make a few plots of the samples PDFs vs the analytical solutions for some events
-        for event_number in [0, 1, 2, 3, 4]:
-            save_sampled_pdfs(
-                model=model,
-                dataset=test_dataset,
-                df=results_df,
-                output_features=['nubar_px', 'nubar_py', 'nubar_pz',
-                                 'nu_px', 'nu_py', 'nu_pz'],
-                event_number=event_number,
-                num_samples=50000,
-                bins=100,
-                outdir=f"{output_dir}/pdf_slices_sampled"
-            )
+        if not args.useMLP:
+            for event_number in [0, 1, 2, 3, 4]:
+                save_sampled_pdfs(
+                    model=model,
+                    dataset=test_dataset,
+                    df=results_df,
+                    output_features=['nubar_px', 'nubar_py', 'nubar_pz',
+                                     'nu_px', 'nu_py', 'nu_pz'],
+                    event_number=event_number,
+                    num_samples=50000,
+                    bins=100,
+                    outdir=f"{output_dir}/pdf_slices_sampled"
+                )

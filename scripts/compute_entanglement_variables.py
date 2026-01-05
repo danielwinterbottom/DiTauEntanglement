@@ -25,7 +25,7 @@ with uproot.open(args.input) as file:
     df = tree.arrays(entry_start=entry_start, entry_stop=entry_stop, library="pd")
 
 #example below applys a cut on cosTheta
-#df = df[abs(df['cosTheta']) < 0.2334]
+#df = df[abs(df[args.prefix+'_cosTheta']) < 0.2334]
 #df = df[df['mass'] > 1000]
 #df = df[abs(df['cosTheta']) < 0.5]
 #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] == 0) & (df['taun_npi'] == 1) & (df['taun_npizero'] == 0)]
