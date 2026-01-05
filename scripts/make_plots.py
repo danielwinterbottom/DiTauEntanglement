@@ -8,7 +8,11 @@ def true_vs_reco_plot(df, variable="cosn_plus", n_bins=100, output_dir="./plots/
     # extract values
     true_values = df['true_' + variable]
     ana_pred_values = df['ana_pred_' + variable]
-    alt_pred_values = df['alt_pred_' + variable]
+    # check if alt_pred_ variables exist, if not use pred_
+    if ('alt_pred_' + variable) in df.columns:
+        alt_pred_values = df['alt_pred_' + variable]
+    else:
+        alt_pred_values = df['pred_' + variable]
 
     # first make plots comparing distributions
     lower_bound = min(true_values.min(), ana_pred_values.min(), alt_pred_values.min())
@@ -104,6 +108,9 @@ def true_vs_reco_plot(df, variable="cosn_plus", n_bins=100, output_dir="./plots/
 def ComputeZMass(df):
     # compute the Z mass (ditau invariant mass) and add to dataframe
     for x in ['true_', 'ana_pred_', 'alt_pred_']:
+        # check if alt_pred_ variables exist, if not use pred_
+        if x == 'alt_pred_' and not (x + 'tau_plus_E') in df.columns:
+            x = 'pred_'
         E_plus = df[x + 'tau_plus_E']
         E_minus = df[x + 'tau_minus_E']
         px_plus = df[x + 'tau_plus_px']
@@ -140,6 +147,9 @@ if __name__ == "__main__":
     # define cosncosn variables etc
 
     for x in ['true_', 'ana_pred_', 'alt_pred_']:
+        # check if alt_pred_ variables exist, if not use pred_
+        if x == 'alt_pred_' and not (x + 'cosn_plus') in df.columns:
+            x = 'pred_'
         df[x + "cosncosn"] = df[x + "cosn_plus"] * df[x + "cosn_minus"]
         df[x + "cosrcosr"] = df[x + "cosr_plus"] * df[x + "cosr_minus"]
         df[x + "coskcosk"] = df[x + "cosk_plus"] * df[x + "cosk_minus"]
