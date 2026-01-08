@@ -29,8 +29,8 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
             tail_bound=hp['tail_bound'],
             hidden_size=hp['hidden_size'],
             num_blocks=hp['num_blocks'],
-            affine_hidden_size=hp['affine_hidden_size'],
-            affine_num_blocks=hp['affine_num_blocks'],
+            #affine_hidden_size=hp['affine_hidden_size'],
+            #affine_num_blocks=hp['affine_num_blocks'],
             batch_norm=batch_norm,
         ),
     
@@ -40,8 +40,8 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False):
             tail_bound=hp['tail_bound'],
             hidden_size=hp['hidden_size'],
             num_blocks=hp['num_blocks'],
-            affine_hidden_size=hp['affine_hidden_size'],
-            affine_num_blocks=hp['affine_num_blocks'],
+            #affine_hidden_size=hp['affine_hidden_size'],
+            #affine_num_blocks=hp['affine_num_blocks'],
             batch_norm=batch_norm,
         ),
     )
@@ -160,98 +160,6 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
     print("Training Completed. Trained for {} epochs.".format(epoch))
 
     return best_val_loss, history
-
-#TODO: can probs remove it
-def flow_map_predict(
-    model,
-    X,
-    test_dataset=None,
-    num_draws=100,
-    chunk_size=5000,
-):
-    """
-    Compute MAP (maximum log-probability) predictions from a normalizing flow.
-    
-    Parameters
-    ----------
-    model : flow model
-        The trained normalizing flow model.
-    X : torch.Tensor
-        Conditioning features of shape [B, context_dim].
-    test_dataset : object, optional
-        Must supply .destandardize_outputs(tensor). If None, no destandardization is performed.
-    num_draws : int
-        Number of samples per event to approximate the MAP estimate.
-    chunk_size : int
-        Number of events to process at once (controls memory usage).
-
-    Returns
-    -------
-    samples_norm_alt : torch.Tensor, shape [B, features]
-        MAP-selected samples in normalized (flow) space.
-    samples_alt : np.ndarray or None
-        Destandardized samples, or None if test_dataset not provided.
-    """
-
-    model.eval()
-
-    B = X.shape[0]
-
-    all_best_samples = []
-
-    for start in range(0, B, chunk_size):
-        end = min(start + chunk_size, B)
-        X_chunk = X[start:end]
-        C = X_chunk.shape[0]
-
-        # -----------------------------------------------------------
-        # 1. Sample num_draws from the flow for this chunk
-        #    samples_norm_chunk: [C, num_draws, features]
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            samples_norm_chunk = model.sample(num_samples=num_draws, context=X_chunk)
-
-        # Flatten for log_prob input
-        # [C, D, F] → [C*D, F]
-        flat_samples = samples_norm_chunk.reshape(C * num_draws, -1)
-
-        # Repeat context for each sample
-        # [C, ctx] → [C*D, ctx]
-        flat_context = X_chunk.repeat_interleave(num_draws, dim=0)
-
-        # -----------------------------------------------------------
-        # 2. Compute log_prob for all C*D samples
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
-
-        # Reshape back to [C, D]
-        log_probs = flat_log_probs.view(C, num_draws)
-
-        # -----------------------------------------------------------
-        # 3. Select the best (MAP) sample per event
-        # -----------------------------------------------------------
-        best_idx = torch.argmax(log_probs, dim=1)   # [C]
-        batch_idx = torch.arange(C)
-
-        best_samples_chunk = samples_norm_chunk[batch_idx, best_idx]  # [C, F]
-
-        all_best_samples.append(best_samples_chunk.cpu())
-
-    # -----------------------------------------------------------
-    # Combine chunks → [B, F]
-    # -----------------------------------------------------------
-    samples_norm_alt = torch.cat(all_best_samples, dim=0)
-
-    # -----------------------------------------------------------
-    # Optional destandardization
-    # -----------------------------------------------------------
-    if test_dataset is not None:
-        samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
-    else:
-        samples_alt = None
-
-    return samples_norm_alt, samples_alt
 
 
 def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
@@ -553,19 +461,19 @@ if __name__ == '__main__':
     # for now we just hard code the hyperparameters
     hp = {
         'batch_size': 8192,
-        'num_layers': 7,
+        'num_layers': 10,
         'num_bins': 16,
         'tail_bound': 3.0,
-        'hidden_size': 200,
-        'num_blocks': 1,
-        'affine_hidden_size': 100,
-        'affine_num_blocks': 1,
+        'hidden_size': 100,
+        'num_blocks': 2,
+        #'affine_hidden_size': 100,
+        #'affine_num_blocks': 1,
         'lr': 0.001,
         'weight_decay': 1e-4,
         #'epochs_to_10perc_lr': 100,
-        'condition_net_hidden_size': 200,
+        'condition_net_hidden_size': 100,
         'condition_net_num_blocks': 4,
-        'condition_net_output_size': 20,
+        'condition_net_output_size': 10,
         'num_epochs': args.n_epochs,
     }
     model, optimizer, train_loader, test_loader, scheduler = setup_model_and_training(hp, reload=args.reload, batch_norm=False)
@@ -602,15 +510,18 @@ if __name__ == '__main__':
 
         model.eval()
 
-        X_test, _ = test_dataset[:]
+        X_test, _, c_test = test_dataset[:]
         # move X_test and model to CPU
         X_test = X_test.cpu()
         model = model.cpu()
+
         with torch.no_grad():
-            predictions_norm = model.sample(num_samples=1, context=X_test).squeeze()     
+            predictions_norm = model.morph_data_to_truth(X_test, c_test)   
 
         # destandardize predictions so that they are in physical units
         predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+
+        print(predictions[:5])
 
         # predictions dont include E so we need to compute them
         # compute E for nu and nubar
@@ -659,10 +570,6 @@ if __name__ == '__main__':
         
         pred_taus = np.concatenate([taun_pred, taup_pred], axis=1)
 
-        # get alternative predictions
-        alt_taun_pred = predictions_alt[:, 0:4] + taun_pi + taun_pizero
-        alt_taup_pred = predictions_alt[:, 4:8] + taup_pi + taup_pizero
-        pred_taus_alt = np.concatenate([alt_taun_pred, alt_taup_pred], axis=1)
 
         # get analytical precitions using reco_taup_nu and reco_taun_nu
         # first get the pis and pizeros again
@@ -750,15 +657,15 @@ if __name__ == '__main__':
             f["tree"].extend(results_df.to_dict(orient='list'))
 
         # make a few plots of the samples PDFs vs the analytical solutions for some events
-        for event_number in [0, 1, 2, 3, 4]:
-            save_sampled_pdfs(
-                model=model,
-                dataset=test_dataset,
-                df=results_df,
-                output_features=['nubar_px', 'nubar_py', 'nubar_pz',
-                                 'nu_px', 'nu_py', 'nu_pz'],
-                event_number=event_number,
-                num_samples=50000,
-                bins=100,
-                outdir=f"{output_dir}/pdf_slices_sampled"
-            )
+        #for event_number in [0, 1, 2, 3, 4]:
+        #    save_sampled_pdfs(
+        #        model=model,
+        #        dataset=test_dataset,
+        #        df=results_df,
+        #        output_features=['nubar_px', 'nubar_py', 'nubar_pz',
+        #                         'nu_px', 'nu_py', 'nu_pz'],
+        #        event_number=event_number,
+        #        num_samples=50000,
+        #        bins=100,
+        #        outdir=f"{output_dir}/pdf_slices_sampled"
+        #    )
