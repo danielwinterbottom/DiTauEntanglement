@@ -1,0 +1,46 @@
+import model sm-lepton_masses
+add model taudecay_UFO
+
+#pipi:
+generate e+ e- > ta+ ta- / h, ta+ > pi+ vt~, ta- > pi- vt
+#pirho
+add process e+ e- > ta+ ta- / h, ta+ > pi+ pi0 vt~, ta- > pi- vt
+add process e+ e- > ta+ ta- / h, ta+ > pi+ vt~, ta- > pi- pi0 vt
+#rhorho
+add process e+ e- > ta+ ta- / h, ta+ > pi+ pi0 vt~, ta- > pi- pi0 vt
+
+output ee_to_tauhtauh_dm0and1only_inc_entanglement
+launch
+done
+set run_card ebeam1 45.6
+set run_card ebeam2 45.6
+set run_card gridpack True
+done
+
+#pipi:
+generate e+ e- > ta+{R} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process e+ e- > ta+{L} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process e+ e- > ta+{L} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- vt
+add process e+ e- > ta+{R} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- vt
+#pirho
+add process e+ e- > ta+{R} ta-{L} / h, ta+ > pi+ pi0 vt~, ta- > pi- vt
+add process e+ e- > ta+{L} ta-{R} / h, ta+ > pi+ pi0 vt~, ta- > pi- vt
+add process e+ e- > ta+{L} ta-{L} / h, ta+ > pi+ pi0 vt~, ta- > pi- vt
+add process e+ e- > ta+{R} ta-{R} / h, ta+ > pi+ pi0 vt~, ta- > pi- vt
+add process e+ e- > ta+{R} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{L} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{L} ta-{L} / h, ta+ > pi+ vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{R} ta-{R} / h, ta+ > pi+ vt~, ta- > pi- pi0 vt
+#rhorho
+add process e+ e- > ta+{R} ta-{L} / h, ta+ > pi+ pi0 vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{L} ta-{R} / h, ta+ > pi+ pi0 vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{L} ta-{L} / h, ta+ > pi+ pi0 vt~, ta- > pi- pi0 vt
+add process e+ e- > ta+{R} ta-{R} / h, ta+ > pi+ pi0 vt~, ta- > pi- pi0 vt
+
+output ee_to_tauhtauh_dm0and1only_no_entanglement
+launch
+done
+set run_card ebeam1 45.6
+set run_card ebeam2 45.6
+set run_card gridpack True
+done

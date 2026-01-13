@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
 import torch.nn as nn
 
-def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False, useMLP=False):
+def setup_model_and_training(hp, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
@@ -41,19 +41,57 @@ def setup_model_and_training(hp, verbose=True, reload=False, batch_norm=False, u
     #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
     #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
 
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=0.0)    
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=hp['lr']*0.01)    
 
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1**.5)
-    es = EarlyStopper(patience=10, min_delta=0.)
+    #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1**.5)
+
+    #constant lr scheduler
+    #scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=total_steps)
+
+    # use cos annealing schedule with warm up period:
+
+    total_steps = hp['num_epochs'] * len(train_dataloader)
+    warmup_steps = int(0.05 * total_steps)  # e.g. 5% warmup
+    
+    optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'])
+    
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-3,   # start at 0.1% of lr
+        total_iters=warmup_steps
+    )
+    
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=total_steps - warmup_steps,
+        eta_min=hp['lr']*0.01
+    )
+    
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps]
+    )
+
+    if args.reload_scheduler:
+        model_name = args.model_name
+        scheduler_path = f'{output_plots_dir}/partial_scheduler.pth'
+        if os.path.exists(scheduler_path):
+            print(f"Reloading scheduler from {scheduler_path}...")
+            try:
+                scheduler.load_state_dict(torch.load(scheduler_path))
+            except:
+                print(f"Loading scheduler from {scheduler_path} failed. Trying to load from CPU.")
+                scheduler.load_state_dict(torch.load(scheduler_path, map_location=torch.device('cpu')))
+        else:
+            print(f"Scheduler path {scheduler_path} does not exist. Can't reload scheduler.")
+    #es = EarlyStopper(patience=10, min_delta=0.)
 
     # check if reload is true, if so load model from output_dir if it exists
     if reload:
         model_name = args.model_name
-        model_path = f'{output_dir}/{model_name}.pth'
         partial_model_path = f'{output_plots_dir}/partial_model.pth'
-        if os.path.exists(model_path):
-            print(f"Reloading model from {model_path}...")
-        elif os.path.exists(partial_model_path):
+        if os.path.exists(partial_model_path):
             model_path = partial_model_path
             print(f"Reloading model from {model_path}...")
         else:
@@ -158,6 +196,9 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         if save_every_N and epoch % save_every_N == 0 and output_plots_dir:
             print(f"Saving model checkpoint at epoch {epoch}...")
             torch.save(model.state_dict(), f'{output_plots_dir}/partial_model.pth')
+            # save scheduler state
+            if scheduler:
+                torch.save(scheduler.state_dict(), f'{output_plots_dir}/partial_scheduler.pth')
 
     print("Training Completed. Trained for {} epochs.".format(epoch))
 
@@ -273,7 +314,9 @@ def save_sampled_pdfs(
     event_number,
     num_samples=50000,
     bins=100,
-    outdir="pdf_slices_sampled"
+    outdir="pdf_slices_sampled",
+    use_polar=False,
+    use_onorm=False,
 ):
     """
     Estimate 1D marginals p(x_i | context) by directly sampling the conditional flow
@@ -296,6 +339,18 @@ def save_sampled_pdfs(
 
     predictions = dataset.destandardize_outputs(predictions_norm).cpu().numpy()
 
+    if use_polar:
+        # convert predictions to cartesian coordinates
+        predictions = ConvertPredictionsToCartesian(predictions, output_features)
+    if use_onorm:
+        predictions = ConvertFromOrthonormalNRK_Predictions(
+            predictions,
+            taup_pi=df[['reco_taup_pi1_E', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values,
+            taup_pi0=df[['reco_taup_pizero1_E', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values,
+            taun_pi=df[['reco_taun_pi1_E', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values,
+            taun_pi0=df[['reco_taun_pizero1_E', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values,
+        )
+
 
     n_bins = bins   # preserve the integer
 
@@ -312,6 +367,20 @@ def save_sampled_pdfs(
         plt.hist(pred_i, bins=bins, density=True, histtype='step', linewidth=2)
         # draw true value as an arrow
         true_value = dataset.destandardize_outputs(y[event_number].unsqueeze(0)).cpu().numpy()[0, i]
+        if use_polar:
+            # convert true value to cartesian coordinates
+            true_value = ConvertPredictionsToCartesian(
+                np.array([true_value]),
+                output_features
+            )[0, i]
+        if use_onorm:
+            true_value = ConvertFromOrthonormalNRK_Predictions(
+                np.array([true_value]),
+                taup_pi=df[['reco_taup_pi1_E', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values[event_number:event_number+1],
+                taup_pi0=df[['reco_taup_pizero1_E', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values[event_number:event_number+1],
+                taun_pi=df[['reco_taun_pi1_E', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values[event_number:event_number+1],
+                taun_pi0=df[['reco_taun_pizero1_E', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values[event_number:event_number+1],
+            )[0, i]
         plt.axvline(true_value, color='r', linestyle='--', linewidth=2, label='True Value')
 
         # also get analytical solutions if available
@@ -426,6 +495,162 @@ def ConvertPredictionsToCartesian(predictions, output_features):
     # return as numpy array
     return predictions_df.values
 
+def _get_vec(df, pref: str) -> np.ndarray:
+    """Return (N,3) array from columns {pref}px, {pref}py, {pref}pz."""
+    return np.stack(
+        [df[f"{pref}px"].to_numpy(),
+         df[f"{pref}py"].to_numpy(),
+         df[f"{pref}pz"].to_numpy()],
+        axis=1
+    ).astype(float)
+
+def _build_nrk_basis_from_visible_tau(df, pi_prefix: str, pi0_prefix: str, eps: float = 1e-12):
+    """
+    Build event-by-event orthonormal basis (n_hat, r_hat, k_hat) using:
+      p_hat = (0,0,-1)
+      k_hat = unit(pi + pi0)
+      n_hat = unit(p_hat x k_hat)
+      r_hat = unit(p_hat - k_hat (p_hat·k_hat))
+    Returns:
+      n, r, k as (N,3) arrays
+    """
+    v_vis = _get_vec(df, pi_prefix) + _get_vec(df, pi0_prefix)
+
+    k_norm = np.linalg.norm(v_vis, axis=1, keepdims=True)
+    k = np.where(k_norm > eps, v_vis / k_norm, 0.0)
+
+    N = len(df)
+    p = np.zeros((N, 3), dtype=float)
+    p[:, 2] = -1.0
+
+    n = np.cross(p, k)
+    n_norm = np.linalg.norm(n, axis=1, keepdims=True)
+    n = np.where(n_norm > eps, n / n_norm, 0.0)
+
+    cosTheta = np.sum(p * k, axis=1, keepdims=True)
+    r = p - k * cosTheta
+    r_norm = np.linalg.norm(r, axis=1, keepdims=True)
+    r = np.where(r_norm > eps, r / r_norm, 0.0)
+
+    return n, r, k
+
+
+def ConvertToOrthonormalNRK(
+    df,
+    prefix_to_convert: str,
+    pi_prefix: str,
+    pi0_prefix: str,
+    out_prefix = None,
+    drop_xyz: bool = True,
+    eps: float = 1e-12,
+    keep_basis: bool = False,
+):
+    if out_prefix is None:
+        out_prefix = prefix_to_convert
+
+    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+    v = _get_vec(df, prefix_to_convert)
+
+    df[f"{out_prefix}n"] = np.sum(v * n, axis=1)
+    df[f"{out_prefix}r"] = np.sum(v * r, axis=1)
+    df[f"{out_prefix}k"] = np.sum(v * k, axis=1)
+
+    if keep_basis:
+        for i, comp in enumerate(["x", "y", "z"]):
+            df[f"{out_prefix}n{comp}"] = n[:, i]
+            df[f"{out_prefix}r{comp}"] = r[:, i]
+            df[f"{out_prefix}k{comp}"] = k[:, i]
+
+    if drop_xyz:
+        df = df.drop(columns=[f"{prefix_to_convert}px", f"{prefix_to_convert}py", f"{prefix_to_convert}pz"])
+
+    return df
+
+
+def ConvertFromOrthonormalNRK(
+    df,
+    prefix_to_convert: str,  # expects {prefix}n,{prefix}r,{prefix}k
+    pi_prefix: str,
+    pi0_prefix: str,
+    out_prefix = None,  # writes {out}px,{out}py,{out}pz
+    drop_nrk: bool = False,
+    eps: float = 1e-12,
+):
+    if out_prefix is None:
+        out_prefix = prefix_to_convert
+
+    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+
+    vn = df[f"{prefix_to_convert}n"].to_numpy(dtype=float)[:, None]
+    vr = df[f"{prefix_to_convert}r"].to_numpy(dtype=float)[:, None]
+    vk = df[f"{prefix_to_convert}k"].to_numpy(dtype=float)[:, None]
+
+    v = vn * n + vr * r + vk * k
+
+    df[f"{out_prefix}px"] = v[:, 0]
+    df[f"{out_prefix}py"] = v[:, 1]
+    df[f"{out_prefix}pz"] = v[:, 2]
+
+    if drop_nrk:
+        df = df.drop(columns=[f"{prefix_to_convert}n", f"{prefix_to_convert}r", f"{prefix_to_convert}k"])
+
+    return df
+
+def ConvertFromOrthonormalNRK_Predictions(
+    predictions,
+    taup_pi,
+    taup_pi0,
+    taun_pi,
+    taun_pi0,
+    eps: float = 1e-12,
+):
+
+    # create a dataframe with predictions and visible tau decay products
+    column_names = ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']
+    taup_pi_columns = [f'reco_taup_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    taup_pi0_columns = [f'reco_taup_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    taun_pi_columns = [f'reco_taun_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    taun_pi0_columns = [f'reco_taun_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    visible_data = np.concatenate([taup_pi, taup_pi0, taun_pi, taun_pi0], axis=1)
+    visible_column_names = taup_pi_columns + taup_pi0_columns + taun_pi_columns + taun_pi0_columns
+    all_data = np.concatenate([predictions, visible_data], axis=1)
+    column_names += visible_column_names
+    df = pd.DataFrame(all_data, columns=column_names)
+
+
+    # now call ConvertFromOrthonormalNRK on the dataframe, first for nubar tau+ neutrino
+    pi_prefix = 'reco_taup_pi1_'
+    pi0_prefix = 'reco_taup_pizero1_'
+    df = ConvertFromOrthonormalNRK(
+        df,
+        prefix_to_convert='taup_nu_',
+        pi_prefix=pi_prefix,
+        pi0_prefix=pi0_prefix,
+        drop_nrk=True,
+        eps=eps,
+    )
+    # then for nubar tau- neutrino
+    pi_prefix = 'reco_taun_pi1_'
+    pi0_prefix = 'reco_taun_pizero1_'
+    df = ConvertFromOrthonormalNRK(
+        df,
+        prefix_to_convert='taun_nu_',
+        pi_prefix=pi_prefix,
+        pi0_prefix=pi0_prefix,
+        drop_nrk=True,
+        eps=eps,
+    )
+
+    # ensure it is ordered like taup_nu_px, taup_nu_py, taup_nu_pz, taun_nu_px, taun_nu_py, taun_nu_pz
+    ordered_columns = [
+        'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+        'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+    ]
+    df = df[ordered_columns]
+    # return as numpy array
+    return df.values
+
+
 def compute_spin_vars(df, tau_prefix='true_'):
 
     taup = df[[f'{tau_prefix}tau_plus_E', f'{tau_prefix}tau_plus_px', f'{tau_prefix}tau_plus_py', f'{tau_prefix}tau_plus_pz']].values
@@ -475,10 +700,15 @@ if __name__ == '__main__':
     argparser.add_argument('--n_epochs', '-n', help='number of training epochs', type=int, default=10)
     argparser.add_argument('--n_trials', '-t', help='number of hyperparameter optimization trials', type=int, default=100)
     argparser.add_argument('--reload', '-r', help='reload from existing model', action='store_true')
+    argparser.add_argument('--reload_scheduler', help='reload scheduler from existing model', action='store_true')
     argparser.add_argument('--inc_reco_taus', help='whether to include the taus reconstructed by the analytical model as inputs', action='store_true')
     argparser.add_argument('--mix_true_and_analytical', help='If set then produce mixed dataset using both truth and analytical neutrino solutions and add flag as input variable that determines which one is used', action='store_true')
     argparser.add_argument('--use_polar', help='whether to use polar coordinates for inputs and outputs', action='store_true')
+    argparser.add_argument('--use_onorm' , help='whether to use orthonormal basis for inputs', action='store_true')
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
+    argparser.add_argument('--dataframe_name', '-d', help='name of the input dataframe pickle file',default=None)
+    argparser.add_argument('--use_full_dataframe_for_testing', help='if set, use the full dataframe for testing instead of a split', action='store_true')
+    argparser.add_argument('--output_name', help='name of the output file after ML reco is applied and added', default=None)
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -511,6 +741,11 @@ if __name__ == '__main__':
             'taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi',
             'taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'
         ]
+    elif args.use_onorm:
+        output_features = [
+            'taup_nu_n', 'taup_nu_r', 'taup_nu_k',
+            'taun_nu_n', 'taun_nu_r', 'taun_nu_k'
+        ]
     else:
         output_features = [
             'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
@@ -527,7 +762,7 @@ if __name__ == '__main__':
             #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
             'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
         }
@@ -594,20 +829,49 @@ if __name__ == '__main__':
 
                 df.to_pickle(f'ditau_nu_regression_{key}_polar_dataframe.pkl')
 
+            elif args.use_onorm:
+                # convert outputs to orthonormal basis
+                df = ConvertToOrthonormalNRK(
+                    df,
+                    prefix_to_convert='taup_nu_',
+                    pi_prefix='reco_taup_pi1_',
+                    pi0_prefix='reco_taup_pizero1_',
+                    out_prefix=None,
+                    drop_xyz=False,
+                    keep_basis=True,
+                )
+                df = ConvertToOrthonormalNRK(
+                    df,
+                    prefix_to_convert='taun_nu_',
+                    pi_prefix='reco_taun_pi1_',
+                    pi0_prefix='reco_taun_pizero1_',
+                    out_prefix=None,
+                    drop_xyz=False,
+                    keep_basis=True,
+                )
+
+                df.to_pickle(f'ditau_nu_regression_{key}_onorm_dataframe.pkl')
             else:
                 df.to_pickle(f'ditau_nu_regression_{key}_dataframe.pkl')
 
             print(f"Dataframe {key} prepared and saved.")
 
     else: # load the dataframe
-        if args.use_polar:
+        if args.dataframe_name is not None:
+            df = pd.read_pickle(args.dataframe_name)
+        elif args.use_polar:
             df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
+        elif args.use_onorm:
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_onorm_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_onorm_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_onorm_dataframe_reduced.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_onorm_dataframe_reduced.pkl')
         else:
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
+            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
             #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
             #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_dataframe_reduced.pkl')
             #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_reduced_dataframe.pkl')
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe.pkl')
+            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe.pkl')
 
     # split dataset into train and test
 
@@ -616,6 +880,13 @@ if __name__ == '__main__':
     
     train_df = df.iloc[:train_size]
     test_df = df.iloc[train_size:]
+
+    #write test_df to pkl
+    test_df.to_pickle(f'{output_dir}/test_dataframe.pkl')
+
+    # if we will use the full dataframe for testing, copy it
+    if args.use_full_dataframe_for_testing:
+        test_df = df.copy()
 
     # define datasets and normalize inputs and outputs
 
@@ -785,12 +1056,12 @@ if __name__ == '__main__':
             'batch_size': 8192,
             'num_blocks': 6,
             'hidden_size': 512,
-            'lr': 0.001,
+            'lr': 0.0005,
             'weight_decay': 1e-05,
             'num_epochs': args.n_epochs,
         }
 
-    model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, reload=args.reload, batch_norm=False, useMLP=args.useMLP)
+    model, optimizer, train_loader, test_loader, scheduler, es = setup_model_and_training(hp, reload=args.reload, reload_scheduler=args.reload_scheduler,batch_norm=False, useMLP=args.useMLP)
 
     if 3 in args.stages:
 
@@ -809,7 +1080,7 @@ if __name__ == '__main__':
 
         print('Evaluating final model on test dataset...')
 
-        model_path = f'{output_dir}/best_model.pth'
+        model_path = f'{output_plots_dir}/best_model.pth'
         # check if model exists, if not take  partial model
         if not os.path.exists(model_path):
             model_path = f'{output_plots_dir}/partial_model.pth'
@@ -823,6 +1094,12 @@ if __name__ == '__main__':
             model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
 
         model.eval()
+
+        # get tau pi and pizero four vectors from test_df
+        taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
+        taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
+        taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
+        taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
 
         if args.useMLP:
             # for MLP we just do a forward pass
@@ -884,6 +1161,10 @@ if __name__ == '__main__':
         if args.use_polar:
             # convert predictions back to cartesian coordinates
             predictions = ConvertPredictionsToCartesian(predictions, output_features)
+        elif args.use_onorm:
+            # convert predictions back from orthonormal basis
+            predictions = ConvertFromOrthonormalNRK_Predictions(predictions, taup_pi=taup_pi, taup_pi0=taup_pizero, 
+                                                                taun_pi=taun_pi, taun_pi0=taun_pizero)
 
         samples_alt = None
         if not args.useMLP:
@@ -898,10 +1179,13 @@ if __name__ == '__main__':
                 chunk_size=5000 if device.type == 'cpu' else 50000,
             )
 
-        if samples_alt is not None:
             if args.use_polar:
-                # convert predictions_alt back to cartesian coordinates
-                samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)       
+                samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)
+            elif args.use_onorm:
+                samples_alt = ConvertFromOrthonormalNRK_Predictions(samples_alt, taup_pi=taup_pi, taup_pi0=taup_pizero, 
+                                                                    taun_pi=taun_pi, taun_pi0=taun_pizero)
+
+        if samples_alt is not None:
 
             # unpack MAP outputs
             alt_nubar_px = samples_alt[:,0]
@@ -917,16 +1201,27 @@ if __name__ == '__main__':
             
             # final MAP / "alternative" array
             predictions_alt = np.column_stack(
-                (alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz,
-                 alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz)
+                (alt_nubar_E, alt_nubar_px, alt_nubar_py, alt_nubar_pz,
+                alt_nu_E, alt_nu_px, alt_nu_py, alt_nu_pz)
             )
-
     
         true_values = test_df[output_features].values
 
         if args.use_polar:
             # convert true values back to cartesian coordinates
             true_values = ConvertPredictionsToCartesian(true_values, output_features)
+        elif args.use_onorm:
+            # convert true values back from orthonormal basis
+            true_values = ConvertFromOrthonormalNRK_Predictions(true_values, taup_pi=taup_pi, taup_pi0=taup_pizero, 
+                                                                taun_pi=taun_pi, taun_pi0=taun_pizero)
+
+            #as a test, lets compare these to the original gen values from the dataframe
+            gen_nu_px = test_df['taun_nu_px'].values
+            gen_nu_py = test_df['taun_nu_py'].values
+            gen_nu_pz = test_df['taun_nu_pz'].values
+            gen_nubar_px = test_df['taup_nu_px'].values
+            gen_nubar_py = test_df['taup_nu_py'].values
+            gen_nubar_pz = test_df['taup_nu_pz'].values
 
         ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
             'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values 
@@ -941,7 +1236,7 @@ if __name__ == '__main__':
         nu_pz = predictions[:,5]
         nu_E = np.sqrt(nu_px**2 + nu_py**2 + nu_pz**2)
         nubar_E = np.sqrt(nubar_px**2 + nubar_py**2 + nubar_pz**2)
-        predictions = np.column_stack((nu_E, nu_px, nu_py, nu_pz, nubar_E, nubar_px, nubar_py, nubar_pz))
+        predictions = np.column_stack((nubar_E, nubar_px, nubar_py, nubar_pz, nu_E, nu_px, nu_py, nu_pz))
 
         # get E components for true values as well
         true_nubar_px = true_values[:,0]
@@ -952,35 +1247,31 @@ if __name__ == '__main__':
         true_nu_pz = true_values[:,5]
         true_nu_E = np.sqrt(true_nu_px**2 + true_nu_py**2 + true_nu_pz**2)
         true_nubar_E = np.sqrt(true_nubar_px**2 + true_nubar_py**2 + true_nubar_pz**2)
-        true_values = np.column_stack((true_nu_E, true_nu_px, true_nu_py, true_nu_pz,
-                                       true_nubar_E, true_nubar_px, true_nubar_py, true_nubar_pz))
+        true_values = np.column_stack((true_nubar_E, true_nubar_px, true_nubar_py, true_nubar_pz,
+                                       true_nu_E, true_nu_px, true_nu_py, true_nu_pz))
     
         # get true taus by summing with pis and pizeros
-        taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
-        taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
-        taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
-        taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
 
         # tau- = nu + pi + pizero
-        taun = true_values[:, 0:4] + taun_pi + taun_pizero
+        taup = true_values[:, 0:4] + taup_pi + taup_pizero
         
         # tau+ = nu + pi + pizero
-        taup = true_values[:, 4:8] + taup_pi + taup_pizero
+        taun = true_values[:, 4:8] + taun_pi + taun_pizero
         
         # final true taus (8 columns total)
-        true_taus = np.concatenate([taun, taup], axis=1)
+        true_taus = np.concatenate([taup, taun], axis=1)
         
         # same for predictions
-        taun_pred = predictions[:, 0:4] + taun_pi + taun_pizero
-        taup_pred = predictions[:, 4:8] + taup_pi + taup_pizero
+        taup_pred = predictions[:, 0:4] + taup_pi + taup_pizero
+        taun_pred = predictions[:, 4:8] + taun_pi + taun_pizero
         
-        pred_taus = np.concatenate([taun_pred, taup_pred], axis=1)
+        pred_taus = np.concatenate([taup_pred, taun_pred], axis=1)
 
         # get alternative predictions
         if predictions_alt is not None:
-            alt_taun_pred = predictions_alt[:, 0:4] + taun_pi + taun_pizero
-            alt_taup_pred = predictions_alt[:, 4:8] + taup_pi + taup_pizero
-            pred_taus_alt = np.concatenate([alt_taun_pred, alt_taup_pred], axis=1)
+            alt_taup_pred = predictions_alt[:, 0:4] + taup_pi + taup_pizero
+            alt_taun_pred = predictions_alt[:, 4:8] + taun_pi + taun_pizero
+            pred_taus_alt = np.concatenate([alt_taup_pred, alt_taun_pred], axis=1)
 
         # get analytical precitions using reco_taup_nu and reco_taun_nu
         # first get the pis and pizeros again
@@ -992,12 +1283,12 @@ if __name__ == '__main__':
         reco_taup_nu = np.column_stack((reco_taup_nu_E, reco_taup_nu))
         reco_taun_nu = np.column_stack((reco_taun_nu_E, reco_taun_nu))
 
-        ana_pred_values = np.concatenate([reco_taun_nu, reco_taup_nu], axis=1)
+        ana_pred_values = np.concatenate([reco_taup_nu, reco_taun_nu], axis=1)
 
         # get the predicted taus as well
         ana_pred_taup = reco_taup_nu + taup_pi + taup_pizero
         ana_pred_taun = reco_taun_nu + taun_pi + taun_pizero
-        ana_pred_taus =  np.concatenate([ana_pred_taun, ana_pred_taup], axis=1)
+        ana_pred_taus =  np.concatenate([ana_pred_taup, ana_pred_taun], axis=1)
 
         # get the alt ones as well
         reco_alt_taup_nu = test_df[['reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz']].values
@@ -1008,7 +1299,7 @@ if __name__ == '__main__':
         reco_alt_taup_nu = np.column_stack((reco_alt_taup_nu_E, reco_alt_taup_nu))
         reco_alt_taun_nu = np.column_stack((reco_alt_taun_nu_E, reco_alt_taun_nu))
 
-        ana_alt_pred_values = np.concatenate([reco_alt_taun_nu, reco_alt_taup_nu], axis=1)
+        ana_alt_pred_values = np.concatenate([reco_alt_taup_nu, reco_alt_taun_nu], axis=1)
 
         # get the predicted taus as well
         ana_alt_pred_taup = reco_alt_taup_nu + taup_pi + taup_pizero
@@ -1023,22 +1314,23 @@ if __name__ == '__main__':
 
         results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero,
                                   taup_pi, taup_pizero, taun_pi, taun_pizero], axis=1),
-                                  columns=['true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
-                                           'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
-                                           'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
+                                  columns=[
+                                           'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz', 
+                                           'true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'pred_nubar_E', 'pred_nubar_px', 'pred_nubar_py', 'pred_nubar_pz',
-                                           'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
+                                           'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
                                            'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
-                                           'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
+                                           'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
                                            'ana_alt_pred_nubar_E', 'ana_alt_pred_nubar_px', 'ana_alt_pred_nubar_py', 'ana_alt_pred_nubar_pz',
-                                           'true_tau_minus_E', 'true_tau_minus_px', 'true_tau_minus_py', 'true_tau_minus_pz',
+                                           'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
                                            'true_tau_plus_E',  'true_tau_plus_px',  'true_tau_plus_py',  'true_tau_plus_pz',
-                                           'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
+                                           'true_tau_minus_E', 'true_tau_minus_px', 'true_tau_minus_py', 'true_tau_minus_pz',
                                            'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
-                                           'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
+                                           'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
                                            'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
-                                           'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
+                                           'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
                                            'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
+                                           'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
                                            'taun_haspizero', 'taup_haspizero',
                                            'taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz',
                                            'taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz',
@@ -1049,26 +1341,27 @@ if __name__ == '__main__':
         if predictions_alt is not None:
             results_sf_extra = pd.DataFrame(data=np.concatenate([predictions_alt, pred_taus_alt], axis=1),
                                   columns=[
-                                           'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
-                                           'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
-                                             'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
-                                             'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
+                                            'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
+                                            'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
+                                            'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',                                           
+                                            'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
+
                                            ])
             results_df = pd.concat([results_df, results_sf_extra], axis=1)    
     
         # compute predicted mass of taus and Z boson and store on dataframe
-        pred_tau_minus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
-        pred_tau_plus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
+        pred_tau_plus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
+        pred_tau_minus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
         pred_z_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
-        results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
-        results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
+        results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
+        results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
         results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
         results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
         if predictions_alt is not None:
-            results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
-            results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
-        results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
-        results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
+            results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
+            results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
+        results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
+        results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass
 
         # get spin vars for true_tau
@@ -1129,10 +1422,16 @@ if __name__ == '__main__':
 
 
         # write the results dataframe to a pickle file
-        results_df.to_pickle(f"{output_dir}/output_results.pkl")
+        if args.output_name:
+            results_df.to_pickle(f"{output_dir}/{args.output_name}.pkl")
+        else:
+            results_df.to_pickle(f"{output_dir}/output_results.pkl")
     
         # write root file aswell
-        output_root_file = f"{output_dir}/output_results.root"
+        if args.output_name:
+            output_root_file = f"{output_dir}/{args.output_name}.root"
+        else:
+            output_root_file = f"{output_dir}/output_results.root"
     
         with uproot3.recreate(output_root_file) as f:
             # Create the tree inside the file (name it "tree")
@@ -1153,5 +1452,7 @@ if __name__ == '__main__':
                     event_number=event_number,
                     num_samples=50000,
                     bins=100,
-                    outdir=f"{output_dir}/pdf_slices_sampled"
+                    outdir=f"{output_dir}/pdf_slices_sampled",
+                    use_polar=args.use_polar,
+                    use_onorm=args.use_onorm,
                 )

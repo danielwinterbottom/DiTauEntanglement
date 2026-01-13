@@ -1,0 +1,9 @@
+executable = scripts/run_testing.sh
+getenv = True
+arguments = "$(CLUSTER) $(PROCESS)"
+output = jobs/LEP_testing_$(CLUSTER)_$(PROCESS).job.out
+error = jobs/LEP_testing_$(CLUSTER)_$(PROCESS).job.err
+log = jobs/LEP_testing_$(CLUSTER)_$(PROCESS).job.log
+request_memory = 8000
++MaxRuntime = 10800
+queue 12

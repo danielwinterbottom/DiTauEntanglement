@@ -3,6 +3,7 @@ import argparse
 import uproot3
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 def true_vs_reco_plot(df, variable="cosn_plus", n_bins=100, output_dir="./plots/"):
     # extract values
@@ -138,8 +139,6 @@ if __name__ == "__main__":
         tree = file["tree"]
         df = tree.pandas.df()
 
-    print(df[:5])
-
     # add true tau mass to dataframe
     df['true_tau_plus_mass'] = 1.777
     df['true_tau_minus_mass'] = 1.777
@@ -176,4 +175,6 @@ if __name__ == "__main__":
                  ]
 
     for var in variables:
-        true_vs_reco_plot(df,variable=var, n_bins=100, output_dir="./plots/")
+        plots_dir = args.input.replace(".root","_plots")
+        os.makedirs(plots_dir, exist_ok=True)
+        true_vs_reco_plot(df,variable=var, n_bins=100, output_dir=plots_dir)

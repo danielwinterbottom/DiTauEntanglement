@@ -12,8 +12,12 @@ parser.add_argument("-i", "--input", required=True, help="Input ROOT file.")
 parser.add_argument('--n_events', '-n', help='Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help='skip n_events*n_skip', default=0, type=int)
 parser.add_argument("-p", "--prefix", help="Input ROOT file.", default="true", type=str) #options="true","ana_pred","pred","alt_pred"
+parser.add_argument('--channel', help='Decay mode to select', default=None, type=str)
 
 args = parser.parse_args()
+
+out_txt=''
+
 
 with uproot.open(args.input) as file:
     tree = file["tree"]
@@ -23,6 +27,16 @@ with uproot.open(args.input) as file:
     entry_stop = total_entries if args.n_events == -1 else min(entry_start + args.n_events, total_entries)
 
     df = tree.arrays(entry_start=entry_start, entry_stop=entry_stop, library="pd")
+
+
+if args.channel and args.channel != '':
+    if args.channel == 'pipi': 
+        decay_mode_sel = '(taun_haspizero==0 & taup_haspizero==0)'
+    elif args.channel == 'rhorho':
+        decay_mode_sel = '(taun_haspizero==1 & taup_haspizero==1)'
+    elif args.channel == 'pirho':
+        decay_mode_sel = '((taun_haspizero==0 & taup_haspizero==1) | (taun_haspizero==1 & taup_haspizero==0))'
+    df = df.query(decay_mode_sel)
 
 #example below applys a cut on cosTheta
 #df = df[abs(df[args.prefix+'_cosTheta']) < 0.2334]
@@ -55,7 +69,7 @@ df["coskcosr"] = df["cosk_plus"]*df["cosr_minus"]
 
 
 
-def ComputeEntanglementVariables(df, verbose=False):
+def ComputeEntanglementVariables(df, out_txt=None, verbose=False):
 
     # note currently not sure where the minus signs come from below but they are needed to get the correct matrix, although it doesn't change the entanglement variables at all anyway...
     C11 = -df["cosncosn"].mean()*9
@@ -104,12 +118,29 @@ def ComputeEntanglementVariables(df, verbose=False):
                   [C21_err, C22_err, C23_err],
                   [C31_err, C32_err, C33_err]])
 
+    if out_txt is not None:
+
+        out_txt += "C11 %.4f %.4f\n" % (C11, C11_err)
+        out_txt += "C12 %.4f %.4f\n" % (C12, C12_err)
+        out_txt += "C13 %.4f %.4f\n" % (C13, C13_err)
+        out_txt += "C21 %.4f %.4f\n" % (C21, C21_err)
+        out_txt += "C22 %.4f %.4f\n" % (C22, C22_err)
+        out_txt += "C23 %.4f %.4f\n" % (C23, C23_err)
+        out_txt += "C31 %.4f %.4f\n" % (C31, C31_err)
+        out_txt += "C32 %.4f %.4f\n" % (C32, C32_err)
+        out_txt += "C33 %.4f %.4f\n" % (C33, C33_err)
+
+        out_txt += "Bplus1 %.4f %.4f\n" % (Bplus1, Bplus1_err)
+        out_txt += "Bplus2 %.4f %.4f\n" % (Bplus2, Bplus2_err)
+        out_txt += "Bplus3 %.4f %.4f\n" % (Bplus3, Bplus3_err)
+        out_txt += "Bminus1 %.4f %.4f\n" % (Bminus1, Bminus1_err)
+        out_txt += "Bminus2 %.4f %.4f\n" % (Bminus2, Bminus2_err)
+        out_txt += "Bminus3 %.4f %.4f\n" % (Bminus3, Bminus3_err)
+
+
     #compute c_cp which is defined as sum(|Cij-Cji|) for i < j
     c_cp = abs(C[0, 1] - C[1, 0]) + abs(C[0, 2] - C[2, 0]) + abs(C[1, 2] - C[2, 1])
-
-    print(f"c_cp = {c_cp}")
     
-
     con, m12 = EntanglementVariables(C)
    
     latex = True
@@ -160,11 +191,15 @@ def ComputeEntanglementVariables(df, verbose=False):
             print(C)
             print('concurrence = %.4f' % con)
             print('m12 = %.3f' % m12)
-    return(con, m12)
+    if out_txt is not None:
+        return(con, m12, out_txt)
+    else:
+        return(con, m12)
 
-con, m12 = ComputeEntanglementVariables(df, True)
-exit()
-N = 100  # Number of bootstrap samples to generate
+con, m12, out_txt = ComputeEntanglementVariables(df, out_txt, True)
+
+#exit()
+N = 30  # Number of bootstrap samples to generate
 bootstrap_samples = []
 
 bs_con_vals = array('d')
@@ -199,6 +234,9 @@ m12_lo = np.sqrt(np.mean((mean_m12 - bs_m12_vals[bs_m12_vals < mean_m12])**2))
 print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_hi,con_lo))
 print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_hi,m12_lo))
 
+out_txt += "c %.4f %.4f %.4f\n" % (con,con_hi,con_lo)
+out_txt += "m12 %.4f %.4f %.4f\n" % (m12,m12_hi,m12_lo)
+
 # use percentiles instead to get error
 con_perc_lo = np.percentile(bs_con_vals, 16)
 con_perc_hi = np.percentile(bs_con_vals, 84)
@@ -206,3 +244,11 @@ m12_perc_lo = np.percentile(bs_m12_vals, 16)
 m12_perc_hi = np.percentile(bs_m12_vals, 84)
 print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_perc_hi-con,con_perc_lo-con))
 print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_perc_hi-m12,m12_perc_lo-m12))
+
+# write to output txt file
+output_txt_file = args.input.replace('.root',f'_{args.prefix}_entanglement_variables.txt')
+if args.channel and args.channel != '':
+    output_txt_file = args.input.replace('.root',f'_{args.prefix}_entanglement_variables_{args.channel}.txt')
+with open(output_txt_file, 'w') as f:
+    f.write(out_txt)
+
