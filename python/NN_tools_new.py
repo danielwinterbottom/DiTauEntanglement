@@ -275,7 +275,7 @@ def NormalizingFlowNew(input_size=8,
     flow = Flow(transform, distribution)
     return flow 
 
-def MLP (input_size=8,
+def MLP(input_size=8,
     num_blocks=3,
     hidden_size=64,
     output_size=8,

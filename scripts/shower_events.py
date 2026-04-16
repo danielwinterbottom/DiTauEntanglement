@@ -154,7 +154,7 @@ pythia.readFile(args.cmnd_file)
 if args.input:
     pythia.readString("Beams:frameType = 4")
     pythia.readString("Beams:LHEF = %s" % args.input)
-elif False:
+elif True:
     print('Producing full event in pythia')
     # if no LHE file given then produce full event setup using pythia for the hard process as well
     pythia.readString("Beams:idA = -11") # Positron

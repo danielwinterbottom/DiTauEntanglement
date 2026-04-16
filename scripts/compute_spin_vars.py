@@ -464,6 +464,7 @@ for i in range(start_entry, end_entry):
 
     #P_Z = ROOT.TLorentzVector(0.,0.,0.,91.188) # assuming we don't know ISR and have to assume momentum is balanced
     P_Z = taup + taun # assuming we know the P_Z because of detecting the other photons etc
+
     if args.smear_mode in [1,6] : P_Z_reco = smearing.SmearQ(P_Z) 
     else: P_Z_reco = P_Z.Clone()
 

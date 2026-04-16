@@ -166,9 +166,9 @@ def ComputeEntanglementVariables(df, out_txt=None, verbose=False):
             print(f'{Bminus3:.2f} \\pm {Bminus3_err:.2f}')
             print('\\end{bmatrix},~\\\\')
 
-            print(f'\\mathcal{{C}}[\\rho] = {con:.3f},~')
-            print(f'\\text{{m}}_{{12}} = {m12:.3f}')
-            print('\\end{split}')
+            #print(f'\\mathcal{{C}}[\\rho] = {con:.3f},~')
+            #print(f'\\text{{m}}_{{12}} = {m12:.3f}')
+            #print('\\end{split}')
         else:
             
             np.set_printoptions(precision=3,suppress=True)
@@ -216,8 +216,8 @@ for i in range(N):
 
 #bs_con_vals = np.random.normal(loc=0, scale=1, size=100)
 
-print('\nconcurrence = %.4f +/- %.4f' %(con,np.std(bs_con_vals)))
-print('m12 = %.4f +/- %.4f' %(m12,np.std(bs_m12_vals)))
+#print('\nconcurrence = %.4f +/- %.4f' %(con,np.std(bs_con_vals)))
+#print('m12 = %.4f +/- %.4f' %(m12,np.std(bs_m12_vals)))
 
 bs_con_vals = np.array(bs_con_vals)
 bs_m12_vals = np.array(bs_m12_vals)
@@ -231,19 +231,29 @@ mean_m12 = np.mean(bs_m12_vals)
 m12_hi = np.sqrt(np.mean((bs_m12_vals[bs_m12_vals >= mean_m12] - mean_m12)**2))
 m12_lo = np.sqrt(np.mean((mean_m12 - bs_m12_vals[bs_m12_vals < mean_m12])**2))
 
-print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_hi,con_lo))
-print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_hi,m12_lo))
+#print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_hi,con_lo))
+#print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_hi,m12_lo))
 
-out_txt += "c %.4f %.4f %.4f\n" % (con,con_hi,con_lo)
-out_txt += "m12 %.4f %.4f %.4f\n" % (m12,m12_hi,m12_lo)
 
 # use percentiles instead to get error
 con_perc_lo = np.percentile(bs_con_vals, 16)
 con_perc_hi = np.percentile(bs_con_vals, 84)
 m12_perc_lo = np.percentile(bs_m12_vals, 16)
 m12_perc_hi = np.percentile(bs_m12_vals, 84)
-print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_perc_hi-con,con_perc_lo-con))
-print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_perc_hi-m12,m12_perc_lo-m12))
+
+latex = True
+verbose = True
+
+out_txt += "c %.4f %.4f %.4f\n" % (con,con_perc_hi-con,con_perc_lo-con)
+out_txt += "m12 %.4f %.4f %.4f\n" % (m12,m12_perc_hi-m12,m12_perc_lo-m12)
+
+if verbose and latex:
+    print(f'\\mathcal{{C}}[\\rho] = {con:.3f}^{{+{con_perc_hi-con:.3f}}}_{{{con_perc_lo-con:.3f}}},~')
+    print(f'\\text{{m}}_{{12}} = {m12:.3f}^{{+{m12_perc_hi-m12:.3f}}}_{{{m12_perc_lo-m12:.3f}}}')
+    print('\\end{split}')
+else:
+    print('\nconcurrence = %.4f +/- +%.4f/%.4f' %(con,con_perc_hi-con,con_perc_lo-con))
+    print('m12 = %.4f +/- +%.4f/%.4f' %(m12,m12_perc_hi-m12,m12_perc_lo-m12))
 
 # write to output txt file
 output_txt_file = args.input.replace('.root',f'_{args.prefix}_entanglement_variables.txt')

@@ -10,7 +10,7 @@ import time
 import numpy as np
 import ROOT
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', 'python')))
 from PolarimetricA1 import PolarimetricA1
 import matplotlib.pyplot as plt
 from collections import OrderedDict
@@ -78,248 +78,44 @@ def read_root_in_chunks(filename, treename, output_name='df.pkl', nchunks=10, va
         df.to_pickle(output)
         del df
 
-def PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=10, verbosity=0):
+def PrepareDataframes(filename, treename, nchunks=10, verbosity=0):
 
     """
-    Prepare dataframes from ROOT files containing different friend trees.
-    The Two trees contain different variables for the same events.
+    Prepare dataframes from ROOT files containing TTrees.
     """
 
     variables = [
-        'taup_px','taup_py','taup_pz','taup_e',
-        'taun_px','taun_py','taun_pz','taun_e',
         'taup_nu_px','taup_nu_py','taup_nu_pz','taup_nu_e',
         'taun_nu_px','taun_nu_py','taun_nu_pz','taun_nu_e',
-        'taup_npi','taup_npizero',
-        'taun_npi','taun_npizero',
+        #'taup_npi','taup_npizero',
+        #'taun_npi','taun_npizero',
         'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
-        'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
-        'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
-        'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
-        'reco_taup_pizero2_px','reco_taup_pizero2_py','reco_taup_pizero2_pz','reco_taup_pizero2_e',
+        #'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
+        #'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
+        #'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
+        #'reco_taup_pizero2_px','reco_taup_pizero2_py','reco_taup_pizero2_pz','reco_taup_pizero2_e',
         'reco_taun_pi1_px','reco_taun_pi1_py','reco_taun_pi1_pz','reco_taun_pi1_e',
-        'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
-        'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
-        'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
-        'reco_taun_pizero2_px','reco_taun_pizero2_py','reco_taun_pizero2_pz','reco_taun_pizero2_e',
-        'reco_taup_vx','reco_taup_vy','reco_taup_vz',
-        'reco_taun_vx','reco_taun_vy','reco_taun_vz',
+        #'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
+        #'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
+        #'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
+        #'reco_taun_pizero2_px','reco_taun_pizero2_py','reco_taun_pizero2_pz','reco_taun_pizero2_e',
+        #'reco_taup_vx','reco_taup_vy','reco_taup_vz',
+        #'reco_taun_vx','reco_taun_vy','reco_taun_vz',
         'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
         'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
-        'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e',
-        'taup_pi1_vz','taup_vz',
-        'z_x','z_y','z_z',
-        'cosn_plus',
-        'cosr_plus',
-        'cosk_plus',
-        'cosn_minus',
-        'cosr_minus',
-        'cosk_minus',
-        'cosTheta',
-        'cosn_plus_reco',
-        'cosr_plus_reco',
-        'cosk_plus_reco',
-        'cosn_minus_reco',
-        'cosr_minus_reco',
-        'cosk_minus_reco',
-        'cosTheta_reco',   
-        'reco_taup_nu_px','reco_taup_nu_py','reco_taup_nu_pz',
-        'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz', 
-        'reco_alt_taup_nu_px','reco_alt_taup_nu_py','reco_alt_taup_nu_pz',
-        'reco_alt_taun_nu_px','reco_alt_taun_nu_py','reco_alt_taun_nu_pz',
-        'reco_d0_taup_nu_px','reco_d0_taup_nu_py','reco_d0_taup_nu_pz',
-        'reco_d0_taun_nu_px','reco_d0_taun_nu_py','reco_d0_taun_nu_pz',
-        'dsign','dsign_alt',
-        'dplus_taup_nu_px','dplus_taup_nu_py','dplus_taup_nu_pz',
-        'dplus_taun_nu_px','dplus_taun_nu_py','dplus_taun_nu_pz',
-        'dminus_taup_nu_px','dminus_taup_nu_py','dminus_taup_nu_pz',
-        'dminus_taun_nu_px','dminus_taun_nu_py','dminus_taun_nu_pz',
-        'reco_dplus_taup_nu_px','reco_dplus_taup_nu_py','reco_dplus_taup_nu_pz',
-        'reco_dplus_taun_nu_px','reco_dplus_taun_nu_py','reco_dplus_taun_nu_pz',
-        'reco_dminus_taup_nu_px','reco_dminus_taup_nu_py','reco_dminus_taup_nu_pz',
-        'reco_dminus_taun_nu_px','reco_dminus_taun_nu_py','reco_dminus_taun_nu_pz',
-
-        'dplus_taup_l',
-        'dplus_taun_l',
-        'dplus_taup_l_sv',
-        'dplus_taun_l_sv',
-        'dplus_dmin_constraint',
-        'dplus_sv_delta_constraint',
-        'dminus_taup_l',
-        'dminus_taun_l',
-        'dminus_taup_l_sv',
-        'dminus_taun_l_sv',
-        'dminus_dmin_constraint',
-        'dminus_sv_delta_constraint',
+        #'cosn_plus',
+        #'cosr_plus',
+        #'cosk_plus',
+        #'cosn_minus',
+        #'cosr_minus',
+        #'cosk_minus',
+        #'cosTheta',
+        'met_px','met_py',
 
     ]
 
-    read_root_in_chunks(filename1, treename1, output_name='output/df.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
-    read_root_in_chunks(filename2, treename2, output_name='output/df_friend.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
+    read_root_in_chunks(filename, treename, output_name='output/df.pkl', nchunks=nchunks, variables=variables, verbosity=verbosity)
 
-
-    # for each chunk concatenate along columns since they have the same event order and save the concatenated dataframe
-    for i in range(nchunks):
-        # load the two dataframes
-        df = pd.read_pickle('output/df_chunk_%i.pkl' % i)
-        df_friend = pd.read_pickle('output/df_friend_chunk_%i.pkl' % i)
-
-        # concatenate along columns
-        df = pd.concat([df, df_friend], axis=1)
-        # remove any duplicate columns
-        df = df.loc[:, ~df.columns.duplicated()]
-        # the variable in the first dataframe called "taup_pi1_vz" should match the variables from the second dataframe called "taup_vz"
-        # drop any events where this is not the case, printing how many events are dropped and then drop these collumns from the dataframe
-        if verbosity>0: print(f"Number of events before dropping: {len(df)}")
-        df = df[df["taup_pi1_vz"] == df["taup_vz"]]
-        if verbosity>0: print(f"Number of events after dropping unmatched events from the two trees: {len(df)}")
-        # drops nans
-        df = df.dropna()
-        if verbosity>0: print(f"Number of events after dropping nans: {len(df)}")
-        df = df.drop(columns=["taup_pi1_vz", "taup_vz"])
-        # remove tau->pipi0pi0+mnu decays for now
-        #require taup_npizero < 2
-        df = df[df["taup_npizero"] < 2]
-        #require taun_npizero < 2
-        df = df[df["taun_npizero"] < 2]
-
-        # define tau decay modes 0,1,2
-        # 0 = 1pi0pi0, 1 = 1pi1pi0, 2 = 3pi
-        df['taup_decay_mode'] = 0
-        df.loc[(df['taup_npi'] == 1) & (df['taup_npizero'] == 1), 'taup_decay_mode'] = 1
-        df.loc[(df['taup_npi'] == 3) & (df['taup_npizero'] == 0), 'taup_decay_mode'] = 2
-        df['taun_decay_mode'] = 0
-        df.loc[(df['taun_npi'] == 1) & (df['taun_npizero'] == 1), 'taun_decay_mode'] = 1
-        df.loc[(df['taun_npi'] == 3) & (df['taun_npizero'] == 0), 'taun_decay_mode'] = 2
-
-        # calculate delta IPs and delta SVs and store as unit vectors and magnitudes
-        # for taup
-        delta_ipx = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
-        delta_ipy = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
-        delta_ipz = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
-        delta_ip = np.sqrt(delta_ipx**2 + delta_ipy**2 + delta_ipz**2)
-        # store the unit vector, if delta_ip = 0 then set to 0
-        df['delta_ipx'] = np.where(delta_ip == 0, 0, delta_ipx/delta_ip)
-        df['delta_ipy'] = np.where(delta_ip == 0, 0, delta_ipy/delta_ip)
-        df['delta_ipz'] = np.where(delta_ip == 0, 0, delta_ipz/delta_ip)
-        df['delta_ip_mag'] = delta_ip
-
-        # now the same for the SVs - make sure it is only non-zero if both SVs are defined (non-zero)
-        delta_svx = df['reco_taup_vx'] - df['reco_taun_vx']
-        delta_svy = df['reco_taup_vy'] - df['reco_taun_vy']
-        delta_svz = df['reco_taup_vz'] - df['reco_taun_vz']
-        # set the delta_sv to 0 if either SV is not defined
-        delta_svx = np.where((df['reco_taup_vx'] == 0) | (df['reco_taun_vx'] == 0), 0, delta_svx)
-        delta_svy = np.where((df['reco_taup_vy'] == 0) | (df['reco_taun_vy'] == 0), 0, delta_svy)
-        delta_svz = np.where((df['reco_taup_vz'] == 0) | (df['reco_taun_vz'] == 0), 0, delta_svz)
-        delta_sv = np.sqrt(delta_svx**2 + delta_svy**2 + delta_svz**2)
-        # store the unit vector, if delta_sv = 0 then set to 0
-        df['delta_svx'] = np.where(delta_sv == 0, 0, delta_svx/delta_sv)
-        df['delta_svy'] = np.where(delta_sv == 0, 0, delta_svy/delta_sv)
-        df['delta_svz'] = np.where(delta_sv == 0, 0, delta_svz/delta_sv)
-        df['delta_sv_mag'] = delta_sv
-
-
-        # process the dsign sensitive variables
-        # make sure these aren't all peaked too close to 1
-        df['dplus_sv_delta_constraint'] = -np.log(1-df['dplus_sv_delta_constraint']+1e-9)
-        df['dminus_sv_delta_constraint'] = -np.log(1-df['dminus_sv_delta_constraint']+1e-9)
-        # make sure tau decay lengths don't go to extreme values
-        # cap dplus_taup_l, dplus_taun_l, dminus_taup_l, and dminus_taun_l at +/- 30
-        df['dplus_taup_l'] = np.clip(df['dplus_taup_l'], -30, 30)
-        df['dplus_taun_l'] = np.clip(df['dplus_taun_l'], -30, 30)
-        df['dminus_taup_l'] = np.clip(df['dminus_taup_l'], -30, 30)
-        df['dminus_taun_l'] = np.clip(df['dminus_taun_l'], -30, 30)
-        # cap dplus_taup_l_sv, dplus_taun_l_sv, dminus_taup_l_sv, and dminus_taun_l_sv at +20 / -10
-        df['dplus_taup_l_sv'] = np.clip(df['dplus_taup_l_sv'], -10, 20)
-        df['dplus_taun_l_sv'] = np.clip(df['dplus_taun_l_sv'], -10, 20)
-        df['dminus_taup_l_sv'] = np.clip(df['dminus_taup_l_sv'], -10, 20)
-        df['dminus_taun_l_sv'] = np.clip(df['dminus_taun_l_sv'], -10, 20)
-
-
-        # add the visible tau 4-vectors by summing the pi and pizero 4-vectors
-        for x in ['px', 'py', 'pz', 'e']:
-            df['reco_taup_vis_' + x] = df['reco_taup_pi1_' + x] + df['reco_taup_pi2_' + x] + df['reco_taup_pi3_' + x] + df['reco_taup_pizero1_' + x] + df['reco_taup_pizero2_' + x]
-            df['reco_taun_vis_' + x] = df['reco_taun_pi1_' + x] + df['reco_taun_pi2_' + x] + df['reco_taun_pi3_' + x] + df['reco_taun_pizero1_' + x] + df['reco_taun_pizero2_' + x]
-
-        # convert to the polar coordinate system and add these variables as well
-        # create the polar coordinates object
-        # initialised like: (self, tau_p, nu_p):
-        tau_p = df[['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']].values
-        nu_p = df[['taup_nu_px', 'taup_nu_py', 'taup_nu_pz']].values
-        taup_polar = NeutrinoPolarCoordinates(tau_p)
-        # compute the angles
-        nu_p_mag, theta, phi = taup_polar.compute_angles(nu_p)
-        # add to the df
-        df['taup_nu_p_mag'] = nu_p_mag
-        df['taup_nu_p_mag_rel'] = df['taup_nu_p_mag'] / df['reco_taup_vis_e'] 
-        df['taup_nu_phi'] = phi
-        df['taup_nu_theta'] = theta
-        # now do the same for the taun
-        tau_p = df[['reco_taun_vis_px', 'reco_taun_vis_py', 'reco_taun_vis_pz']].values
-        nu_p = df[['taun_nu_px', 'taun_nu_py', 'taun_nu_pz']].values
-        taun_polar = NeutrinoPolarCoordinates(tau_p)
-        # compute the angles
-        nu_p_mag, theta, phi = taun_polar.compute_angles(nu_p)
-        # add to the df
-        df['taun_nu_p_mag'] = nu_p_mag
-        df['taun_nu_p_mag_rel'] = df['taun_nu_p_mag'] / df['reco_taun_vis_e'] 
-        df['taun_nu_phi'] = phi
-        df['taun_nu_theta'] = theta
-        # now the same for reco_taup_nu_pi
-        tau_p = df[['reco_taup_vis_px', 'reco_taup_vis_py', 'reco_taup_vis_pz']].values
-        nu_p = df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz']].values
-        taup_polar = NeutrinoPolarCoordinates(tau_p)
-        # compute the angles
-        nu_p_mag, theta, phi = taup_polar.compute_angles(nu_p)
-        # add to the df
-        df['reco_taup_nu_p_mag'] = nu_p_mag
-        df['reco_taup_nu_p_mag_rel'] = df['reco_taup_nu_p_mag'] / df['reco_taup_vis_e']
-        df['reco_taup_nu_phi'] = phi
-        df['reco_taup_nu_theta'] = theta
-        # now do the same for reco_taun_nu_pi
-        tau_p = df[['reco_taun_vis_px', 'reco_taun_vis_py', 'reco_taun_vis_pz']].values
-        nu_p = df[['reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
-        taun_polar = NeutrinoPolarCoordinates(tau_p)
-        # compute the angles
-        nu_p_mag, theta, phi = taun_polar.compute_angles(nu_p)
-        # add to the df
-        df['reco_taun_nu_p_mag'] = nu_p_mag
-        df['reco_taun_nu_p_mag_rel'] = df['reco_taun_nu_p_mag'] / df['reco_taun_vis_e']
-        df['reco_taun_nu_phi'] = phi
-        df['reco_taun_nu_theta'] = theta
-
-        nu_p_dplus = df[['dplus_taup_nu_px', 'dplus_taup_nu_py', 'dplus_taup_nu_pz']].values
-        nu_p_dminus = df[['dminus_taup_nu_px', 'dminus_taup_nu_py', 'dminus_taup_nu_pz']].values
-
-        nu_n_dplus = df[['dplus_taun_nu_px', 'dplus_taun_nu_py', 'dplus_taun_nu_pz']].values
-
-        d = (nu_p_dplus - nu_p_dminus)/2
-        df[['d_px', 'd_py', 'd_pz']] = d
-
-        nu_p_d0 = nu_p_dplus - d
-        nu_n_d0 = nu_n_dplus + d
-        df[['d0_taup_nu_px', 'd0_taup_nu_py', 'd0_taup_nu_pz']] = nu_p_d0
-        df[['d0_taun_nu_px', 'd0_taun_nu_py', 'd0_taun_nu_pz']] = nu_n_d0
-
-        reco_nu_p_dplus = df[['reco_dplus_taup_nu_px', 'reco_dplus_taup_nu_py', 'reco_dplus_taup_nu_pz']].values
-        reco_nu_p_dminus = df[['reco_dminus_taup_nu_px', 'reco_dminus_taup_nu_py', 'reco_dminus_taup_nu_pz']].values
-        d_reco = (reco_nu_p_dplus - reco_nu_p_dminus)/2
-        df[['reco_d_px', 'reco_d_py', 'reco_d_pz']] = d_reco
-
-        # save the concatenated dataframe
-        if verbosity>0: 
-            # print df collumns making sure all are displayed
-            pd.set_option('display.max_columns', None)
-            print('Dataframe columns:')
-            print(df.columns)
-            print('Writing output/df_chunk_%i.pkl' % i)
-        df.to_pickle('output/df_chunk_%i.pkl' % i)
-        # delete the two dataframes
-        del df
-        del df_friend
-        # delete the friends pkl file
-        os.remove('output/df_friend_chunk_%i.pkl' % i)
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features):
@@ -593,61 +389,6 @@ class NeutrinoPolarCoordinates:
         return nu_p_reconstructed
    
 
-class TauFrameRotator:
-    """
-    A class to rotate a given tau's neutrino momentum so that the z-axis is aligned with the tau's visible momentum.
-
-    Rotation happens in two steps:
-        1. Rotate around the z-axis to remove the azimuthal angle (phi).
-        2. Rotate around the y-axis to align the momentum with the z-axis.
-
-    Attributes:
-        theta (float): The polar angle of the tau's visible momentum.
-        phi (float): The azimuthal angle of the tau's visible momentum.
-
-    Methods:
-        set_rotation_angles(px, py, pz): Compute and store theta and phi based on tau momentum.
-        apply_rotation(px, py, pz, reverse=False): Apply the stored rotation (or its inverse) to a given momentum.
-        rotate_dataframe(df, nu_prefix, reverse=False): Rotate neutrino momenta in a DataFrame.
-    """
-
-    def __init__(self):
-        self.theta = None
-        self.phi = None
-
-    def set_rotation_angles(self, px, py, pz):
-        """Set theta and phi based on the tau's visible 3-momentum."""
-        norm_xy = np.hypot(px, py)  # sqrt(px^2 + py^2)
-        self.phi = np.arctan2(py, px)  # Azimuthal angle
-        self.theta = np.arctan2(norm_xy, pz)  # Polar angle    
-
-    def apply_rotation(self, px, py, pz, reverse=False):
-        """Rotate a given 3-momentum using the stored theta and phi."""
-        if self.theta is None or self.phi is None:
-            raise ValueError("Rotation angles have not been set. Call `set_rotation_angles` first.")
-
-        if reverse:
-            theta, phi = -self.theta, -self.phi
-            # Rotate around Y-axis
-            cos_theta, sin_theta = np.cos(-theta), np.sin(-theta)
-            px, pz = cos_theta * px + sin_theta * pz, -sin_theta * px + cos_theta * pz
-
-            # Rotate around Z-axis
-            cos_phi, sin_phi = np.cos(-phi), np.sin(-phi)
-            px, py = cos_phi * px - sin_phi * py, sin_phi * px + cos_phi * py
-        else:
-            theta, phi = self.theta, self.phi
-
-            # Rotate around Z-axis
-            cos_phi, sin_phi = np.cos(-phi), np.sin(-phi)
-            px, py = cos_phi * px - sin_phi * py, sin_phi * px + cos_phi * py
-
-            # Rotate around Y-axis
-            cos_theta, sin_theta = np.cos(-theta), np.sin(-theta)
-            px, pz = cos_theta * px + sin_theta * pz, -sin_theta * px + cos_theta * pz
-
-        return px, py, pz
-
 if __name__ == '__main__':
 
     argparser = argparse.ArgumentParser()
@@ -656,20 +397,17 @@ if __name__ == '__main__':
     argparser.add_argument('--n_hidden_layers', help='number of hidden layers', type=int, default=6)
     argparser.add_argument('--n_nodes', help='number of nodes per layer', type=int, default=300)
     argparser.add_argument('--batch_size', help='batch size', type=int, default=1024)
-    argparser.add_argument('--train_dsolution', help='train a specific solutions for the d sign (+/- 1 - other values default to the ordinary training)', default=None, type=int)
     argparser.add_argument('--loss', help='loss function to use options are MSE, MAE, or Huber', type=str, default='MSE')
     args = argparser.parse_args()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    filename1 = "batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events.root"
-    filename2 = "batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root"
-    treename1 = "tree"
-    treename2 = "new_tree"
+
+    filename = "batch_job_outputs/pp_to_H_tauhtauh_to_pipi_inc_entanglement_Ntot_10000000_Njob_10000/pp_pythia_events_extravars.root"
+    treename = "new_tree"
 
     standardize = 2 # 0: no standardization, 1: standardize input, 2: standardize input and output
     polar = False
-    #num_epochs = 415
     num_epochs = 115
     n_hidden_layers = args.n_hidden_layers
     
@@ -677,52 +415,30 @@ if __name__ == '__main__':
 
     # stage 1: prepare dataframes
     if 1 in args.stages:
-        PrepareDataframes(filename1, filename2, treename1, treename2, nchunks=20, verbosity=1)
+        PrepareDataframes(filename, treename, nchunks=20, verbosity=1)
 
 
     batch_size = args.batch_size
     input_features = [
-        'reco_taup_vis_px','reco_taup_vis_py','reco_taup_vis_pz','reco_taup_vis_e',
-        'reco_taun_vis_px','reco_taun_vis_py','reco_taun_vis_pz','reco_taun_vis_e',
         'reco_taup_pi1_px','reco_taup_pi1_py','reco_taup_pi1_pz','reco_taup_pi1_e',
-        'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
-        'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
-        'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
+        #'reco_taup_pi2_px','reco_taup_pi2_py','reco_taup_pi2_pz','reco_taup_pi2_e',
+        #'reco_taup_pi3_px','reco_taup_pi3_py','reco_taup_pi3_pz','reco_taup_pi3_e',
+        #'reco_taup_pizero1_px','reco_taup_pizero1_py','reco_taup_pizero1_pz','reco_taup_pizero1_e',
         'reco_taun_pi1_px','reco_taun_pi1_py','reco_taun_pi1_pz','reco_taun_pi1_e',
-        'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
-        'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
-        'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
-        'reco_taup_vx','reco_taup_vy','reco_taup_vz',
-        'reco_taun_vx','reco_taun_vy','reco_taun_vz',
+        #'reco_taun_pi2_px','reco_taun_pi2_py','reco_taun_pi2_pz','reco_taun_pi2_e',
+        #'reco_taun_pi3_px','reco_taun_pi3_py','reco_taun_pi3_pz','reco_taun_pi3_e',
+        #'reco_taun_pizero1_px','reco_taun_pizero1_py','reco_taun_pizero1_pz','reco_taun_pizero1_e',
+        #'reco_taup_vx','reco_taup_vy','reco_taup_vz',
+        #'reco_taun_vx','reco_taun_vy','reco_taun_vz',
         'reco_taup_pi1_ipx','reco_taup_pi1_ipy','reco_taup_pi1_ipz',
         'reco_taun_pi1_ipx','reco_taun_pi1_ipy','reco_taun_pi1_ipz',
-        'delta_ipx','delta_ipy','delta_ipz','delta_ip_mag',
-        'delta_svx','delta_svy','delta_svz','delta_sv_mag',
-        'reco_Z_px','reco_Z_py','reco_Z_pz','reco_Z_e',
-        'taup_decay_mode','taun_decay_mode',
-        #'reco_taup_nu_px','reco_taup_nu_py','reco_taup_nu_pz',
-        #'reco_taun_nu_px','reco_taun_nu_py','reco_taun_nu_pz',
+        #'taup_decay_mode','taun_decay_mode',
         ]
 
-    if args.train_dsolution == 1:
-        # regress the dplus solution
-        output_features = [
-            'dplus_taup_nu_px','dplus_taup_nu_py','dplus_taup_nu_pz',
-            'dplus_taun_nu_px','dplus_taun_nu_py','dplus_taun_nu_pz']
-    elif args.train_dsolution == -1:
-        # regress the dminus solution
-        output_features = [
-            'dminus_taup_nu_px','dminus_taup_nu_py','dminus_taup_nu_pz',
-            'dminus_taun_nu_px','dminus_taun_nu_py','dminus_taun_nu_pz']
-    elif args.train_dsolution == 0:
-        # regress the d0 solution
-        output_features = [
-            'd0_taup_nu_px','d0_taup_nu_py','d0_taup_nu_pz',
-            'd0_taun_nu_px','d0_taun_nu_py','d0_taun_nu_pz']
-    else: 
-        output_features = [
-            'taup_nu_px','taup_nu_py','taup_nu_pz',
-            'taun_nu_px','taun_nu_py','taun_nu_pz']
+
+    output_features = [
+        'taup_nu_px','taup_nu_py','taup_nu_pz',
+        'taun_nu_px','taun_nu_py','taun_nu_pz']
 
     print(f'Regressing output features: {output_features}')
     file_paths = [f'output/df_chunk_{i}.pkl' for i in range(20)]
@@ -739,210 +455,6 @@ if __name__ == '__main__':
     train_in_means, train_in_stds = train_dataset.get_input_means_stds()
     train_out_means, train_out_stds = train_dataset.get_output_means_stds()
 
-
-    def custom_loss(output, target, X, theta_scale=2., phi_scale=1./10, separate=False):
-        # first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
-        loss1 = torch.abs(output[:, 0] - target[:, 0]) # taup nu px
-        loss2 = torch.abs(output[:, 1] - target[:, 1]) # taup nu py
-        loss3 = torch.abs(output[:, 2] - target[:, 2]) # taup nu pz
-        loss4 = torch.abs(output[:, 3] - target[:, 3]) # taun nu px
-        loss5 = torch.abs(output[:, 4] - target[:, 4]) # taun nu py
-        loss6 = torch.abs(output[:, 5] - target[:, 5]) # taun nu pz
-        # now implement the L1Loss for the 3 visible tau momenta
-        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)/6
-
-        X_unscaled = X * train_in_stds + train_in_means
-        output_unscaled = output * train_out_stds + train_out_means
-        target_unscaled = target * train_out_stds + train_out_means
-
-        # get the visible tau vectors from X then convert to df so that they can be used in NeutrinoPolarCoordinates
-        taup_vis_tensor = X_unscaled[:, 0:3] + X_unscaled[:, 4:7] + X_unscaled[:, 8:11] + X_unscaled[:, 12:15]
-        taun_vis_tensor = X_unscaled[:, 16:19] + X_unscaled[:, 20:23] + X_unscaled[:, 24:27] + X_unscaled[:, 28:31]
-
-        # get neutrinos from the output and target tensors
-        reco_taup_nu_tensor = output_unscaled[:, 0:3]
-        reco_taun_nu_tensor = output_unscaled[:, 3:6]
-
-        taup_nu_tensor = target_unscaled[:, 0:3]
-        taun_nu_tensor = target_unscaled[:, 3:6]
-
-        
-        taup_vis = pd.DataFrame(taup_vis_tensor.cpu(), columns=['px', 'py', 'pz'])
-        taun_vis = pd.DataFrame(taun_vis_tensor.cpu(), columns=['px', 'py', 'pz'])
-
-        reco_taup_nu = pd.DataFrame(reco_taup_nu_tensor.cpu().detach(), columns=['px', 'py', 'pz'])
-        reco_taun_nu = pd.DataFrame(reco_taun_nu_tensor.cpu().detach(), columns=['px', 'py', 'pz'])
-
-        taup_nu = pd.DataFrame(taup_nu_tensor.cpu(), columns=['px', 'py', 'pz'])
-        taun_nu = pd.DataFrame(taun_nu_tensor.cpu(), columns=['px', 'py', 'pz'])
-        
-
-        # get the polar coordinates
-        taup_polar = NeutrinoPolarCoordinates(taup_vis)
-        taun_polar = NeutrinoPolarCoordinates(taun_vis)
-        reco_taup_nu_p_mag, reco_taup_nu_theta, reco_taup_nu_phi = taup_polar.compute_angles(reco_taup_nu)
-        reco_taun_nu_p_mag, reco_taun_nu_theta, reco_taun_nu_phi = taun_polar.compute_angles(reco_taun_nu)
-        taup_nu_p_mag, taup_nu_theta, taup_nu_phi = taup_polar.compute_angles(taup_nu)
-        taun_nu_p_mag, taun_nu_theta, taun_nu_phi = taun_polar.compute_angles(taun_nu)
-
-        # convert to tensors
-        reco_taup_nu_p_mag = torch.tensor(reco_taup_nu_p_mag, dtype=torch.float32)
-        reco_taup_nu_theta = torch.tensor(reco_taup_nu_theta, dtype=torch.float32)
-        reco_taup_nu_phi = torch.tensor(reco_taup_nu_phi, dtype=torch.float32)
-        reco_taun_nu_p_mag = torch.tensor(reco_taun_nu_p_mag, dtype=torch.float32)
-        reco_taun_nu_theta = torch.tensor(reco_taun_nu_theta, dtype=torch.float32)
-        reco_taun_nu_phi = torch.tensor(reco_taun_nu_phi, dtype=torch.float32)
-        taup_nu_p_mag = torch.tensor(taup_nu_p_mag, dtype=torch.float32)
-        taup_nu_theta = torch.tensor(taup_nu_theta, dtype=torch.float32)
-        taup_nu_phi = torch.tensor(taup_nu_phi, dtype=torch.float32)
-        taun_nu_p_mag = torch.tensor(taun_nu_p_mag, dtype=torch.float32)
-        taun_nu_theta = torch.tensor(taun_nu_theta, dtype=torch.float32)
-        taun_nu_phi = torch.tensor(taun_nu_phi, dtype=torch.float32)
-
-        # send all to gpu
-        reco_taup_nu_p_mag = reco_taup_nu_p_mag.to(device)
-        reco_taup_nu_theta = reco_taup_nu_theta.to(device)
-        reco_taup_nu_phi = reco_taup_nu_phi.to(device)
-        reco_taun_nu_p_mag = reco_taun_nu_p_mag.to(device)
-        reco_taun_nu_theta = reco_taun_nu_theta.to(device)
-        reco_taun_nu_phi = reco_taun_nu_phi.to(device)
-        taup_nu_p_mag = taup_nu_p_mag.to(device)
-        taup_nu_theta = taup_nu_theta.to(device)
-        taup_nu_phi = taup_nu_phi.to(device)
-        taun_nu_p_mag = taun_nu_p_mag.to(device)
-        taun_nu_theta = taun_nu_theta.to(device)
-        taun_nu_phi = taun_nu_phi.to(device)
-
-        taup_dphi = taup_nu_phi - reco_taup_nu_phi
-        taun_dphi = taun_nu_phi - reco_taun_nu_phi
-        taup_dphi = (taup_dphi + torch.pi) % (2 * torch.pi) - torch.pi
-        taun_dphi = (taun_dphi + torch.pi) % (2 * torch.pi) - torch.pi
-
-        phi_loss = phi_scale*(torch.abs(taup_dphi) + torch.abs(taun_dphi))
-        theta_loss = theta_scale*torch.abs(taup_nu_theta - reco_taup_nu_theta) + torch.abs(taun_nu_theta - reco_taun_nu_theta)
-
-        # compute totals
-        total_loss = torch.mean(l1_loss + theta_loss + phi_loss)
-        l1_loss = torch.mean(l1_loss)
-        theta_loss = torch.mean(theta_loss)
-        phi_loss = torch.mean(phi_loss)
-
-        if separate: return total_loss, l1_loss, theta_loss, phi_loss
-        return total_loss
-
-
-    def custom_loss_2(output, target, X, EP_loss_scale=1., mass_loss_scale=0., separate=False):
-
-        # remove the standardization from the input and output tensors since this can break energy and momentum conservation
-        X_unscaled = X * train_in_stds + train_in_means
-        output_unscaled = output * train_out_stds + train_out_means
-        target_unscaled = target * train_out_stds + train_out_means
-
-        loss1 = torch.abs(output[:, 0] - target[:, 0]) # taup nu px
-        loss2 = torch.abs(output[:, 1] - target[:, 1]) # taup nu py
-        loss3 = torch.abs(output[:, 2] - target[:, 2]) # taup nu pz
-        loss4 = torch.abs(output[:, 3] - target[:, 3]) # taun nu px
-        loss5 = torch.abs(output[:, 4] - target[:, 4]) # taun nu py
-        loss6 = torch.abs(output[:, 5] - target[:, 5]) # taun nu pz
-
-        ## first implement L1Loss (MAE) for the 2 neutrino x,y, and z components
-        #loss1 = torch.abs(output_unscaled[:, 0] - target_unscaled[:, 0]) # taup nu px
-        #loss2 = torch.abs(output_unscaled[:, 1] - target_unscaled[:, 1]) # taup nu py
-        #loss3 = torch.abs(output_unscaled[:, 2] - target_unscaled[:, 2]) # taup nu pz
-        #loss4 = torch.abs(output_unscaled[:, 3] - target_unscaled[:, 3]) # taun nu px
-        #loss5 = torch.abs(output_unscaled[:, 4] - target_unscaled[:, 4]) # taun nu py
-        #loss6 = torch.abs(output_unscaled[:, 5] - target_unscaled[:, 5]) # taun nu pz
-        # now implement the L1Loss for the 3 visible tau momenta
-        l1_loss = (loss1 + loss2 + loss3 + loss4 + loss5 + loss6)/6
-
-        # get the visible tau 4-vectors from X
-        #taup_vis
-        taup_vis_tensor = X_unscaled[:, 0:4] + X_unscaled[:, 4:8] + X_unscaled[:, 8:12] + X_unscaled[:, 12:16]
-        taun_vis_tensor = X_unscaled[:, 16:20] + X_unscaled[:, 20:24] + X_unscaled[:, 24:28] + X_unscaled[:, 28:32]
-
-        # get neutrino 3-vectors from the output and target tensors
-        reco_taup_nu_tensor = output_unscaled[:, 0:3]
-        reco_taun_nu_tensor = output_unscaled[:, 3:6]
-        # add the energy by summing the momenta
-        reco_taun_nu_e = torch.sqrt(reco_taun_nu_tensor[:, 0]**2 + reco_taun_nu_tensor[:, 1]**2 + reco_taun_nu_tensor[:, 2]**2)
-        reco_taup_nu_e = torch.sqrt(reco_taup_nu_tensor[:, 0]**2 + reco_taup_nu_tensor[:, 1]**2 + reco_taup_nu_tensor[:, 2]**2)
-        # include the energy in the 4-vectors
-        reco_taup_nu_tensor = torch.cat((reco_taup_nu_tensor, reco_taup_nu_e.unsqueeze(1)), dim=1)
-        reco_taun_nu_tensor = torch.cat((reco_taun_nu_tensor, reco_taun_nu_e.unsqueeze(1)), dim=1)
-
-        taup_nu_tensor = target_unscaled[:, 0:3]
-        taun_nu_tensor = target_unscaled[:, 3:6]
-        taup_nu_e = torch.sqrt(taup_nu_tensor[:, 0]**2 + taup_nu_tensor[:, 1]**2 + taup_nu_tensor[:, 2]**2)
-        taun_nu_e = torch.sqrt(taun_nu_tensor[:, 0]**2 + taun_nu_tensor[:, 1]**2 + taun_nu_tensor[:, 2]**2)
-        taup_nu_tensor = torch.cat((taup_nu_tensor, taup_nu_e.unsqueeze(1)), dim=1)
-        taun_nu_tensor = torch.cat((taun_nu_tensor, taun_nu_e.unsqueeze(1)), dim=1)
-        
-
-        ## ditau energy and momentum conservation terms
-        tau_mass_exp = 1.777
-        reco_taup = reco_taup_nu_tensor + taup_vis_tensor
-        reco_taun = reco_taun_nu_tensor + taun_vis_tensor
-
-        taup = taup_nu_tensor + taup_vis_tensor
-        taun = taun_nu_tensor + taun_vis_tensor
-
-        reco_total_px = reco_taup[:, 0] + reco_taun[:, 0]
-        reco_total_py = reco_taup[:, 1] + reco_taun[:, 1]
-        reco_total_pz = reco_taup[:, 2] + reco_taun[:, 2]
-        reco_total_e  = reco_taup[:, 3] + reco_taun[:, 3]
-
-        total_px = taup[:, 0] + taun[:, 0]
-        total_py = taup[:, 1] + taun[:, 1]
-        total_pz = taup[:, 2] + taun[:, 2]
-        total_e = taup[:, 3] + taun[:, 3]
-
-        Ep_conservation_loss = EP_loss_scale*(torch.abs(reco_total_e - total_e) + torch.abs(reco_total_px - total_px) + torch.abs(reco_total_py - total_py) + torch.abs(reco_total_pz - total_pz))
-
-        # now compute a loss term for the tau masses
-        # make sure sqrt is not negative
-        reco_taup_mass = torch.sqrt(torch.clamp(reco_taup[:, 3]**2 - (reco_taup[:, 0]**2 + reco_taup[:, 1]**2 + reco_taup[:, 2]**2), min=0.01))
-        reco_taun_mass = torch.sqrt(torch.clamp(reco_taun[:, 3]**2 - (reco_taun[:, 0]**2 + reco_taun[:, 1]**2 + reco_taun[:, 2]**2), min=0.01))
-
-        mass_diff_taup = reco_taup_mass - tau_mass_exp
-        mass_diff_taun = reco_taun_mass - tau_mass_exp
-
-        mass_loss = mass_loss_scale*((reco_taup_mass - tau_mass_exp)**2 + (reco_taun_mass - tau_mass_exp)**2)
-        
-
-        ## now get geometric term. Computed by finding cross products of tau visible and nu's. then taking delat phiu between these two
-        #reco_taup_cross = torch.cross(taup_vis_tensor[:, 0:3], reco_taup_nu_tensor[:, 0:3])
-        #reco_taun_cross = torch.cross(taun_vis_tensor[:, 0:3], reco_taun_nu_tensor[:, 0:3])
-        #reco_taup_cross_norm = torch.norm(reco_taup_cross, dim=1)
-        #reco_taun_cross_norm = torch.norm(reco_taun_cross, dim=1)
-        #reco_taup_cross_unit = reco_taup_cross / reco_taup_cross_norm.unsqueeze(1)
-        #reco_taun_cross_unit = reco_taun_cross / reco_taun_cross_norm.unsqueeze(1)
-#
-        #reco_dot_product = torch.einsum('ij,ij->i', reco_taup_cross_unit, reco_taun_cross_unit)
-        #reco_dphi = torch.acos(torch.clamp(reco_dot_product, -1.0, 1.0))
-#
-        #taup_cross = torch.cross(taup_vis_tensor[:, 0:3], taup_nu_tensor[:, 0:3])
-        #taun_cross = torch.cross(taun_vis_tensor[:, 0:3], taun_nu_tensor[:, 0:3])
-        #taup_cross_norm = torch.norm(taup_cross, dim=1)
-        #taun_cross_norm = torch.norm(taun_cross, dim=1)
-        #taup_cross_unit = taup_cross / taup_cross_norm.unsqueeze(1)
-        #taun_cross_unit = taun_cross / taun_cross_norm.unsqueeze(1)
-        #dot_product = torch.einsum('ij,ij->i', taup_cross_unit, taun_cross_unit)
-        #dphi = torch.acos(torch.clamp(dot_product, -1.0, 1.0)) # limit to [-1, 1] to avoid nan from acos
-#
-        #geometric_loss = torch.abs(reco_dphi - dphi)
-        
-
-        # compute totals
-        total_loss = torch.mean(l1_loss + Ep_conservation_loss + mass_loss)
-        #total_loss = torch.mean(l1_loss+mass_loss)
-        l1_loss = torch.mean(l1_loss)
-        mass_loss = torch.mean(mass_loss)
-        Ep_conservation_loss = torch.mean(Ep_conservation_loss)
-        #geometric_loss = torch.mean(geometric_loss)
-
-
-        if separate: return total_loss, l1_loss, Ep_conservation_loss, mass_loss
-        return total_loss
 
     if 2 in args.stages:
 
