@@ -150,6 +150,10 @@ def generate_events(n_events=10000, fixed_orientation=False, seed=None):
     records = []
 
     for _ in range(n_events):
+
+        # print every 100000 events
+        if _ % 100000 == 0 and _ > 0:
+            print(f"Generated {_} events")
         # Step 1: produce taus
         tau_minus, tau_plus = generate_ditau_pair(fixed_orientation=fixed_orientation)
 
@@ -184,10 +188,10 @@ def generate_events(n_events=10000, fixed_orientation=False, seed=None):
     df = pd.DataFrame.from_records(records)
     return df
 
-df = generate_events(n_events=1000000, fixed_orientation=False, seed=42)
+df = generate_events(n_events=10000000, fixed_orientation=False, seed=42)
 print(df.head())
 
-output_file = "dummy_z_ditau_events.pkl"
+output_file = "dummy_z_ditau_events_10M.pkl"
 df.to_pickle(output_file)
 
 # below is for testing using analytical solutions
@@ -198,7 +202,7 @@ if test == True:
     import sys
     import os
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
-    from ReconstructTaus import ReconstructTauAnalytically
+    from ReconstructTaus import ReconstructTauAnalytically, solve_abcd_values, compute_q
 
     # loop over data frame
 
@@ -236,5 +240,30 @@ if test == True:
 
             print("tau+:", (taup.E(), taup.Px(), taup.Py(), taup.Pz()))
             print("tau-:", (taun.E(), taun.Px(), taun.Py(), taun.Pz()))
-    
+
+            abcd_taup = solve_abcd_values(taup, taun, P_Z, taup_pi, taun_pi)
+            abcd_taun = solve_abcd_values(taun, taup, P_Z, taun_pi, taup_pi)
+
+            print("abcd tau+:", abcd_taup)
+            print("abcd tau-:", abcd_taun)
+
+            d = abcd_taup[3]
+
+            q = compute_q(P_Z*P_Z,P_Z, taup_pi, taun_pi)
+
+            x = d*q
+
+            q_unit_vec = q.Vect().Unit()
+            # get component of taup along q_unit_vec
+            taup_along_q = taup.Vect().Dot(q_unit_vec)
+            x_alt = taup_along_q * q_unit_vec
+
+            print('d', d)
+            print('q', q.X(), q.Y(), q.Z(), q.T())
+            print('x', x.X(), x.Y(), x.Z(), x.T())
+            print('x_alt', x_alt.X(), x_alt.Y(), x_alt.Z())
+
+
+
+            # suggest to compare x to genuine x for both solutions (or NN solution)!
 
