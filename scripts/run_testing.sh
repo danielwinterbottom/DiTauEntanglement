@@ -12,36 +12,36 @@ if [ $2 == 100 ]; then
         model=$model_nflow
 
         # these lines store the true and analytical values
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix true &> outputs_${model}/out_inc_entanglement_true.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix true_ &> outputs_${model}/out_inc_entanglement_true.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix true --channel ${chan} &> outputs_${model}/out_inc_entanglement_true_${chan}.out
         done
 
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix ana_pred &> outputs_${model}/out_inc_entanglement_ana_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix ana_pred_ &> outputs_${model}/out_inc_entanglement_ana_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix ana_pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_ana_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix ana_pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_ana_pred_${chan}.out
         done
 
         # do the same for no entanglement case
         python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix true &> outputs_${model}/out_no_entanglement_true.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix true --channel ${chan} &> outputs_${model}/out_no_entanglement_true_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix true_ --channel ${chan} &> outputs_${model}/out_no_entanglement_true_${chan}.out
         done
 
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix ana_pred &> outputs_${model}/out_no_entanglement_ana_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix ana_pred_ &> outputs_${model}/out_no_entanglement_ana_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix ana_pred --channel ${chan} &> outputs_${model}/out_no_entanglement_ana_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix ana_pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_ana_pred_${chan}.out
         done
 
         # now do the same for the uncorrelated case
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix true &> outputs_${model}/out_uncorrelated_true.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix true_ &> outputs_${model}/out_uncorrelated_true.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix true --channel ${chan} &> outputs_${model}/out_uncorrelated_true_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix true_ --channel ${chan} &> outputs_${model}/out_uncorrelated_true_${chan}.out
         done
 
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix ana_pred &> outputs_${model}/out_uncorrelated_ana_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix ana_pred_ &> outputs_${model}/out_uncorrelated_ana_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix ana_pred --channel ${chan} &> outputs_${model}/out_uncorrelated_ana_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix ana_pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_ana_pred_${chan}.out
         done
 
 fi
@@ -50,14 +50,14 @@ if [ $2 == 200 ]; then
         # run true and analytical for gamma and higgs samples
         model=$model_nflow
         for prefix in "gamma_inc_entanglement" "higgs_inc_entanglement"; do
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix true &> outputs_${model}/out_${prefix}_true.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix true_ &> outputs_${model}/out_${prefix}_true.out
             for chan in 'pipi' 'rhorho' 'pirho'; do
-                    python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix true --channel ${chan} &> outputs_${model}/out_${prefix}_true_${chan}.out
+                    python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix true_ --channel ${chan} &> outputs_${model}/out_${prefix}_true_${chan}.out
             done
 
             python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix ana_pred &> outputs_${model}/out_${prefix}_ana_pred.out
             for chan in 'pipi' 'rhorho' 'pirho'; do
-                    python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix ana_pred --channel ${chan} &> outputs_${model}/out_${prefix}_ana_pred_${chan}.out
+                    python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_${prefix}.root --prefix ana_pred_ --channel ${chan} &> outputs_${model}/out_${prefix}_ana_pred_${chan}.out
             done
         done
 fi
@@ -73,10 +73,10 @@ if [ $2 == 0 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred &> outputs_${model}/out_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
         done
 
 elif [ $2 == 1 ]; then
@@ -90,10 +90,10 @@ elif [ $2 == 1 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred &> outputs_${model}/out_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
         done
 
 elif [ $2 == 2 ]; then
@@ -107,17 +107,17 @@ elif [ $2 == 2 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred &> outputs_${model}/out_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan} (pred)"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_for_pred_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 3 ]; then
@@ -131,17 +131,17 @@ elif [ $2 == 3 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred &> outputs_${model}/out_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_inc_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_inc_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 4 ]; then
@@ -155,10 +155,10 @@ elif [ $2 == 4 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_no_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred &> outputs_${model}/out_no_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ &> outputs_${model}/out_no_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
         done
 
 elif [ $2 == 5 ]; then
@@ -172,10 +172,10 @@ elif [ $2 == 5 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_no_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred &> outputs_${model}/out_no_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ &> outputs_${model}/out_no_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
         done
 
 elif [ $2 == 6 ]; then
@@ -190,17 +190,17 @@ elif [ $2 == 6 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_no_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred &> outputs_${model}/out_no_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_no_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred &> outputs_${model}/out_no_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ &> outputs_${model}/out_no_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_no_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 7 ]; then
@@ -214,17 +214,17 @@ elif [ $2 == 7 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_no_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred &> outputs_${model}/out_no_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_no_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred &> outputs_${model}/out_no_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ &> outputs_${model}/out_no_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_no_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_no_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_no_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 8 ]; then
@@ -238,10 +238,10 @@ elif [ $2 == 8 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_uncorrelated.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred &> outputs_${model}/out_uncorrelated.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ &> outputs_${model}/out_uncorrelated.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
         done
 
 elif [ $2 == 9 ]; then
@@ -255,10 +255,10 @@ elif [ $2 == 9 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_uncorrelated.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred &> outputs_${model}/out_uncorrelated.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ &> outputs_${model}/out_uncorrelated.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
         done
 
 elif [ $2 == 10 ]; then
@@ -272,17 +272,17 @@ elif [ $2 == 10 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_uncorrelated.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred &> outputs_${model}/out_uncorrelated.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred_ &> outputs_${model}/out_uncorrelated.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred &> outputs_${model}/out_uncorrelated_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ &> outputs_${model}/out_uncorrelated_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred --channel ${chan} &> outputs_${model}/out_uncorrelated_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_for_pred_${chan}.out
         done
 
 elif [ $2 == 11 ]; then
@@ -296,17 +296,17 @@ elif [ $2 == 11 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_uncorrelated.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred &> outputs_${model}/out_uncorrelated.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred_ &> outputs_${model}/out_uncorrelated.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred &> outputs_${model}/out_uncorrelated_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ &> outputs_${model}/out_uncorrelated_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred --channel ${chan} &> outputs_${model}/out_uncorrelated_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_uncorrelated.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_uncorrelated_for_pred_${chan}.out
         done
 
 elif [ $2 == 12 ]; then
@@ -320,10 +320,10 @@ elif [ $2 == 12 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_gamma_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred &> outputs_${model}/out_gamma_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_gamma_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
         done
         
 elif [ $2 == 13 ]; then 
@@ -337,10 +337,10 @@ elif [ $2 == 13 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_gamma_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred &> outputs_${model}/out_gamma_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_gamma_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
         done
 
 elif [ $2 == 14 ]; then
@@ -354,17 +354,17 @@ elif [ $2 == 14 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_gamma_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_gamma_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_gamma_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred &> outputs_${model}/out_gamma_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_gamma_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 15 ]; then
@@ -378,17 +378,17 @@ elif [ $2 == 15 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_gamma_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_gamma_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_gamma_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred &> outputs_${model}/out_gamma_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_gamma_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_gamma_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_gamma_inc_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 16 ]; then
@@ -402,10 +402,10 @@ elif [ $2 == 16 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_higgs_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred &> outputs_${model}/out_higgs_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_higgs_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
         done
         
 elif [ $2 == 17 ]; then 
@@ -419,10 +419,10 @@ elif [ $2 == 17 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_higgs_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred &> outputs_${model}/out_higgs_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_higgs_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
             echo "Computing entanglement variables for channel: ${chan}"
-            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
+            python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
         done
 
 elif [ $2 == 18 ]; then
@@ -436,17 +436,17 @@ elif [ $2 == 18 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_higgs_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_higgs_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_higgs_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred &> outputs_${model}/out_higgs_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_higgs_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_for_pred_${chan}.out
         done
 
 elif [ $2 == 19 ]; then
@@ -460,17 +460,17 @@ elif [ $2 == 19 ]; then
         python scripts/make_plots.py -i outputs_${model}/output_higgs_inc_entanglement.root
 
         echo "Computing entanglement variables for all channels..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred &> outputs_${model}/out_higgs_inc_entanglement.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred_ &> outputs_${model}/out_higgs_inc_entanglement.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan}"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix alt_pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_${chan}.out
         done
 
         echo "Computing entanglement variables for all channels (pred)..."
-        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred &> outputs_${model}/out_higgs_inc_entanglement_for_pred.out
+        python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ &> outputs_${model}/out_higgs_inc_entanglement_for_pred.out
         for chan in 'pipi' 'rhorho' 'pirho'; do
                 echo "Computing entanglement variables for channel: ${chan} (pred)"
-                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_for_pred_${chan}.out
+                python -u scripts/compute_entanglement_variables.py -i outputs_${model}/output_higgs_inc_entanglement.root --prefix pred_ --channel ${chan} &> outputs_${model}/out_higgs_inc_entanglement_for_pred_${chan}.out
         done
 
 fi

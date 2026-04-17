@@ -89,14 +89,49 @@ You can submit both of the previous commands as as batch jobs using:
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/ -j pythia_inc_entanglement -n 1000
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/ -j pythia_no_entanglement -n 1000
 
+# List of Produced samples:
 
-# Install BaysFlow
+Many samples have been produced already, a non-exhastive list is below:
 
-Need to pyse python version 3.10 or 3.11.
-Setup a condor environment with this version:
+~30M ee->Z->tautau LEP events, where taus are forced to decay into either DM=0 or DM=1: 
 
-	conda env create -f env_py_3p10.yml
+	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root
 
-Then you can install BayesFlow using
+~30M ee->Z->tautau LEP events with no entanglement, where taus are forced to decay into either DM=0 or DM=1: 
 
-	pip install git+https://github.com/bayesflow-org/bayesflow.git
+	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root
+
+Smaller datasets for quicker training:
+
+ee->Z->tautau LEP events, where taus are forced to decay into either DM=0 or DM=1: 
+	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root
+
+ee->Z->tautau LEP events with no entanglement, where taus are forced to decay into either DM=0 or DM=1: 
+	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root
+
+# Quick(-ish) example
+
+This example uses the reduced datasets for that it can be run reasonably quickly. 
+
+Prepare datadrames:
+
+	python python/LEP_NF_reco.py -s 1
+
+Run Nflows training:
+
+	python python/LEP_NF_reco.py -s 3 -n 10 -m model_NFlows_test --inc_reco_taus
+
+note1 this will not produce a very good model as more epochs and trainig data are needed to optimise this
+note2 stage 2 would also run optuna to do hyperparameter scan but here we just use HPs from a previous scan
+
+Train a "normal" neural network with MSE loss to compare to:
+
+	python python/LEP_NF_reco.py -s 3 -n 10 -m model_MLP_test --useMLP --inc_reco_taus 
+
+Test Nflows model:
+
+	python python/LEP_NF_reco.py -s 4 -m model_NFlows_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl --output_name output_model_NFlows_test --inc_reco_taus
+
+Test MLP model:
+
+	python python/LEP_NF_reco.py -s 4 -m model_MLP_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl  --output_name outputs_model_MLP_test  --inc_reco_taus --useMLP	
