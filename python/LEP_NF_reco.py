@@ -761,10 +761,14 @@ if __name__ == '__main__':
         file_names = {
             #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            'ee_to_tauhtauh_no_entanglement_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_no_entanglement_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
             #'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            #'ee_to_gamma_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_gammaonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            #'ee_to_higgs_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_higgsonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            'ee_to_tauhtauh_no_entanglement_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
         }
 
         for key, input_file_name in file_names.items():
@@ -856,22 +860,26 @@ if __name__ == '__main__':
 
             print(f"Dataframe {key} prepared and saved.")
 
-    else: # load the dataframe
-        if args.dataframe_name is not None:
-            df = pd.read_pickle(args.dataframe_name)
-        elif args.use_polar:
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
-        elif args.use_onorm:
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_onorm_dataframe.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_onorm_dataframe.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_onorm_dataframe_reduced.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_onorm_dataframe_reduced.pkl')
-        else:
-            df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_dataframe_reduced.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_reduced_dataframe.pkl')
-            #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe.pkl')
+    # if no more stages specified, exit after preparing the dataframe
+    if len(args.stages) == 1 and 1 in args.stages:
+        exit(0)
+
+    if args.dataframe_name is not None:
+        df = pd.read_pickle(args.dataframe_name)
+    elif args.use_polar:
+        df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_polar_dataframe.pkl')
+    elif args.use_onorm:
+        df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_onorm_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_onorm_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_onorm_dataframe_reduced.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_onorm_dataframe_reduced.pkl')
+    else:
+        df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_30M_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_no_entanglement_30M_dataframe_reduced.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_reduced_dataframe.pkl')
+        #df = pd.read_pickle('ditau_nu_regression_ee_to_tauhtauh_uncorrelated_30M_dataframe.pkl')
 
     # split dataset into train and test
 
@@ -1105,6 +1113,7 @@ if __name__ == '__main__':
             # for MLP we just do a forward pass
             X_test, _ = test_dataset[:]
             X_test = X_test.to(device)
+            model = model.to(device)
             with torch.no_grad():
                 predictions_norm = model(X_test)
             predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
@@ -1149,9 +1158,11 @@ if __name__ == '__main__':
         else:
             X_test, _ = test_dataset[:]
 
-            # move X_test and model to CPU
-            X_test = X_test.cpu()
-            model = model.cpu()
+            # move X_test and model to device
+            X_test = X_test.to(device)
+            model = model.to(device)
+            #X_test = X_test.cpu()
+            #model = model.cpu()
             with torch.no_grad():
                 predictions_norm = model.sample(num_samples=1, context=X_test).squeeze()     
 
@@ -1176,7 +1187,7 @@ if __name__ == '__main__':
                 X_test,
                 test_dataset=test_dataset,
                 num_draws=100,
-                chunk_size=5000 if device.type == 'cpu' else 50000,
+                chunk_size=1000 if device.type == 'cpu' else 50000,
             )
 
             if args.use_polar:

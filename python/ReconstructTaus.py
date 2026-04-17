@@ -487,6 +487,31 @@ def compute_q(M2, p_a, p_b, p_c):
 
     return ROOT.TLorentzVector(p_mu[0]/M2, p_mu[1]/M2, p_mu[2]/M2, p_mu[3]/M2)
 
+def project_4vec_euclidean(p, q, eps=1e-15):
+    """
+    Project TLorentzVector p onto TLorentzVector q treating both as
+    Euclidean 4-component vectors (px,py,pz,E).
+    Returns TLorentzVector p_parallel = alpha * q with
+        alpha = (p_x*q_x + p_y*q_y + p_z*q_z + p_E*q_E) / (q_x^2 + q_y^2 + q_z^2 + q_E^2).
+    NOTE: This is NOT a Lorentz-covariant/Minkowski projection; it is a Euclidean projection
+    in component-space. Use only if that is what you intend.
+    """
+    # extract components
+    px, py, pz, E = p.Px(), p.Py(), p.Pz(), p.E()
+    qx, qy, qz, qE = q.Px(), q.Py(), q.Pz(), q.E()
+
+    num = px*qx + py*qy + pz*qz + E*qE
+    den = qx*qx + qy*qy + qz*qz + qE*qE
+
+    if abs(den) < eps:
+        raise ValueError("q has (almost) zero Euclidean norm; cannot project.")
+
+    alpha = num / den
+    q_copy = ROOT.TLorentzVector(q)    # make copy
+    q_copy *= alpha                    # scale by alpha
+    return q_copy
+
+
 def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1, O_y=None, np_point=ROOT.TVector3(), nn_point=ROOT.TVector3(), verbose=False, return_values=False):
     
     '''

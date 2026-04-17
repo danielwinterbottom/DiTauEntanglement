@@ -15,6 +15,7 @@ parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--n_events', '-n', help= 'Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, type=int)
 parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
+parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=0, type=float)
 
 args = parser.parse_args()
 
@@ -151,10 +152,15 @@ for b in branches:
 pythia = pythia8.Pythia("")
 pythia.readFile(args.cmnd_file)
 
+pythia_process = "eeToZtoTauTau"
+#pythia_process = "ppToHToTauTau"
+pythia_process = "eeToHtoTauTau"
+
+
 if args.input:
     pythia.readString("Beams:frameType = 4")
     pythia.readString("Beams:LHEF = %s" % args.input)
-elif False:
+elif pythia_process == "eeToZtoTauTau":
     print('Producing full event in pythia')
     # if no LHE file given then produce full event setup using pythia for the hard process as well
     pythia.readString("Beams:idA = -11") # Positron
@@ -166,7 +172,7 @@ elif False:
     pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
     pythia.readString("23:onMode = off")  # Turn off all Z decays
     pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
-else: # for pp->H->tautau using pythia
+elif pythia_process == "ppToHToTauTau": # for pp->H->tautau using pythia
     print('Producing full pp event in pythia')
     pythia.readString("Beams:idA = 2212") # Proton
     pythia.readString("Beams:idB = 2212")  # Proton
@@ -183,7 +189,21 @@ else: # for pp->H->tautau using pythia
     # Force taus to decay only to pi± nu
     pythia.readString("15:onMode = off")               # turn off all τ− decays
     pythia.readString("15:onIfMatch = -211 16")        # τ− → π− ν_τ
+elif pythia_process == "eeToHtoTauTau": # for e+e- -> H -> tautau using pythia (not that the is a realistic production mode but it's just to get a sample of Higgs bosons at rest)
+    print('Producing full e+e- event in pythia')
+    pythia.readString("Beams:idA = -11") # Positron
+    pythia.readString("Beams:idB = 11")  # Electron
+    pythia.readString("Beams:eCM = 125")  # Center-of-mass energy
+    #pythia.readString("TauDecays:externalMode = 0")
+    # Enable H production and decay to taus
 
+    pythia.readString("HiggsSM:ffbar2H = on")
+
+    # Force Higgs to decay only to tau+ tau-
+    pythia.readString("25:onMode = off")
+    pythia.readString("25:onIfAny = 15")
+    pythia.readString("HiggsH1:parity = 4")
+    pythia.readString(f"HiggsH1:phiParity = {args.phi}")
 
 pythia.readString("Random:setSeed = on")
 pythia.readString(f"Random:seed = {args.seed}")  # Set random seed for reproducibility

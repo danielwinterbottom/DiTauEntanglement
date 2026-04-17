@@ -397,7 +397,7 @@ if __name__ == '__main__':
     train_df = df.iloc[:train_size]
     test_df = df.iloc[train_size:]
 
-    # define datasets and normalize inputs (not outputs)
+    # define datasets and normalize inputs and outputs
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
@@ -792,5 +792,5 @@ if __name__ == '__main__':
                 event_number=event_number,
                 num_samples=50000,
                 bins=100,
-                outdir="pdf_slices_sampled"
+                outdir=f"{output_dir}/pdf_slices_sampled"
             )
