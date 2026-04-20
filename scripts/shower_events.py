@@ -709,6 +709,7 @@ while not stopGenerating:
         solution2_dmin_taup  = FindDMin(pv_vec3, solutions[1][0].Vect().Unit(), ip1_3vec, taup_pi1.Vect().Unit()).Mag()
         solution2_dmin_taun = FindDMin(pv_vec3, solutions[1][1].Vect().Unit(), ip2_3vec, taun_pi1.Vect().Unit()).Mag()
 
+        # determine correct solutions using IPs - not this would only work in reality is PV is known i.e ok for pp and ee->HZ but wouldn't work for ee->Z
         solution1_dmin_tot = (solution1_dmin_taup**2 + solution1_dmin_taun**2)**0.5
         solution2_dmin_tot = (solution2_dmin_taup**2 + solution2_dmin_taun**2)**0.5
 
