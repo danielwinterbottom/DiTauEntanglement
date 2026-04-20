@@ -512,7 +512,7 @@ def project_4vec_euclidean(p, q, eps=1e-15):
     return q_copy
 
 
-def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1, P_taun_pi1, O_y=None, np_point=ROOT.TVector3(), nn_point=ROOT.TVector3(), verbose=False, return_values=False):
+def ReconstructTauAnalytically(P_Z, P_taupvis, P_taunvis, P_taup_pi1=None, P_taun_pi1=None, O_y=None, np_point=ROOT.TVector3(), nn_point=ROOT.TVector3(), verbose=False, return_values=False):
     
     '''
     Reconstuct tau lepton 4-momenta with 2-fold degeneracy
@@ -651,6 +651,37 @@ def FindDMin(p1, d1, p2, d2, return_points=False):
     else: 
         return pca2 - pca1
 
+def FindDMin_Point(p1, d1, p2, return_points=False):
+    """
+    Find the vector pointing from the closest point on Line 1 to a point p2.
+
+    Args:
+        p1 (TVector3): A point on Line 1.
+        d1 (TVector3): Direction vector of Line 1.
+        p2 (TVector3): The external point.
+
+    Returns:
+        TVector3: Vector pointing from the closest point on Line 1 to p2.
+    """
+    # Normalize direction vector
+    d1 = d1.Unit()
+
+    # Vector from line point to external point
+    dp = p2 - p1
+
+    # Parameter t for closest approach (projection)
+    t1 = dp.Dot(d1)
+
+    # Closest point on the line
+    pca1 = p1 + d1 * t1
+
+    ip = pca1 - p2
+
+    if return_points:
+        return ip, pca1, p2
+    else:
+        return ip
+
 def GetPointShifts(p1, d1, p2, d2, delta):
 
     # d2,p2 is the line that the shifts in the point are computed for
@@ -770,6 +801,7 @@ def find_intersections(taup, taun, np_point, np_dir, nn_point, nn_dir):
         print("No unique solution exists.")
         return None
   
+    print('Lambdas:', lambda_p, lambda_n)
     
     # Compute intersection points
     P_intersection_arr = taup_arr * lambda_p

@@ -20,7 +20,11 @@ out_txt=''
 
 
 with uproot.open(args.input) as file:
-    tree = file["tree"]
+    # look for tree called "tree", if this doesnt exist then open "new_tree"
+    if "tree" in file:
+        tree = file["tree"]
+    else:   
+        tree = file["new_tree"]
 
     total_entries = tree.num_entries
     entry_start = args.n_skip * args.n_events if args.n_events != -1 else 0
@@ -43,6 +47,7 @@ if args.channel and args.channel != '':
 #df = df[df['mass'] > 1000]
 #df = df[abs(df['cosTheta']) < 0.5]
 #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] == 0) & (df['taun_npi'] == 1) & (df['taun_npizero'] == 0)]
+
 #print number of rows in the dataframe
 print('Events processed:', len(df))
 
@@ -50,12 +55,12 @@ print('Events processed:', len(df))
 prefix = args.prefix
 
 # rename prefix variables to remove prefix
-df["cosn_plus"] = df[prefix+"_cosn_plus"]
-df["cosn_minus"] = df[prefix+"_cosn_minus"]
-df["cosr_plus"] = df[prefix+"_cosr_plus"]
-df["cosr_minus"] = df[prefix+"_cosr_minus"]
-df["cosk_plus"] = df[prefix+"_cosk_plus"]
-df["cosk_minus"] = df[prefix+"_cosk_minus"]
+df["cosn_plus"] = df[prefix+"cosn_plus"]
+df["cosn_minus"] = df[prefix+"cosn_minus"]
+df["cosr_plus"] = df[prefix+"cosr_plus"]
+df["cosr_minus"] = df[prefix+"cosr_minus"]
+df["cosk_plus"] = df[prefix+"cosk_plus"]
+df["cosk_minus"] = df[prefix+"cosk_minus"]
 
 df["cosncosn"] = df["cosn_plus"]*df["cosn_minus"]
 df["cosrcosr"] = df["cosr_plus"]*df["cosr_minus"]
