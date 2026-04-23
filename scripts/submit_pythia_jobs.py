@@ -43,15 +43,15 @@ if not args.no_lhe:
     python scripts/shower_events.py -c {args.cmnd_file}  -i {args.input}/job_output_$2/events_$2.lhe -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1 {args.extra}\n\
     #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2_LHE.root --useLHE\n\
-    python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
+    #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     ' % vars()
 else:
     out_string = f'#!/bin/sh\n\
     echo \"Cluster = $1 Process = $2\"\n\
     cd {current_dir}/\n\
-    mkdir -p {args.input}/job_output_$2/\n\
-    python scripts/shower_events.py -c {args.cmnd_file} -n 10000 -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 {args.extra}\n\
-    python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
+    mkdir -p {args.job_name}/job_output_$2/\n\
+    python scripts/shower_events.py -c {args.cmnd_file} -n 10000 -o {args.job_name}/job_output_$2/pythia_events_$2.hepmc --seed $2 {args.extra}\n\
+    #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     ' % vars()
 
 os.system('mkdir -p jobs')

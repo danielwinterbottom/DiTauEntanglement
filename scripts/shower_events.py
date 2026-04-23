@@ -18,7 +18,7 @@ parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, t
 parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
 parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
 parser.add_argument('--extra_vars', action='store_true', help= 'If set, will also store additional variables in the output root file including the analytically predicted tau and spin sensitive quantities used to measure the rho matrix')
-
+parser.add_argument('--pythia_process', help= 'If set, will use the specified pythia process when generating the full events in pythia (rather than starting from LHE files). Supported options are eeToZtoTauTau, ppToHToTauTau, eeToHtoTauTau, and eeToZHtoTauTau', default=None)
 
 args = parser.parse_args()
 
@@ -203,6 +203,8 @@ pythia.readFile(args.cmnd_file)
 #pythia_process = "ppToHToTauTau"
 #pythia_process = "eeToHtoTauTau"
 pythia_process="eeToZHtoTauTau"
+if args.pythia_process:
+    pythia_process = args.pythia_process
 
 
 if args.input:

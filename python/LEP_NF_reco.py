@@ -663,6 +663,11 @@ def compute_spin_vars(df, tau_prefix='true_'):
     com_boost_vec = boost_vector(taup + taun)
     taup = boost(taup, -com_boost_vec)
     taun = boost(taun, -com_boost_vec)
+    # boost decay products as well
+    taup_pi1 = boost(taup_pi1, -com_boost_vec)
+    taup_pizero1 = boost(taup_pizero1, -com_boost_vec)
+    taun_pi1 = boost(taun_pi1, -com_boost_vec)
+    taun_pizero1 = boost(taun_pizero1, -com_boost_vec)
 
     taup_s = polarimetric_vector_tau(
         taup, taup_pi1, taup_pizero1,
@@ -709,6 +714,7 @@ if __name__ == '__main__':
     argparser.add_argument('--dataframe_name', '-d', help='name of the input dataframe pickle file',default=None)
     argparser.add_argument('--use_full_dataframe_for_testing', help='if set, use the full dataframe for testing instead of a split', action='store_true')
     argparser.add_argument('--output_name', help='name of the output file after ML reco is applied and added', default=None)
+    argparser.add_argument('--ppHTraining', action='store_true', help='if set, use the pp->H training dataset instead of the ee->Z one')
     args = argparser.parse_args()
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -718,15 +724,27 @@ if __name__ == '__main__':
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    input_features = ['dmin_x', 'dmin_y', 'dmin_z',
-                       'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
-                       'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
-                       'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
-                       'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
-                       'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
-                       'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
-                       'BS_x', 'BS_y', 'BS_z',
-                       'taup_haspizero', 'taun_haspizero']
+    if args.ppHTraining:
+        input_features = [
+                    'taup_haspizero', 'taun_haspizero',
+                    'met_px', 'met_py',
+                    'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
+                    'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
+                    'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
+                    'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
+                    'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
+                    'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+                ]
+    else:
+        input_features = ['dmin_x', 'dmin_y', 'dmin_z',
+                           'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                           'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                           'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                           'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                           'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                           'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                           'BS_x', 'BS_y', 'BS_z',
+                           'taup_haspizero', 'taun_haspizero']
 
     if args.inc_reco_taus:
         input_features += [
@@ -758,40 +776,66 @@ if __name__ == '__main__':
         print("Preparing dataframe...")
 
         import uproot3
-        file_names = {
-            #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_no_entanglement_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
-            #'ee_to_gamma_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_gammaonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            #'ee_to_higgs_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_higgsonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
-            'ee_to_tauhtauh_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
-            'ee_to_tauhtauh_no_entanglement_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
-        }
+        
+        if args.ppHTraining:
+            file_names = {'ppToHToTauTau_DM0and1_CPEven': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_training.root',
+                          'ppToHToTauTau_DM0and1_CPEven_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_validation.root' # keep these 100k events seperate for not used anywhere in the training 
+                          } 
+        else:
+            file_names = {
+                #'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_tauhtauh_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_tauhtauh_no_entanglement_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+                #'ee_to_gamma_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_gammaonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+                #'ee_to_higgs_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_higgsonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+                'ee_to_tauhtauh_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+                'ee_to_tauhtauh_no_entanglement_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            }
 
         for key, input_file_name in file_names.items():
-            tree = uproot3.open(input_file_name)['new_tree']
+            if args.ppHTraining:
+                tree = uproot3.open(input_file_name)['tree']
+            else: 
+                tree = uproot3.open(input_file_name)['new_tree']
 
-            variables = [
-                'taup_npi', 'taup_npizero',
-                'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
-                'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
-                'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
-                'taun_npi', 'taun_npizero',
-                'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
-                'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
-                'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
-                'reco_mass',
-                'BS_x', 'BS_y', 'BS_z',
-                'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-                'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
-                'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
-                'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
-                'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
-                'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
-            ]
+            if args.ppHTraining:
+                # note for now the pp->H training uses gen-level quantities (no smearing) but only for variables that have equivalent reco-level ones (e.g we don't use met_pz which isn't known for pp collisions)
+                variables = [
+                    'taup_npi', 'taup_npizero',
+                    'taun_npi', 'taun_npizero',
+                    'met_px', 'met_py',
+                    'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
+                    'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
+                    'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
+                    'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
+                    'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
+                    'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+                    'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+                    'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+                ]
+                
+            else: 
+                variables = [
+                    'taup_npi', 'taup_npizero',
+                    'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                    'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                    'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                    'taun_npi', 'taun_npizero',
+                    'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                    'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                    'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                    'reco_mass',
+                    'BS_x', 'BS_y', 'BS_z',
+                    'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+                    'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
+                    'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+                    'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
+                    'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
+                    'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz'
+                ]
     
             df = tree.pandas.df(variables)
             # filter the non pi and pipizero decay modes
@@ -803,15 +847,16 @@ if __name__ == '__main__':
             df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
             df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])
     
-            # also apply a reco_mass cut to select events close to the Z pole with little boost
-            df = df[(df['reco_mass'] > 91)]
-            # now remove the reco_mass column
-            df = df.drop(columns=['reco_mass'])
+            if not args.ppHTraining:
+                # also apply a reco_mass cut to select events close to the Z pole with little boost
+                df = df[(df['reco_mass'] > 91)]
+                # now remove the reco_mass column
+                df = df.drop(columns=['reco_mass'])
     
-            # compute the d_min vector by subrtacting the 2 impact parameters
-            df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
-            df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
-            df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']  
+                # compute the d_min vector by subrtacting the 2 impact parameters
+                df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
+                df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
+                df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']  
     
             if args.use_polar:
                 # convert output to polar coordinates
@@ -1104,10 +1149,16 @@ if __name__ == '__main__':
         model.eval()
 
         # get tau pi and pizero four vectors from test_df
-        taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
-        taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
-        taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
-        taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
+        if args.ppHTraining:
+            taun_pi = test_df[['taun_pi1_e', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
+            taup_pi  = test_df[['taup_pi1_e', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
+            taun_pizero  = test_df[['taun_pizero1_e', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
+            taup_pizero = test_df[['taup_pizero1_e', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
+        else:
+            taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
+            taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
+            taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
+            taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
 
         if args.useMLP:
             # for MLP we just do a forward pass
@@ -1234,8 +1285,9 @@ if __name__ == '__main__':
             gen_nubar_py = test_df['taup_nu_py'].values
             gen_nubar_pz = test_df['taup_nu_pz'].values
 
-        ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
-            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values 
+        if not args.ppHTraining:
+            ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+                'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values 
 
         # predictions dont include E so we need to compute them
         # compute E for nu and nubar
@@ -1284,70 +1336,75 @@ if __name__ == '__main__':
             alt_taun_pred = predictions_alt[:, 4:8] + taun_pi + taun_pizero
             pred_taus_alt = np.concatenate([alt_taup_pred, alt_taun_pred], axis=1)
 
-        # get analytical precitions using reco_taup_nu and reco_taun_nu
-        # first get the pis and pizeros again
-        reco_taup_nu = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz']].values
-        reco_taun_nu = test_df[['reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
-        # compute E for these nus
-        reco_taup_nu_E = np.sqrt(reco_taup_nu[:,0]**2 + reco_taup_nu[:,1]**2 + reco_taup_nu[:,2]**2)
-        reco_taun_nu_E = np.sqrt(reco_taun_nu[:,0]**2 + reco_taun_nu[:,1]**2 + reco_taun_nu[:,2]**2)
-        reco_taup_nu = np.column_stack((reco_taup_nu_E, reco_taup_nu))
-        reco_taun_nu = np.column_stack((reco_taun_nu_E, reco_taun_nu))
+        if not args.ppHTraining:
+            # get analytical precitions using reco_taup_nu and reco_taun_nu
+            # first get the pis and pizeros again
+            reco_taup_nu = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz']].values
+            reco_taun_nu = test_df[['reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
+            # compute E for these nus
+            reco_taup_nu_E = np.sqrt(reco_taup_nu[:,0]**2 + reco_taup_nu[:,1]**2 + reco_taup_nu[:,2]**2)
+            reco_taun_nu_E = np.sqrt(reco_taun_nu[:,0]**2 + reco_taun_nu[:,1]**2 + reco_taun_nu[:,2]**2)
+            reco_taup_nu = np.column_stack((reco_taup_nu_E, reco_taup_nu))
+            reco_taun_nu = np.column_stack((reco_taun_nu_E, reco_taun_nu))
+    
+            ana_pred_values = np.concatenate([reco_taup_nu, reco_taun_nu], axis=1)
+    
+            # get the predicted taus as well
+            ana_pred_taup = reco_taup_nu + taup_pi + taup_pizero
+            ana_pred_taun = reco_taun_nu + taun_pi + taun_pizero
+            ana_pred_taus =  np.concatenate([ana_pred_taup, ana_pred_taun], axis=1)
 
-        ana_pred_values = np.concatenate([reco_taup_nu, reco_taun_nu], axis=1)
+            # get the alt ones as well
+            reco_alt_taup_nu = test_df[['reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz']].values
+            reco_alt_taun_nu = test_df[['reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']].values
+            # compute E for these nus
+            reco_alt_taup_nu_E = np.sqrt(reco_alt_taup_nu[:,0]**2 + reco_alt_taup_nu[:,1]**2 + reco_alt_taup_nu[:,2]**2)
+            reco_alt_taun_nu_E = np.sqrt(reco_alt_taun_nu[:,0]**2 + reco_alt_taun_nu[:,1]**2 + reco_alt_taun_nu[:,2]**2)
+            reco_alt_taup_nu = np.column_stack((reco_alt_taup_nu_E, reco_alt_taup_nu))
+            reco_alt_taun_nu = np.column_stack((reco_alt_taun_nu_E, reco_alt_taun_nu))
 
-        # get the predicted taus as well
-        ana_pred_taup = reco_taup_nu + taup_pi + taup_pizero
-        ana_pred_taun = reco_taun_nu + taun_pi + taun_pizero
-        ana_pred_taus =  np.concatenate([ana_pred_taup, ana_pred_taun], axis=1)
+            ana_alt_pred_values = np.concatenate([reco_alt_taup_nu, reco_alt_taun_nu], axis=1)
 
-        # get the alt ones as well
-        reco_alt_taup_nu = test_df[['reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz']].values
-        reco_alt_taun_nu = test_df[['reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']].values
-        # compute E for these nus
-        reco_alt_taup_nu_E = np.sqrt(reco_alt_taup_nu[:,0]**2 + reco_alt_taup_nu[:,1]**2 + reco_alt_taup_nu[:,2]**2)
-        reco_alt_taun_nu_E = np.sqrt(reco_alt_taun_nu[:,0]**2 + reco_alt_taun_nu[:,1]**2 + reco_alt_taun_nu[:,2]**2)
-        reco_alt_taup_nu = np.column_stack((reco_alt_taup_nu_E, reco_alt_taup_nu))
-        reco_alt_taun_nu = np.column_stack((reco_alt_taun_nu_E, reco_alt_taun_nu))
-
-        ana_alt_pred_values = np.concatenate([reco_alt_taup_nu, reco_alt_taun_nu], axis=1)
-
-        # get the predicted taus as well
-        ana_alt_pred_taup = reco_alt_taup_nu + taup_pi + taup_pizero
-        ana_alt_pred_taun = reco_alt_taun_nu + taun_pi + taun_pizero
-        ana_alt_pred_taus =  np.concatenate([ana_alt_pred_taun, ana_alt_pred_taup], axis=1)
+            # get the predicted taus as well
+            ana_alt_pred_taup = reco_alt_taup_nu + taup_pi + taup_pizero
+            ana_alt_pred_taun = reco_alt_taun_nu + taun_pi + taun_pizero
+            ana_alt_pred_taus =  np.concatenate([ana_alt_pred_taun, ana_alt_pred_taup], axis=1)
 
         # collect true and predicted nus true and predicted taus AND pi's into pandas dataframe, lable the collumns
 
         taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
         taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
-
-        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, ana_pred_values, ana_alt_pred_values, true_taus, pred_taus, ana_pred_taus, ana_alt_pred_taus, taun_haspizero, taup_haspizero,
+        results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, taun_haspizero, taup_haspizero,
                                   taup_pi, taup_pizero, taun_pi, taun_pizero], axis=1),
                                   columns=[
                                            'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz', 
                                            'true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
                                            'pred_nubar_E', 'pred_nubar_px', 'pred_nubar_py', 'pred_nubar_pz',
                                            'pred_nu_E', 'pred_nu_px', 'pred_nu_py', 'pred_nu_pz',
-                                           'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
-                                           'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
-                                           'ana_alt_pred_nubar_E', 'ana_alt_pred_nubar_px', 'ana_alt_pred_nubar_py', 'ana_alt_pred_nubar_pz',
-                                           'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
                                            'true_tau_plus_E',  'true_tau_plus_px',  'true_tau_plus_py',  'true_tau_plus_pz',
                                            'true_tau_minus_E', 'true_tau_minus_px', 'true_tau_minus_py', 'true_tau_minus_pz',
                                            'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
                                            'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
-                                           'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
-                                           'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
-                                           'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
-                                           'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
                                            'taun_haspizero', 'taup_haspizero',
                                            'taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz',
                                            'taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz',
                                            'taun_pi1_E', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz',
                                            'taun_pizero1_E', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz',
                                            ])    
+
+        if not args.ppHTraining:
+            results_df = pd.DataFrame(data=np.concatenate([ana_pred_values, ana_alt_pred_values], axis=1),
+                                      columns=[
+                                               'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
+                                               'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
+                                               'ana_alt_pred_nubar_E', 'ana_alt_pred_nubar_px', 'ana_alt_pred_nubar_py', 'ana_alt_pred_nubar_pz',
+                                               'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
+                                               'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
+                                               'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
+                                               'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
+                                               'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
+                                               ])    
 
         if predictions_alt is not None:
             results_sf_extra = pd.DataFrame(data=np.concatenate([predictions_alt, pred_taus_alt], axis=1),
@@ -1371,15 +1428,18 @@ if __name__ == '__main__':
         if predictions_alt is not None:
             results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
             results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
-        results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
-        results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
+
+        if not args.ppHTraining:
+            results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
+            results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
         results_df['pred_z_mass'] = pred_z_mass
 
         # get spin vars for true_tau
         print("Computing spin variables...")
         results_df = compute_spin_vars(results_df, tau_prefix='true_')
         # get spin vars for ana_pred_tau
-        results_df = compute_spin_vars(results_df, tau_prefix='ana_pred_')
+        if not args.ppHTraining:
+            results_df = compute_spin_vars(results_df, tau_prefix='ana_pred_')
         # get spin vars for pred_tau
         results_df = compute_spin_vars(results_df, tau_prefix='pred_')
         # get spin vars for alt_pred_tau if present
@@ -1399,7 +1459,8 @@ if __name__ == '__main__':
                 results_df_dm = results_df
 
             true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_') 
-            ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='ana_pred_')
+            if not args.ppHTraining:
+                ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='ana_pred_')
             pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
             if predictions_alt is not None:
                 alt_pred_Bplus, alt_pred_Bminus, alt_pred_C, alt_pred_con, alt_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='alt_pred_')
@@ -1411,12 +1472,13 @@ if __name__ == '__main__':
             print(true_C)
             print(true_con, true_m12)
             print()
-            print('Analytical predicted spin density matrix variables:')
-            print(ana_pred_Bplus)
-            print(ana_pred_Bminus)
-            print(ana_pred_C)
-            print(ana_pred_con, ana_pred_m12)
-            print()
+            if not args.ppHTraining:
+                print('Analytical predicted spin density matrix variables:')
+                print(ana_pred_Bplus)
+                print(ana_pred_Bminus)
+                print(ana_pred_C)
+                print(ana_pred_con, ana_pred_m12)
+                print()
             print('NN predicted spin density matrix variables:')
             print(pred_Bplus)
             print(pred_Bminus)
@@ -1452,7 +1514,7 @@ if __name__ == '__main__':
             f["tree"].extend(results_df.to_dict(orient='list'))
 
         # make a few plots of the samples PDFs vs the analytical solutions for some events
-        if not args.useMLP:
+        if not args.useMLP and not args.ppHTraining:
             for event_number in [0, 1, 2, 3, 4]:
                 save_sampled_pdfs(
                     model=model,
