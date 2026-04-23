@@ -1,9 +1,0 @@
-executable = scripts/run_lep_nf_reco.sh
-getenv = True
-arguments = "-s 3 -n 25 -m LEP_nflow_inc_reco_taus_Jan08_newLRschedule_cont1 --inc_reco_taus --reload"
-output = jobs/LEP_nflow_inc_reco_taus_Jan08_newLRschedule_cont1_$(CLUSTER).out
-error = jobs/LEP_nflow_inc_reco_taus_Jan08_newLRschedule_cont1_$(CLUSTER).err
-log = jobs/LEP_nflow_inc_reco_taus_Jan08_newLRschedule_cont1_$(CLUSTER).log
-request_gpus = 1
-+MaxRuntime = 86400
-queue
