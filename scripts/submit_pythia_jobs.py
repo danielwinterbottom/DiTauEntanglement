@@ -7,6 +7,8 @@ parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--N_jobs', '-n', help= 'Number of job to submit', default=-1, type=int)
 parser.add_argument('--job_name', '-j', help= 'Name of job to submit', default='pythia')
 parser.add_argument('--no_lhe', action='store_true', help= 'If set, do not use LHE files as input to Pythia8 i.e generate ee->tautau events directly in Pythia8')
+parser.add_argument('--extra', default='', help= 'Extra options for the shower_events.py script')
+
 args = parser.parse_args()
 
 current_dir=os.getcwd()
@@ -38,18 +40,18 @@ if not args.no_lhe:
     echo \"Cluster = $1 Process = $2\"\n\
     cd {current_dir}/\n\
     gunzip {args.input}/job_output_$2/events_$2.lhe.gz\n\
-    python scripts/shower_events.py -c {args.cmnd_file}  -i {args.input}/job_output_$2/events_$2.lhe -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1\n\
+    python scripts/shower_events.py -c {args.cmnd_file}  -i {args.input}/job_output_$2/events_$2.lhe -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1 {args.extra}\n\
     #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2_LHE.root --useLHE\n\
-    python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
+    #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     ' % vars()
 else:
     out_string = f'#!/bin/sh\n\
     echo \"Cluster = $1 Process = $2\"\n\
     cd {current_dir}/\n\
-    mkdir -p {args.input}/job_output_$2/\n\
-    python scripts/shower_events.py -c {args.cmnd_file} -n 10000 -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1\n\
-    python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
+    mkdir -p {args.job_name}/job_output_$2/\n\
+    python scripts/shower_events.py -c {args.cmnd_file} -n 10000 -o {args.job_name}/job_output_$2/pythia_events_$2.hepmc --seed $2 {args.extra}\n\
+    #python scripts/compute_spin_vars.py -i {args.input}/job_output_$2/pythia_events_$2.root -o {args.input}/job_output_$2/pythia_events_extravars_$2.root\n\
     ' % vars()
 
 os.system('mkdir -p jobs')

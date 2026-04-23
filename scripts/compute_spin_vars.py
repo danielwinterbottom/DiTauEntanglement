@@ -781,12 +781,10 @@ for i in range(start_entry, end_entry):
     if p.X() == 0 and p.Y() == 0 and p.Z() == 0:
         p.SetXYZ(0,0,-1)
 
-    # boost taup and taun to ditau COM frame
+    # get taup and taun in ditau COM frame
+    # note the boosting has been done already earlir on
     taup_COM = taup.Clone()
     taun_COM = taun.Clone()
-    #boost = -ditau.BoostVector()
-    #taup_COM.Boost(boost)
-    #taun_COM.Boost(boost)
 
     # k is direction of tau+
     k = taup_COM.Vect().Unit()
@@ -794,11 +792,9 @@ for i in range(start_entry, end_entry):
     cosTheta = p.Dot(k)
     r = (p - (k*cosTheta)).Unit() 
 
+    # note the boosting has been done already earlier on
     taup_reco_COM = taup_reco.Clone()
     taun_reco_COM = taun_reco.Clone()
-    boost_reco = -ditau_reco.BoostVector()
-    taup_reco_COM.Boost(boost_reco)
-    taun_reco_COM.Boost(boost_reco)
 
     # k is direction of tau+
     k_reco = taup_reco_COM.Vect().Unit()

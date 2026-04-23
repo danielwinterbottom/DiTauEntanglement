@@ -134,4 +134,36 @@ Test Nflows model:
 
 Test MLP model:
 
-	python python/LEP_NF_reco.py -s 4 -m model_MLP_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl  --output_name outputs_model_MLP_test  --inc_reco_taus --useMLP	
+	python python/LEP_NF_reco.py -s 4 -m model_MLP_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl  --output_name outputs_model_MLP_test  --inc_reco_taus --useMLP
+
+## Instructions for pp->H training
+
+# Produce MC samples
+
+Note for now no smearing is applied to the gen quantities
+
+	python scripts/submit_pythia_jobs.py --no_lhe --cmnd_file scripts/pythia_cmnd_dm0and1  -j ppToHToTauTau_DM0and1_CPEven -n 1000 --extra="--phi=1.5708 --extra_vars --pythia_process=ppToHToTauTau"
+
+which will produce 10000 per event (10M total)
+
+To produce CP-odd Higgs bosons use --phi=0, or for max-mix use --phi=0.7854, or max-mix with the opposite interference use -0.7854. Any other intermediate values can be used as well of course.
+
+
+Can then hadd these files together. For convinience we seperate 100k events to be used purely for validation:
+
+	for x in ppToHToTauTau_DM0and1_CPEven; do 
+		hadd -f ${x}/pythia_events_validation.root ${x}/job_output_*/pythia_events_[0-9].root
+                hadd -f ${x}/pythia_events_training.root ${x}/job_output_*/pythia_events_[0-9][0-9]*.root; 
+done
+
+# Produce dataframes:
+
+        python python/LEP_NF_reco.py -s 1 --ppHTraining
+
+# Train the NFlows model:
+
+	python python/LEP_NF_reco.py -s 3 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_dataframe.pkl -m model_ppToH_NFlows_v0 -n 3
+
+# Test the NFlows model:
+
+	python python/LEP_NF_reco.py -s 4 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_validation_dataframe.pkl -m model_ppToH_NFlow_v0

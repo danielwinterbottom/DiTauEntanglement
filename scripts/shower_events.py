@@ -7,6 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'p
 #from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
+from ReconstructTaus import FindDMin_Point, FindDMin
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', '-i', help= 'LHE file to be converted')
@@ -15,7 +16,9 @@ parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--n_events', '-n', help= 'Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, type=int)
 parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
-parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=0, type=float)
+parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
+parser.add_argument('--extra_vars', action='store_true', help= 'If set, will also store additional variables in the output root file including the analytically predicted tau and spin sensitive quantities used to measure the rho matrix')
+parser.add_argument('--pythia_process', help= 'If set, will use the specified pythia process when generating the full events in pythia (rather than starting from LHE files). Supported options are eeToZtoTauTau, ppToHToTauTau, eeToHtoTauTau, and eeToZHtoTauTau', default=None)
 
 args = parser.parse_args()
 
@@ -42,6 +45,9 @@ branches = [
 'taup_pi1_vx',
 'taup_pi1_vy',
 'taup_pi1_vz',
+'taup_pi1_ipx',
+'taup_pi1_ipy',
+'taup_pi1_ipz',
 'taup_pi2_px',
 'taup_pi2_py',
 'taup_pi2_pz',
@@ -82,6 +88,9 @@ branches = [
 'taun_pi1_vx',
 'taun_pi1_vy',
 'taun_pi1_vz',
+'taun_pi1_ipx',
+'taun_pi1_ipy',
+'taun_pi1_ipz',
 'taun_pi2_px',
 'taun_pi2_py',
 'taun_pi2_pz',
@@ -122,6 +131,13 @@ branches = [
 'taun_vis_pt',
 'm_vis',
 
+'pv_x',
+'pv_y',
+'pv_z',
+'met_px',
+'met_py',
+'met_pz',
+
 'taup_first_px', 
 'taup_first_py', 
 'taup_first_pz',
@@ -130,8 +146,39 @@ branches = [
 'taun_first_py',
 'taun_first_pz',
 'taun_first_e',
+
+'boson_mass',
+'boson_pt',
+
 ]
 
+if args.extra_vars:
+    branches += [
+        'solution1_taup_px',
+        'solution1_taup_py',
+        'solution1_taup_pz',
+        'solution1_taup_e',
+        'solution1_taun_px',
+        'solution1_taun_py',
+        'solution1_taun_pz',
+        'solution1_taun_e',
+        'solution2_taup_px',
+        'solution2_taup_py',
+        'solution2_taup_pz',
+        'solution2_taup_e',
+        'solution2_taun_px',
+        'solution2_taun_py',
+        'solution2_taun_pz',
+        'solution2_taun_e',
+        'cosn_plus',
+        'cosr_plus',
+        'cosk_plus',
+        'cosn_minus',
+        'cosr_minus',
+        'cosk_minus',
+        'cosTheta',
+
+    ]
 
 if '.hepmc' in args.output: root_output = args.output.replace('.hepmc','.root')
 else: root_output=args.output+'.root'
@@ -152,16 +199,19 @@ for b in branches:
 pythia = pythia8.Pythia("")
 pythia.readFile(args.cmnd_file)
 
-pythia_process = "eeToZtoTauTau"
+#pythia_process = "eeToZtoTauTau"
 #pythia_process = "ppToHToTauTau"
-pythia_process = "eeToHtoTauTau"
+#pythia_process = "eeToHtoTauTau"
+pythia_process="eeToZHtoTauTau"
+if args.pythia_process:
+    pythia_process = args.pythia_process
 
 
 if args.input:
     pythia.readString("Beams:frameType = 4")
     pythia.readString("Beams:LHEF = %s" % args.input)
 elif pythia_process == "eeToZtoTauTau":
-    print('Producing full event in pythia')
+    print('Producing full e+e- -> Z -> tautau event in pythia')
     # if no LHE file given then produce full event setup using pythia for the hard process as well
     pythia.readString("Beams:idA = -11") # Positron
     pythia.readString("Beams:idB = 11")  # Electron
@@ -173,24 +223,21 @@ elif pythia_process == "eeToZtoTauTau":
     pythia.readString("23:onMode = off")  # Turn off all Z decays
     pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
 elif pythia_process == "ppToHToTauTau": # for pp->H->tautau using pythia
-    print('Producing full pp event in pythia')
+    print('Producing full pp -> H -> tautau event in pythia')
     pythia.readString("Beams:idA = 2212") # Proton
     pythia.readString("Beams:idB = 2212")  # Proton
     pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
-    #pythia.readString("TauDecays:externalMode = 0")
     # Enable H production and decay to taus
-
     pythia.readString("HiggsSM:gg2H = on")
 
     # Force Higgs to decay only to tau+ tau-
     pythia.readString("25:onMode = off")
     pythia.readString("25:onIfAny = 15")
 
-    # Force taus to decay only to pi± nu
-    pythia.readString("15:onMode = off")               # turn off all τ− decays
-    pythia.readString("15:onIfMatch = -211 16")        # τ− → π− ν_τ
+    pythia.readString("HiggsH1:parity = 4")
+    pythia.readString(f"HiggsH1:phiParity = {args.phi}")
 elif pythia_process == "eeToHtoTauTau": # for e+e- -> H -> tautau using pythia (not that the is a realistic production mode but it's just to get a sample of Higgs bosons at rest)
-    print('Producing full e+e- event in pythia')
+    print('Producing full e+e -> H-> tautau event in pythia')
     pythia.readString("Beams:idA = -11") # Positron
     pythia.readString("Beams:idB = 11")  # Electron
     pythia.readString("Beams:eCM = 125")  # Center-of-mass energy
@@ -202,6 +249,26 @@ elif pythia_process == "eeToHtoTauTau": # for e+e- -> H -> tautau using pythia (
     # Force Higgs to decay only to tau+ tau-
     pythia.readString("25:onMode = off")
     pythia.readString("25:onIfAny = 15")
+    pythia.readString("HiggsH1:parity = 4")
+    pythia.readString(f"HiggsH1:phiParity = {args.phi}")
+elif pythia_process == "eeToZHtoTauTau":
+    print("Producing full e+e- -> ZH -> ee/mumu/jj + tautau in pythia")
+
+    pythia.readString("Beams:idA = -11")   # e+
+    pythia.readString("Beams:idB = 11")    # e-
+    pythia.readString("Beams:eCM = 240.")  # FCC-ee Higgs factory energy
+
+    # Higgsstrahlung: e+e- -> ZH
+    pythia.readString("HiggsSM:ffbar2HZ = on")
+
+    # Force H -> tau tau
+    pythia.readString("25:onMode = off")
+    pythia.readString("25:onIfMatch = 15 -15")
+
+    # choose Z decays, we use either ee, mumu, or jj decays only since we dont want additional MET in the events
+    pythia.readString("23:onMode = off")
+    pythia.readString("23:onIfAny = 11 13 1 2 3 4 5")
+
     pythia.readString("HiggsH1:parity = 4")
     pythia.readString(f"HiggsH1:phiParity = {args.phi}")
 
@@ -374,6 +441,7 @@ while not stopGenerating:
 
     #print('particles:')
 
+
     first_pis = []
     first_pizeros = []
     first_nus = []
@@ -510,6 +578,11 @@ while not stopGenerating:
                 for m in part.motherList():
                     print(pythia.event[m].id())
 
+            # store tau vertex as the pv
+            branch_vals['pv_x'][0] = part.xProd()
+            branch_vals['pv_y'][0] = part.yProd()
+            branch_vals['pv_z'][0] = part.zProd()
+
             if len(pis) > 0:
                 branch_vals['%(tau_name)s_pi1_px' % vars()][0] = pis[0].px()
                 branch_vals['%(tau_name)s_pi1_py' % vars()][0] = pis[0].py()
@@ -576,6 +649,205 @@ while not stopGenerating:
         branch_vals['m_vis'][0] = -1
     else:
         branch_vals['m_vis'][0] = m_vis_sq**.5
+
+    # compute met_x, met_y, and met_z but summing neutrinos from both tau decays
+    met_px = branch_vals['taup_nu_px'][0] + branch_vals['taun_nu_px'][0]
+    met_py = branch_vals['taup_nu_py'][0] + branch_vals['taun_nu_py'][0]
+    met_pz = branch_vals['taup_nu_pz'][0] + branch_vals['taun_nu_pz'][0]
+
+    # compute gen impact parameters
+    # first need to store PV, tau vertex, and tau pion's direction as TVector3
+    pv_vec3 = ROOT.TVector3(branch_vals['pv_x'][0], branch_vals['pv_y'][0], branch_vals['pv_z'][0])
+    taup_pi1_vec3 = ROOT.TVector3(branch_vals['taup_pi1_px'][0], branch_vals['taup_pi1_py'][0], branch_vals['taup_pi1_pz'][0])
+    taun_pi1_vec3 = ROOT.TVector3(branch_vals['taun_pi1_px'][0], branch_vals['taun_pi1_py'][0], branch_vals['taun_pi1_pz'][0])
+    taup_pi1_dir_vec3 = taup_pi1_vec3.Unit()
+    taun_pi1_dir_vec3 = taun_pi1_vec3.Unit()
+    taup_vtx_vec3 = ROOT.TVector3(branch_vals['taup_pi1_vx'][0], branch_vals['taup_pi1_vy'][0], branch_vals['taup_pi1_vz'][0])
+    taun_vtx_vec3 = ROOT.TVector3(branch_vals['taun_pi1_vx'][0], branch_vals['taun_pi1_vy'][0], branch_vals['taun_pi1_vz'][0])
+
+    pca_p_wrt_pv = FindDMin_Point(taup_vtx_vec3, taup_pi1_dir_vec3, pv_vec3)
+    pca_n_wrt_pv = FindDMin_Point(taun_vtx_vec3, taun_pi1_dir_vec3, pv_vec3)
+
+    branch_vals['taup_pi1_ipx'][0] = pca_p_wrt_pv.X()
+    branch_vals['taup_pi1_ipy'][0] = pca_p_wrt_pv.Y()
+    branch_vals['taup_pi1_ipz'][0] = pca_p_wrt_pv.Z()
+    branch_vals['taun_pi1_ipx'][0] = pca_n_wrt_pv.X()
+    branch_vals['taun_pi1_ipy'][0] = pca_n_wrt_pv.Y()
+    branch_vals['taun_pi1_ipz'][0] = pca_n_wrt_pv.Z()
+
+    # get tau's 4 memonta as TLorentzVectors
+    taup = ROOT.TLorentzVector(branch_vals['taup_px'][0], branch_vals['taup_py'][0], branch_vals['taup_pz'][0], branch_vals['taup_e'][0])
+    taun = ROOT.TLorentzVector(branch_vals['taun_px'][0], branch_vals['taun_py'][0], branch_vals['taun_pz'][0], branch_vals['taun_e'][0])
+
+    branch_vals['boson_mass'][0] = (taup + taun).M()
+    branch_vals['boson_pt'][0] = (taup + taun).Pt()
+
+
+    if args.extra_vars:
+        from ReconstructTaus import ReconstructTauAnalytically, FindDMin
+        from PolarimetricA1 import PolarimetricA1
+
+        P_boson = taup + taun
+        taup_vis_px = branch_vals['taup_pi1_px'][0]+branch_vals['taup_pi2_px'][0]+branch_vals['taup_pi3_px'][0]+branch_vals['taup_pizero1_px'][0]+branch_vals['taup_pizero2_px'][0]+branch_vals['taup_mu_px'][0]
+        taup_vis_py = branch_vals['taup_pi1_py'][0]+branch_vals['taup_pi2_py'][0]+branch_vals['taup_pi3_py'][0]+branch_vals['taup_pizero1_py'][0]+branch_vals['taup_pizero2_py'][0]+branch_vals['taup_mu_py'][0]
+        taup_vis_pz = branch_vals['taup_pi1_pz'][0]+branch_vals['taup_pi2_pz'][0]+branch_vals['taup_pi3_pz'][0]+branch_vals['taup_pizero1_pz'][0]+branch_vals['taup_pizero2_pz'][0]+branch_vals['taup_mu_pz'][0]
+        taup_vis_E = branch_vals['taup_pi1_e'][0] + branch_vals['taup_pi2_e'][0] + branch_vals['taup_pi3_e'][0] + branch_vals['taup_pizero1_e'][0] + branch_vals['taup_pizero2_e'][0] + branch_vals['taup_mu_e'][0]
+        taun_vis_px = branch_vals['taun_pi1_px'][0]+branch_vals['taun_pi2_px'][0]+branch_vals['taun_pi3_px'][0]+branch_vals['taun_pizero1_px'][0]+branch_vals['taun_pizero2_px'][0]+branch_vals['taun_mu_px'][0]
+        taun_vis_py = branch_vals['taun_pi1_py'][0]+branch_vals['taun_pi2_py'][0]+branch_vals['taun_pi3_py'][0]+branch_vals['taun_pizero1_py'][0]+branch_vals['taun_pizero2_py'][0]+branch_vals['taun_mu_py'][0]
+        taun_vis_pz = branch_vals['taun_pi1_pz'][0]+branch_vals['taun_pi2_pz'][0]+branch_vals['taun_pi3_pz'][0]+branch_vals['taun_pizero1_pz'][0]+branch_vals['taun_pizero2_pz'][0]+branch_vals['taun_mu_pz'][0]
+        taun_vis_E = branch_vals['taun_pi1_e'][0] + branch_vals['taun_pi2_e'][0] + branch_vals['taun_pi3_e'][0] + branch_vals['taun_pizero1_e'][0] + branch_vals['taun_pizero2_e'][0] + branch_vals['taun_mu_e'][0]
+        taup_vis = ROOT.TLorentzVector(taup_vis_px, taup_vis_py, taup_vis_pz, taup_vis_E)
+        taun_vis = ROOT.TLorentzVector(taun_vis_px, taun_vis_py, taun_vis_pz, taun_vis_E)
+
+        taup_pi1 = ROOT.TLorentzVector(branch_vals['taup_pi1_px'][0], branch_vals['taup_pi1_py'][0], branch_vals['taup_pi1_pz'][0], branch_vals['taup_pi1_e'][0])
+        taun_pi1 = ROOT.TLorentzVector(branch_vals['taun_pi1_px'][0], branch_vals['taun_pi1_py'][0], branch_vals['taun_pi1_pz'][0], branch_vals['taun_pi1_e'][0])
+
+        solutions = ReconstructTauAnalytically(P_boson, taup_vis, taun_vis)
+        ip1_3vec = ROOT.TVector3(branch_vals['taup_pi1_ipx'][0], branch_vals['taup_pi1_ipy'][0], branch_vals['taup_pi1_ipz'][0])
+        ip2_3vec = ROOT.TVector3(branch_vals['taun_pi1_ipx'][0], branch_vals['taun_pi1_ipy'][0], branch_vals['taun_pi1_ipz'][0])
+
+        solution1_dmin_taup  = FindDMin(pv_vec3, solutions[0][0].Vect().Unit(), ip1_3vec, taup_pi1.Vect().Unit()).Mag()
+        solution1_dmin_taun = FindDMin(pv_vec3, solutions[0][1].Vect().Unit(), ip2_3vec, taun_pi1.Vect().Unit()).Mag()
+        solution2_dmin_taup  = FindDMin(pv_vec3, solutions[1][0].Vect().Unit(), ip1_3vec, taup_pi1.Vect().Unit()).Mag()
+        solution2_dmin_taun = FindDMin(pv_vec3, solutions[1][1].Vect().Unit(), ip2_3vec, taun_pi1.Vect().Unit()).Mag()
+
+        # determine correct solutions using IPs - not this would only work in reality is PV is known i.e ok for pp and ee->HZ but wouldn't work for ee->Z
+        solution1_dmin_tot = (solution1_dmin_taup**2 + solution1_dmin_taun**2)**0.5
+        solution2_dmin_tot = (solution2_dmin_taup**2 + solution2_dmin_taun**2)**0.5
+
+        # swap solutions if solution 2 has smaller total dmin to the impact parameters than solution 1
+        if solution2_dmin_tot < solution1_dmin_tot:
+            temp = solutions[0]
+            solutions = (solutions[1], solutions[0])
+
+        # store both solutions
+        branch_vals['solution1_taup_px'][0] = solutions[0][0].Px()
+        branch_vals['solution1_taup_py'][0] = solutions[0][0].Py()
+        branch_vals['solution1_taup_pz'][0] = solutions[0][0].Pz()
+        branch_vals['solution1_taup_e'][0]  = solutions[0][0].E()
+        branch_vals['solution1_taun_px'][0] = solutions[0][1].Px()
+        branch_vals['solution1_taun_py'][0] = solutions[0][1].Py()
+        branch_vals['solution1_taun_pz'][0] = solutions[0][1].Pz()
+        branch_vals['solution1_taun_e'][0]  = solutions[0][1].E()
+        branch_vals['solution2_taup_px'][0] = solutions[1][0].Px()
+        branch_vals['solution2_taup_py'][0] = solutions[1][0].Py()
+        branch_vals['solution2_taup_pz'][0] = solutions[1][0].Pz()
+        branch_vals['solution2_taup_e'][0]  = solutions[1][0].E()
+        branch_vals['solution2_taun_px'][0] = solutions[1][1].Px()
+        branch_vals['solution2_taun_py'][0] = solutions[1][1].Py()
+        branch_vals['solution2_taun_pz'][0] = solutions[1][1].Pz()
+        branch_vals['solution2_taun_e'][0]  = solutions[1][1].E()
+
+        taun_npi = branch_vals['taun_npi'][0]
+        taun_npizero = branch_vals['taun_npizero'][0]
+        taup_npi = branch_vals['taup_npi'][0]
+        taup_npizero = branch_vals['taup_npizero'][0]
+
+        if taup_npizero > 0:
+            taup_pizero1 = ROOT.TLorentzVector(branch_vals['taup_pizero1_px'][0], branch_vals['taup_pizero1_py'][0], branch_vals['taup_pizero1_pz'][0], branch_vals['taup_pizero1_e'][0])
+        else:
+            taup_pizero1 = None
+        if taun_npizero > 0:
+            taun_pizero1 = ROOT.TLorentzVector(branch_vals['taun_pizero1_px'][0], branch_vals['taun_pizero1_py'][0], branch_vals['taun_pizero1_pz'][0], branch_vals['taun_pizero1_e'][0])
+        else: 
+            taun_pizero1 = None
+
+        if taup_npi == 3:
+            taup_pi3 = ROOT.TLorentzVector(branch_vals['taup_pi3_px'][0], branch_vals['taup_pi3_py'][0], branch_vals['taup_pi3_pz'][0], branch_vals['taup_pi3_e'][0])
+            taup_pi2 = ROOT.TLorentzVector(branch_vals['taup_pi2_px'][0], branch_vals['taup_pi2_py'][0], branch_vals['taup_pi2_pz'][0], branch_vals['taup_pi2_e'][0])
+        else: 
+            taup_pi2 = None
+            taup_pi3 = None
+        if taun_npi == 3:
+            taun_pi3 = ROOT.TLorentzVector(branch_vals['taun_pi3_px'][0], branch_vals['taun_pi3_py'][0], branch_vals['taun_pi3_pz'][0], branch_vals['taun_pi3_e'][0])
+            taun_pi2 = ROOT.TLorentzVector(branch_vals['taun_pi2_px'][0], branch_vals['taun_pi2_py'][0], branch_vals['taun_pi2_pz'][0], branch_vals['taun_pi2_e'][0])
+        else:
+            taun_pi2 = None
+            taun_pi3 = None
+
+        if taup_npizero >1:
+            taup_pizero2 = ROOT.TLorentzVector(branch_vals['taup_pizero2_px'][0], branch_vals['taup_pizero2_py'][0], branch_vals['taup_pizero2_pz'][0], branch_vals['taup_pizero2_e'][0])
+        else:
+            taup_pizero2 = None
+        if taun_npizero >1:
+            taun_pizero2 = ROOT.TLorentzVector(branch_vals['taun_pizero2_px'][0], branch_vals['taun_pizero2_py'][0], branch_vals['taun_pizero2_pz'][0], branch_vals['taun_pizero2_e'][0])
+        else:
+            taun_pizero2 = None
+
+        # define ditau rest frames
+        ditau = taup + taun
+        boost = -ditau.BoostVector()
+
+        # boost taus and decay products to ditau rest frame
+        taup.Boost(boost)
+        taun.Boost(boost)
+        taup_pi1.Boost(boost)
+        taun_pi1.Boost(boost)
+        if taup_pi2 is not None: taup_pi2.Boost(boost)
+        if taup_pi3 is not None: taup_pi3.Boost(boost)
+        if taun_pi2 is not None: taun_pi2.Boost(boost)
+        if taun_pi3 is not None: taun_pi3.Boost(boost)
+        if taup_pizero1 is not None: taup_pizero1.Boost(boost)
+        if taup_pizero2 is not None: taup_pizero2.Boost(boost)
+        if taun_pizero1 is not None: taun_pizero1.Boost(boost)
+        if taun_pizero2 is not None: taun_pizero2.Boost(boost)
+
+        if taun_npi == 1 and taun_npizero == 0:   
+            taun_pi1.Boost(-taun.BoostVector())
+            taun_s = taun_pi1.Vect().Unit()
+        elif taun_npi == 1 and taun_npizero >= 1:
+            q = taun_pi1  - taun_pizero1
+            P = taun
+            N = taun - taun_pi1 - taun_pizero1
+            pv = P.M()*(2*(q*N)*q - q.Mag2()*N) * (1/ (2*(q*N)*(q*P) - q.Mag2()*(N*P)))
+            pv.Boost(-taun.BoostVector())
+            taun_s = pv.Vect().Unit()             
+        elif taun_npi == 3:
+            pv =  -PolarimetricA1(taun, taun_pi1, taun_pi2, taun_pi3, +1).PVC()
+            pv.Boost(-taun.BoostVector())
+            taun_s = pv.Vect().Unit()
+        else: 
+            print("WARNING: Number of pions not equal to 1 or 3")
+            new_tree.Fill() # any missing variables will be filled with 0
+            continue
+
+        if taup_npi == 1 and taup_npizero == 0:
+            taup_pi1.Boost(-taup.BoostVector())
+            taup_s = taup_pi1.Vect().Unit()
+        elif taup_npi == 1 and taup_npizero >= 1:
+            q = taup_pi1  - taup_pizero1
+            P = taup
+            N = taup - taup_pi1 - taup_pizero1
+            pv = P.M()*(2*(q*N)*q - q.Mag2()*N) * (1/ (2*(q*N)*(q*P) - q.Mag2()*(N*P)))
+            pv.Boost(-taup.BoostVector())
+            taup_s = pv.Vect().Unit()
+        elif taup_npi == 3:
+            pv =  -PolarimetricA1(taup, taup_pi1, taup_pi2, taup_pi3, +1).PVC()
+            pv.Boost(-taup.BoostVector())
+            taup_s = pv.Vect().Unit()
+        else: 
+            print("WARNING: Number of pions not equal to 1 or 3")
+            new_tree.Fill() # any missing variables will be filled with 0
+            continue
+
+        # get taus in ditau rest frame - note this is already done above
+        taup_COM = taup.Clone()
+        taun_COM = taun.Clone()
+
+        p = ROOT.TVector3(0, 0, -1)
+        # k is direction of tau+
+        k = taup_COM.Vect().Unit()
+        n = (p.Cross(k)).Unit()
+        cosTheta = p.Dot(k)
+        r = (p - (k*cosTheta)).Unit() 
+
+        branch_vals['cosn_plus'][0] = taup_s.Dot(n)
+        branch_vals['cosr_plus'][0] = taup_s.Dot(r)
+        branch_vals['cosk_plus'][0] = taup_s.Dot(k)
+        branch_vals['cosn_minus'][0] = taun_s.Dot(n)
+        branch_vals['cosr_minus'][0] = taun_s.Dot(r)
+        branch_vals['cosk_minus'][0] = taun_s.Dot(k)
+        branch_vals['cosTheta'][0] = cosTheta
 
 
     #hepmc_event = HepMC3.GenEvent()
