@@ -19,9 +19,9 @@ SetupNN:
               'condition_net_output_size': 128}
   MLP_hyperparams: { # for MLP baseline
               'batch_size': 8192,
-              'num_layers': 6,
-              'hidden_size': 256,
-              'lr': 0.001,
+              'num_blocks': 6,
+              'hidden_size': 512,
+              'lr': 0.0005,
               'weight_decay': !!float 1e-05}
 
 

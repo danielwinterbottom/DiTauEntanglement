@@ -6,7 +6,90 @@
         conda env create -f env.yml
         conda activate DiTauEntanglement
 
-# Setup Madgraph
+
+# New Setup gude:
+
+need to run this to get the package
+```
+pip install -e .
+```
+
+
+
+# Quick(-ish) example
+
+This example uses the reduced datasets for that it can be run reasonably quickly.
+
+Prepare datadrames:
+
+```
+python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LEP.yaml
+```
+
+
+Run Nflows training:
+
+
+```
+python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml
+```
+
+
+Train a "normal" neural network with MSE loss to compare to:
+
+```
+python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml --useMLP
+```
+
+
+Test Nflows model:
+
+```
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml
+```
+
+Test MLP model (haven't tested this explicitly yet)
+```
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml --useMLP
+```
+
+## Instructions for pp->H training
+
+# Produce MC samples
+
+Note for now no smearing is applied to the gen quantities
+
+	python scripts/submit_pythia_jobs.py --no_lhe --cmnd_file scripts/pythia_cmnd_dm0and1  -j ppToHToTauTau_DM0and1_CPEven -n 1000 --extra="--phi=1.5708 --extra_vars --pythia_process=ppToHToTauTau"
+
+which will produce 10000 per event (10M total)
+
+To produce CP-odd Higgs bosons use --phi=0, or for max-mix use --phi=0.7854, or max-mix with the opposite interference use -0.7854. Any other intermediate values can be used as well of course.
+
+
+Can then hadd these files together. For convinience we seperate 100k events to be used purely for validation:
+
+	for x in ppToHToTauTau_DM0and1_CPEven; do
+		hadd -f ${x}/pythia_events_validation.root ${x}/job_output_*/pythia_events_[0-9].root
+                hadd -f ${x}/pythia_events_training.root ${x}/job_output_*/pythia_events_[0-9][0-9]*.root;
+done
+
+# Produce dataframes:
+
+        python python/LEP_NF_reco.py -s 1 --ppHTraining
+
+# Train the NFlows model:
+
+	python python/LEP_NF_reco.py -s 3 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_dataframe.pkl -m model_ppToH_NFlows_v0 -n 3
+
+# Test the NFlows model:
+
+	python python/LEP_NF_reco.py -s 4 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_validation_dataframe.pkl -m model_ppToH_NFlow_v0
+
+
+
+# Event Generation
+
+## Setup Madgraph
 
 Download and untar madgraph:
 
@@ -15,7 +98,7 @@ Download and untar madgraph:
 
 Note you may need to update the version
 
-# Install HEPMC3
+## Install HEPMC3
 
         git clone https://gitlab.cern.ch/hepmc/HepMC3.git
         cd HepMC3
@@ -24,7 +107,7 @@ Note you may need to update the version
         make -j8 install
         cd -
 
-# Install Pythia8
+## Install Pythia8
 
 Install pythia8:
 
@@ -37,7 +120,7 @@ Install pythia8:
 	cd -
 
 
-# Generate events with Madgraph
+## Generate events with Madgraph
 
 To generate events with entanglement included e.g for tau->pinu decays:
 
@@ -89,7 +172,7 @@ You can submit both of the previous commands as as batch jobs using:
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/ -j pythia_inc_entanglement -n 1000
 	python scripts/submit_pythia_jobs.py --cmnd_file scripts/pythia_cmnd  -i batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/ -j pythia_no_entanglement -n 1000
 
-# List of Produced samples:
+## List of Produced samples:
 
 Many samples have been produced already, a non-exhastive list is below:
 
@@ -108,62 +191,3 @@ ee->Z->tautau LEP events, where taus are forced to decay into either DM=0 or DM=
 
 ee->Z->tautau LEP events with no entanglement, where taus are forced to decay into either DM=0 or DM=1: 
 	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root
-
-# Quick(-ish) example
-
-This example uses the reduced datasets for that it can be run reasonably quickly. 
-
-Prepare datadrames:
-
-	python python/LEP_NF_reco.py -s 1
-
-Run Nflows training:
-
-	python python/LEP_NF_reco.py -s 3 -n 10 -m model_NFlows_test --inc_reco_taus
-
-note1 this will not produce a very good model as more epochs and trainig data are needed to optimise this
-note2 stage 2 would also run optuna to do hyperparameter scan but here we just use HPs from a previous scan
-
-Train a "normal" neural network with MSE loss to compare to:
-
-	python python/LEP_NF_reco.py -s 3 -n 10 -m model_MLP_test --useMLP --inc_reco_taus 
-
-Test Nflows model:
-
-	python python/LEP_NF_reco.py -s 4 -m model_NFlows_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl --output_name output_model_NFlows_test --inc_reco_taus
-
-Test MLP model:
-
-	python python/LEP_NF_reco.py -s 4 -m model_MLP_test --dataframe_name ditau_nu_regression_ee_to_tauhtauh_test_dataframe.pkl  --output_name outputs_model_MLP_test  --inc_reco_taus --useMLP
-
-## Instructions for pp->H training
-
-# Produce MC samples
-
-Note for now no smearing is applied to the gen quantities
-
-	python scripts/submit_pythia_jobs.py --no_lhe --cmnd_file scripts/pythia_cmnd_dm0and1  -j ppToHToTauTau_DM0and1_CPEven -n 1000 --extra="--phi=1.5708 --extra_vars --pythia_process=ppToHToTauTau"
-
-which will produce 10000 per event (10M total)
-
-To produce CP-odd Higgs bosons use --phi=0, or for max-mix use --phi=0.7854, or max-mix with the opposite interference use -0.7854. Any other intermediate values can be used as well of course.
-
-
-Can then hadd these files together. For convinience we seperate 100k events to be used purely for validation:
-
-	for x in ppToHToTauTau_DM0and1_CPEven; do 
-		hadd -f ${x}/pythia_events_validation.root ${x}/job_output_*/pythia_events_[0-9].root
-                hadd -f ${x}/pythia_events_training.root ${x}/job_output_*/pythia_events_[0-9][0-9]*.root; 
-done
-
-# Produce dataframes:
-
-        python python/LEP_NF_reco.py -s 1 --ppHTraining
-
-# Train the NFlows model:
-
-	python python/LEP_NF_reco.py -s 3 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_dataframe.pkl -m model_ppToH_NFlows_v0 -n 3
-
-# Test the NFlows model:
-
-	python python/LEP_NF_reco.py -s 4 --ppHTraining --dataframe_name ditau_nu_regression_ppToHToTauTau_DM0and1_CPEven_validation_dataframe.pkl -m model_ppToH_NFlow_v0
