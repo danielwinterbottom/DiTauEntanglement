@@ -189,7 +189,7 @@ class MorphDataset(Dataset):
         return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
 
-def convert_root_to_parquet(input_file_name, key, config):
+def convert_root_to_parquet(input_file_name, key, config, collider):
 
     print("Converting from ROOT to Parquet...")
 
@@ -207,14 +207,15 @@ def convert_root_to_parquet(input_file_name, key, config):
     df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
     df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])  # delete the pi and pi0 columns
 
-    # also apply a reco_mass cut to select events close to the Z pole with little boost
-    df = df[(df['reco_mass'] > 91)]
-    df = df.drop(columns=['reco_mass'])  # now remove the reco_mass column
+    if collider == 'LEP':
+        # also apply a reco_mass cut to select events close to the Z pole with little boost
+        df = df[(df['reco_mass'] > 91)]
+        df = df.drop(columns=['reco_mass'])  # now remove the reco_mass column
 
-    # compute the d_min vector by subtracting the 2 impact parameters
-    df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
-    df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
-    df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
+        # compute the d_min vector by subtracting the 2 impact parameters
+        df['dmin_x'] = df['reco_taup_pi1_ipx'] - df['reco_taun_pi1_ipx']
+        df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
+        df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
 
     if config['coordinates'] == 'polar':  # option to convert to polar coordinates
 
