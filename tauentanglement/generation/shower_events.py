@@ -200,9 +200,9 @@ pythia = pythia8.Pythia("")
 pythia.readFile(args.cmnd_file)
 
 #pythia_process = "eeToZtoTauTau"
-#pythia_process = "ppToHToTauTau"
+pythia_process = "ppToHToTauTau"
 #pythia_process = "eeToHtoTauTau"
-pythia_process="eeToZHtoTauTau"
+#pythia_process="eeToZHtoTauTau"
 if args.pythia_process:
     pythia_process = args.pythia_process
 
@@ -651,9 +651,9 @@ while not stopGenerating:
         branch_vals['m_vis'][0] = m_vis_sq**.5
 
     # compute met_x, met_y, and met_z but summing neutrinos from both tau decays
-    met_px = branch_vals['taup_nu_px'][0] + branch_vals['taun_nu_px'][0]
-    met_py = branch_vals['taup_nu_py'][0] + branch_vals['taun_nu_py'][0]
-    met_pz = branch_vals['taup_nu_pz'][0] + branch_vals['taun_nu_pz'][0]
+    branch_vals['met_px'][0] = branch_vals['taup_nu_px'][0] + branch_vals['taun_nu_px'][0]
+    branch_vals['met_py'][0] = branch_vals['taup_nu_py'][0] + branch_vals['taun_nu_py'][0]
+    branch_vals['met_pz'][0] = branch_vals['taup_nu_pz'][0] + branch_vals['taun_nu_pz'][0]
 
     # compute gen impact parameters
     # first need to store PV, tau vertex, and tau pion's direction as TVector3
