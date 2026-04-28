@@ -26,7 +26,7 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_DM0and1_CPEven']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_DM0and1_CPEven','ppToHToTauTau_DM0and1_CPEven_validation','ppToHToTauTau_DM0and1_CPOdd','ppToHToTauTau_DM0and1_CPOdd_validation','ppToHToTauTau_DM0and1_CPMaxMix','ppToHToTauTau_DM0and1_CPMaxMix_validation','ppToHToTauTau_DM0and1_CPMaxMixneg','ppToHToTauTau_DM0and1_CPMaxMixneg_validation']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
@@ -61,5 +61,11 @@ Data:
                       'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
   available_files: { # TODO: fix naming of validation/evaluation
                     'ppToHToTauTau_DM0and1_CPEven': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_training.root',
-                    'ppToHToTauTau_DM0and1_CPEven_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_validation.root' # keep these 100k events seperate for not used anywhere in the training
+                    'ppToHToTauTau_DM0and1_CPEven_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_validation.root', # keep these 100k events seperate for not used anywhere in the training
+                    'ppToHToTauTau_DM0and1_CPOdd': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPOdd_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd/pythia_events_validation.root', # keep these 100k events seperate for not used anywhere in the training 
+                    'ppToHToTauTau_DM0and1_CPMaxMix': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMix/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPMaxMix_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMix/pythia_events_validation.root', # keep these 100k events seperate for not used anywhere in the training
+                    'ppToHToTauTau_DM0and1_CPMaxMixneg': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMixneg/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPMaxMixneg_validation': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMixneg/pythia_events_validation.root',   
                     }
