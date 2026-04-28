@@ -217,6 +217,11 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
         df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
         df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
 
+    if collider == 'LHC':
+        # recompute met_px and met_py from neutrinos as this wasn't stored properly
+        df['met_px'] = df['taup_nu_px'] + df['taun_nu_px']
+        df['met_py'] = df['taup_nu_py'] + df['taun_nu_py']
+
     if config['coordinates'] == 'polar':  # option to convert to polar coordinates
 
         # convert outputs
