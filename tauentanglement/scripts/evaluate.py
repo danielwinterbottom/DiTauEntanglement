@@ -39,7 +39,8 @@ if __name__ == "__main__":
     # load model
     output_dir = f"outputs_{nn_config['model_name']}"
     output_plots_dir = f"{output_dir}/plots"
-    print(f'Evaluating final model {nn_config["model_name"]} on test dataset...')
+    print(f'Evaluating final model {nn_config["model_name"]} on test dataset {data_config["test_dataset"]}')
+    print(f'Number of events in test dataset: {len(test_dataset)}')
     hp = nn_config['MLP_hyperparams'] if args.useMLP else nn_config['hyperparams']
     model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP) # base_model
     model_path = f'{output_plots_dir}/best_model.pth'

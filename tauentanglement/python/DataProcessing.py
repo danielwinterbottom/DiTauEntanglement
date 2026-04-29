@@ -277,7 +277,7 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
     print('Columns in the saved dataframe:', df.columns.tolist())
     return df
 
-def get_train_test_datasets(key, config):
+def get_train_val_test_datasets(key, config):
 
     if config['coordinates'] == 'standard':
         df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_dataframe.parquet'))
@@ -287,16 +287,16 @@ def get_train_test_datasets(key, config):
         df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_onorm_dataframe.parquet'))
 
     train_size = int(config['train_fraction'] * len(df))
-    test_size = len(df) - train_size
+    val_size = int(config['val_fraction'] * len(df))
+    test_size = len(df) - train_size - val_size
 
     train_df = df.iloc[:train_size]
-    test_df = df.iloc[train_size:]
+    val_df = df.iloc[train_size:train_size + val_size]
 
-    train_df = df.iloc[:train_size]
     if config['full_dataframe_testing']:
         test_df = df.copy()
     else:
-        test_df = df.iloc[train_size:]
+        test_df = df.iloc[train_size + val_size:]
     del df
 
     input_features = config['Features']['input_features']
@@ -305,9 +305,11 @@ def get_train_test_datasets(key, config):
 
     output_features = config['Features']['output_features'][config['coordinates']]
 
+    val_df.to_parquet(os.path.join(config['output_dir'], key, f'val_dataframe.parquet'))
     test_df.to_parquet(os.path.join(config['output_dir'], key, f'test_dataframe.parquet'))
     train_df.to_parquet(os.path.join(config['output_dir'], key, f'train_dataframe.parquet'))
-    print(f">> Train and test dataframes for {key} saved.")
+    print(f">> Train, validation and test dataframes for {key} saved.")
+    print(f">> Train dataframe size: {len(train_df)}, Validation dataframe size: {len(val_df)}, Test dataframe size: {len(test_df)}")
 
     #print the names of all the columns and information on the number of events in the dataframe
     print('Columns in training dataframe:', train_df.columns.tolist())
@@ -319,20 +321,20 @@ def get_train_test_datasets(key, config):
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
-    test_dataset = RegressionDataset(test_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
+    val_dataset = RegressionDataset(val_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
                                       input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
-    del train_df, test_df
+    del train_df, val_df, test_df
 
     # store the means and stds used for normalization
     np.savez(f'{config["output_dir"]}/{key}/normalization_params.npz',
              input_mean=in_mean, input_std=in_std,
              output_mean=out_mean, output_std=out_std)
 
-    return train_dataset, test_dataset, input_features, output_features
+    return train_dataset, val_dataset, input_features, output_features
 
 def get_test_dataset(key, config):
 
-    test_df = pd.read_parquet(os.path.join(config['output_dir'], key, 'test_dataframe.parquet'))
+    test_df = pd.read_parquet(config['test_dataset'])
 
     input_features = config['Features']['input_features']
     if config['inc_reco_taus']:

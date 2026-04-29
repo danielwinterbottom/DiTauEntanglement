@@ -27,11 +27,13 @@ SetupNN:
 Data:
   datasets: ['ee_to_tauhtauh_test']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_data'  # directory where the prepared datasets will be stored
+  test_dataset: 'prepared_data/ee_to_tauhtauh_test/test_dataframe.parquet'
   tree_name: 'new_tree'  # name of the tree in the root file
   inc_reco_taus: True
   coordinates: standard  # options: standard, polar, onorm
   train_fraction: 0.9  # fraction of the dataset to use for training, rest will be used for validation
-  full_dataframe_testing: False # if True will use full dataset for validation
+  val_fraction: 0.09 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
+  full_dataframe_testing: False # if True will use full dataset for testing
   Features:
     dataframe_variables: ['taup_npi', 'taup_npizero',  # negative tau
                 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
