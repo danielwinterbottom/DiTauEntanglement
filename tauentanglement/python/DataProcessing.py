@@ -245,12 +245,15 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
 
     elif config['coordinates'] == 'onorm':  # option to convert to orthonormal basis
 
+        if collider == 'LHC': prefix= "" # currently no smearing for LHC so use gen-level tau
+        else: prefix = "reco_"
+
         # convert outputs
         df = ConvertToOrthonormalNRK(
             df,
             prefix_to_convert='taup_nu_',
-            pi_prefix='reco_taup_pi1_',
-            pi0_prefix='reco_taup_pizero1_',
+            pi_prefix=f"{prefix}taup_pi1_",
+            pi0_prefix=f"{prefix}taup_pizero1_",
             out_prefix=None,
             drop_xyz=False,
             keep_basis=True,
@@ -258,8 +261,8 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
         df = ConvertToOrthonormalNRK(
             df,
             prefix_to_convert='taun_nu_',
-            pi_prefix='reco_taun_pi1_',
-            pi0_prefix='reco_taun_pizero1_',
+            pi_prefix=f"{prefix}taun_pi1_",
+            pi0_prefix=f"{prefix}taun_pizero1_",
             out_prefix=None,
             drop_xyz=False,
             keep_basis=True,
@@ -270,12 +273,18 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
     else:  # no conversion
         df.to_parquet(os.path.join(config['output_dir'], key, f'full_dataframe.parquet'))
 
-    print(f">> Dataframe {key} converted and saved.")
+    print(f">> Dataframe {key} converted and saved to {config['output_dir']}/{key}")
+    print('Columns in the saved dataframe:', df.columns.tolist())
     return df
 
 def get_train_test_datasets(key, config):
 
-    df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_dataframe.parquet'))
+    if config['coordinates'] == 'standard':
+        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_dataframe.parquet'))
+    elif config['coordinates'] == 'polar':
+        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_polar_dataframe.parquet'))
+    elif config['coordinates'] == 'onorm':
+        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_onorm_dataframe.parquet'))
 
     train_size = int(config['train_fraction'] * len(df))
     test_size = len(df) - train_size
