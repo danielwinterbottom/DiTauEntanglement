@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import os
-from NN_tools_new import RegressionDataset, ConditionalFlow, EarlyStopper, MLP
+from NN_tools import RegressionDataset, ConditionalFlow, EarlyStopper, MLP
 from schedules import CosineAnnealingExpDecayLR
 import torch
 from torch.utils.data import DataLoader

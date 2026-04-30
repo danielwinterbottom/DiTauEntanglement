@@ -1,0 +1,81 @@
+collider: LEP # options so far: are LEP and LHC
+
+SetupNN:
+  model_name: test_model_MLP
+  reload: False # load existing model if True, otherwise train new model
+  reload_scheduler: False # whether to reload the scheduler state when reloading a model
+  n_epochs: 10
+  hyperparams:  { # for NuFlow
+              'batch_size': 8192,
+              'num_layers': 6,
+              'num_bins': 16,
+              'tail_bound': 4.0,
+              'hidden_size': 256,
+              'num_blocks': 3,
+              'lr': 0.001,
+              'weight_decay': !!float 1e-05,
+              'condition_net_hidden_size': 128,
+              'condition_net_num_blocks': 2,
+              'condition_net_output_size': 128}
+  MLP_hyperparams: { # for MLP baseline
+              'batch_size': 8192,
+              'num_blocks': 6,
+              'hidden_size': 512,
+              'lr': 0.0005,
+              'weight_decay': !!float 1e-05}
+
+Data:
+  datasets: ['ee_to_tauhtauh_test']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  output_dir: 'prepared_data'  # directory where the prepared datasets will be stored
+  test_dataset: 'prepared_data/ee_to_tauhtauh_test/test_dataframe.parquet'
+  tree_name: 'new_tree'  # name of the tree in the root file
+  inc_reco_taus: True
+  coordinates: standard  # options: standard, polar, onorm
+  train_fraction: 0.9  # fraction of the dataset to use for training, rest will be used for validation
+  val_fraction: 0.09 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
+  full_dataframe_testing: False # if True will use full dataset for testing
+  Features:
+    dataframe_variables: ['taup_npi', 'taup_npizero',  # negative tau
+                'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                'taun_npi', 'taun_npizero',  # positive tau
+                'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                'reco_mass',  # mass
+                'BS_x', 'BS_y', 'BS_z',  # beamspot
+                'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',  # neutrino from negative tau
+                'reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+                'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
+                'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',  # neutrino from positive tau
+                'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
+                'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']
+    input_features: ['dmin_x', 'dmin_y', 'dmin_z',
+                      'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                      'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                      'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                      'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                      'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                      'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                      'BS_x', 'BS_y', 'BS_z',
+                      'taup_haspizero', 'taun_haspizero']
+    input_reco_tau_features: ['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',  # can be included optionally
+                      'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz',
+                      'reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz',
+                      'reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']
+    output_features: {'standard': ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz'],
+                      'polar':['taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi','taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'],
+                      'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
+  available_files: {
+            'ee_to_tauhtauh_no_entanglement': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_no_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_no_entanglement_30M_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_uncorrelated_30M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_uncorrelated_30M_reduced': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_uncorrelated_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            'ee_to_gamma_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_gammaonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_higgs_to_tauhtauh_10M': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_higgsonly_inc_entanglement_Ntot_10000000_Njob_10000/pythia_events_extravars.root',
+            'ee_to_tauhtauh_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_inc_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            'ee_to_tauhtauh_no_entanglement_test': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root',
+            }

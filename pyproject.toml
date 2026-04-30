@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tauentanglement"
+version = "0.1.0"
+description = "Tau Entanglement analysis package"
+authors = [{name = "Lucas Russell and Daniel Winterbottom"}]
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = []

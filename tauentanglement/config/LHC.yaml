@@ -1,0 +1,69 @@
+collider: LHC # options so far: are LEP and LHC
+
+SetupNN:
+  model_name: test_model_onorm_v3 #model_NFlows_LHC_onrom_April29
+  reload: False # load existing model if True, otherwise train new model
+  reload_scheduler: False # whether to reload the scheduler state when reloading a model
+  n_epochs: 2
+  hyperparams:  { # for NuFlow
+              'batch_size': 8192,
+              'num_layers': 6,
+              'num_bins': 16,
+              'tail_bound': 4.0,
+              'hidden_size': 256,
+              'num_blocks': 3,
+              'lr': 0.001,
+              'weight_decay': !!float 1e-05,
+              'condition_net_hidden_size': 128,
+              'condition_net_num_blocks': 2,
+              'condition_net_output_size': 128}
+  MLP_hyperparams: { # for MLP baseline
+              'batch_size': 8192,
+              'num_blocks': 6,
+              'hidden_size': 512,
+              'lr': 0.0005,
+              'weight_decay': !!float 1e-05}
+
+
+Data:
+  datasets: ['ppToHToTauTau_DM0and1_CPEven']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
+  test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven/test_dataframe.parquet'
+  tree_name: 'tree'  # name of the tree in the root file
+  inc_reco_taus: False
+  coordinates: onorm  # options: standard, polar, onorm
+  train_fraction: 0.9  # fraction of the dataset to use for training, rest will be used for validation
+  val_fraction: 0.09 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
+  full_dataframe_testing: False # if True will use full dataset for testing
+  Features:
+    dataframe_variables: [
+                    'taup_npi', 'taup_npizero',
+                    'taun_npi', 'taun_npizero',
+                    'met_px', 'met_py',
+                    'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
+                    'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
+                    'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
+                    'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
+                    'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
+                    'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+                    'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+                    'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+                ]
+    input_features: ['taup_haspizero', 'taun_haspizero',
+                    'met_px', 'met_py',
+                    'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
+                    'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
+                    'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
+                    'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
+                    'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
+                    'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+                  ]
+    output_features: {'standard': ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz'],
+                      'polar':['taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi','taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'],
+                      'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
+  available_files: { # TODO: fix naming of validation/evaluation
+                    'ppToHToTauTau_DM0and1_CPEven': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPOdd': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPMaxMix': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMix/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPMaxMixneg': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMixneg/pythia_events_training.root',
+                    }
