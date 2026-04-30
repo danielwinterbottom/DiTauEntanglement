@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 
 def plot_loss(loss_values, val_loss_values, output_dir='nn_plots'):
