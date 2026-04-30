@@ -3,8 +3,8 @@ import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
-#from pyHepMC3 import HepMC3
-#from Pythia8ToHepMC3 import Pythia8ToHepMC3
+from pyHepMC3 import HepMC3
+from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
 from ReconstructTaus import FindDMin_Point, FindDMin
@@ -279,8 +279,8 @@ pythia.init()
 
 pythia.LHAeventSkip(args.n_skip*args.n_events)
 
-#hepmc_converter = Pythia8ToHepMC3()
-#hepmc_writer = HepMC3.WriterAscii(args.output)
+hepmc_converter = Pythia8ToHepMC3()
+hepmc_writer = HepMC3.WriterAscii(args.output)
 
 def IsLastCopy(part, event):
     ''' 
@@ -850,9 +850,9 @@ while not stopGenerating:
         branch_vals['cosTheta'][0] = cosTheta
 
 
-    #hepmc_event = HepMC3.GenEvent()
-    #hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
-    #hepmc_writer.write_event(hepmc_event)
+    hepmc_event = HepMC3.GenEvent()
+    hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
+    hepmc_writer.write_event(hepmc_event)
 
     if not stopGenerating: 
         # check if both taun and taup were found (LastCopy), if not print a warning and don't fill the tree

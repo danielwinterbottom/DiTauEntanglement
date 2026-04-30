@@ -191,3 +191,11 @@ ee->Z->tautau LEP events, where taus are forced to decay into either DM=0 or DM=
 
 ee->Z->tautau LEP events with no entanglement, where taus are forced to decay into either DM=0 or DM=1: 
 	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root
+
+### Running Delphes
+
+Install with condor:
+	conda install --channel conda-forge delphes
+
+Run delphes starting from a .hepmc file:
+	DelphesHepMC3 $CONDA_PREFIX/cards/delphes_card_CMS.tcl delphes_output_pp.root pythia_events_test.hepmc
