@@ -7,7 +7,7 @@ from pyHepMC3 import HepMC3
 from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
-from ReconstructTaus import FindDMin_Point, FindDMin
+from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindDMin
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', '-i', help= 'LHE file to be converted')
@@ -16,7 +16,7 @@ parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--n_events', '-n', help= 'Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, type=int)
 parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
-parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
+parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
 parser.add_argument('--extra_vars', action='store_true', help= 'If set, will also store additional variables in the output root file including the analytically predicted tau and spin sensitive quantities used to measure the rho matrix')
 parser.add_argument('--pythia_process', help= 'If set, will use the specified pythia process when generating the full events in pythia (rather than starting from LHE files). Supported options are eeToZtoTauTau, ppToHToTauTau, eeToHtoTauTau, and eeToZHtoTauTau', default=None)
 
