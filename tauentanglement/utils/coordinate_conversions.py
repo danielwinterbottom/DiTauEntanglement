@@ -165,6 +165,16 @@ def ConvertFromOrthonormalNRK(
 
     return df
 
+
+def convert_coordinates_pred(arr, coordinates, output_features, taup_pi, taup_pizero, taun_pi, taun_pizero):
+    if coordinates == 'polar':
+        return ConvertPredictionsToCartesian(arr, output_features)
+    elif coordinates == 'onorm':
+        return ConvertFromOrthonormalNRK_Predictions(arr, taup_pi=taup_pi, taup_pi0=taup_pizero,
+                                                     taun_pi=taun_pi, taun_pi0=taun_pizero)
+    return arr
+
+
 def ConvertFromOrthonormalNRK_Predictions(
     predictions,
     taup_pi,
