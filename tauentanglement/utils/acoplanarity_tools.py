@@ -3,15 +3,18 @@ import vector
 import numpy as np
 vector.register_awkward()
 
-def spatial(v):
+def spatial(v, return_E=False):
     p3 = ak.zip({"x": v.px, "y": v.py, "z": v.pz}, with_name="Vector3D")
-    return p3, v.E
+    if return_E:
+        return p3, v.E
+    else:
+        return p3
 
 def boost_vec(v):
     return ak.zip({"x": v.px / v.E, "y": v.py / v.E, "z": v.pz / v.E}, with_name="Vector3D")
 
 def polarimetric_vec_dm0(H_pi, boost_vec_tau):
-    return spatial(H_pi.boost(-boost_vec_tau))[0].unit()
+    return spatial(H_pi.boost(-boost_vec_tau)).unit()
 
 def polarimetric_vec_dm1(H_pi, H_pizero, H_tau, boost_vec_tau):
     """Compute the DM1 (rho) polarimetric vector in the tau rest frame."""
@@ -25,7 +28,7 @@ def polarimetric_vec_dm1(H_pi, H_pizero, H_tau, boost_vec_tau):
     massP = np.sqrt(np.maximum(P.dot(P), 0.0))
     coeff = massP / (2 * qN * qP - q2 * NP)
     pv = coeff * (2 * qN * q - q2 * N)
-    return spatial(pv.boost(-boost_vec_tau))[0].unit()
+    return spatial(pv.boost(-boost_vec_tau)).unit()
 
 def get_R_P_vectors_all(df, tau_prefix='tau'):
     """Compute R and P vectors for all events, selecting IP (DM0) or pizero (DM1) for R."""
@@ -66,10 +69,10 @@ def compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp):
     # Boost to visible charged decay product frame
     bv = boost_vec(P1 + P2)
 
-    R1_p3, R1_E = spatial(R1.boost(-bv))
-    R2_p3, R2_E = spatial(R2.boost(-bv))
-    P1_p3, P1_E = spatial(P1.boost(-bv))
-    P2_p3, P2_E = spatial(P2.boost(-bv))
+    R1_p3, R1_E = spatial(R1.boost(-bv), return_E=True)
+    R2_p3, R2_E = spatial(R2.boost(-bv), return_E=True)
+    P1_p3, P1_E = spatial(P1.boost(-bv), return_E=True)
+    P2_p3, P2_E = spatial(P2.boost(-bv), return_E=True)
 
     # Get perpendicular components
     R1perp = R1_p3 - ((R1_p3.dot(P1_p3)) / (P1_p3.dot(P1_p3))) * P1_p3
@@ -129,7 +132,7 @@ def get_ditau_polarimetric_gen(df):
         polarimetric_vec_dm0(H_pi_n, bv_taun),
     )
 
-    return taup_s, spatial(H_tau_p)[0].unit(), taun_s, spatial(H_tau_n)[0].unit()
+    return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
 
 
 def get_ditau_polarimetric_reco(df):
@@ -169,4 +172,4 @@ def get_ditau_polarimetric_reco(df):
         polarimetric_vec_dm0(H_pi_n, bv_taun),
     )
 
-    return taup_s, spatial(H_tau_p)[0].unit(), taun_s, spatial(H_tau_n)[0].unit()
+    return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
