@@ -46,9 +46,8 @@ else:
     nperjob = 1000 #10000 #TODO change back to 10000 after testing
     out_string += f'mkdir -p {args.job_name}/job_output_$2/\n\
 python tauentanglement/generation/shower_events.py -c {args.cmnd_file} -n {nperjob} -o {args.job_name}/job_output_$2/pythia_events_$2.hepmc --seed $2 {args.extra}\n\
-' % vars()
-
-out_string += 'DelphesHepMC3 $CONDA_PREFIX/cards/delphes_card_CMS_mod.tcl {args.job_name}/job_output_$2/delphes_output_$2.root {args.job_name}/job_output_$2/pythia_events_$2.hepmc\n'
+DelphesHepMC3 tauentanglement/generation/configs/delphes_card_CMS.tcl {args.job_name}/job_output_$2/delphes_output_$2.root {args.job_name}/job_output_$2/pythia_events_$2.hepmc\n\
+python tauentanglement/generation/run_delphes.py -i {args.job_name}/job_output_$2/delphes_output_$2.root -o {args.job_name}/job_output_$2/reco_events_$2.root'
 
 os.system('mkdir -p jobs')
 
@@ -60,4 +59,4 @@ with open("jobs/parajob_%(name)s.sh" % vars(), "w") as output_file:
 os.system('chmod +x jobs/parajob_%(name)s.sh' % vars())
 
 print('Submitting jobs')
-#Submit('jobs/parajob_%(name)s.sh' % vars(), name, args.N_jobs)
+Submit('jobs/parajob_%(name)s.sh' % vars(), name, args.N_jobs)

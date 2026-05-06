@@ -359,28 +359,6 @@ for iev in range(reader.GetEntries()):
     taup_vis = taup.P4() - taup_neutrinos_sum
     taun_vis = taun.P4() - taun_neutrinos_sum
 
-#branches = [
-#  'taup_npi', 'taup_npizero',
-#  'taun_npi', 'taun_npizero',
-#  'met_px', 'met_py',
-#  'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
-#  'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
-#  'taup_pi2_px', 'taup_pi2_py', 'taup_pi2_pz', 'taup_pi2_e',
-#  'taup_pi3_px', 'taup_pi3_py', 'taup_pi3_pz', 'taup_pi3_e',
-#  'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
-#  'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
-#  'taun_pi2_px', 'taun_pi2_py', 'taun_pi2_pz', 'taun_pi2_e',
-#  'taun_pi3_px', 'taun_pi3_py', 'taun_pi3_pz', 'taun_pi3_e',
-#  'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
-#  'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
-#  'taup_lep_px', 'taup_lep_py', 'taup_lep_pz', 'taup_lep_e',
-#  'taun_lep_px', 'taun_lep_py', 'taun_lep_pz', 'taun_lep_e',
-#  'taup_sv_x', 'taup_sv_y', 'taup_sv_z',
-#  'taun_sv_x', 'taun_sv_y', 'taun_sv_z',
-#  'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-#  'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
-#]
-
     branch_vals['taup_npi'][0] = len(taup_pis)
     branch_vals['taup_npizero'][0] = len(taup_gammas)//2 # 2 gammas per pi0 - round down if odd number of gammas
     branch_vals['taun_npi'][0] = len(taun_pis)
@@ -463,27 +441,6 @@ for iev in range(reader.GetEntries()):
     # sort by pT of the strip
     taun_strips.sort(key=lambda x: x[0].Pt(), reverse=True)
 
-
-
-    # print these out
-    print(f"\n\nEvent {iev}:")
-    print(f"  Gen taup: pT={taup.PT:.2f}, eta={taup.Eta:.2f}, phi={taup.Phi:.2f}, status={taup.Status}, charge={taup.Charge}, X={taup.X:.2f}, Y={taup.Y:.2f}, Z={taup.Z:.2f}")
-    print(f"  Gen vis taup: pT={taup_vis.Pt():.5f}, eta={taup_vis.Eta():.5f}, phi={taup_vis.Phi():.5f}, NPiZero={len(taup_gammas)/2:.0f}")
-    #print gen pis and photons
-    for i, pi in enumerate(taup_pis):
-        print(f"    Gen taup pi {i}: pT={pi.PT:.5f}, eta={pi.Eta:.5f}, phi={pi.Phi:.5f}, ip_x = {taup_ip[0].X()}, ip_y = {taup_ip[0].Y()}, ip_z = {taup_ip[0].Z()}")
-    for i, g in enumerate(taup_gammas):
-        print(f"    Gen taup gamma {i}: pT={g.PT:.5f}, eta={g.Eta:.5f}, phi={g.Phi:.5f}")
-    for i, reco in enumerate(taup_reco_track_matches):
-        print(f"  Reco track match {i}: pT={reco.PT:.5f}, eta={reco.Eta:.5f}, phi={reco.Phi:.5f}, charge={reco.Charge}, Xd={reco.Xd}, Yd={reco.Yd}, Zd={reco.Zd}, D0={reco.D0}, DZ={reco.DZ}, PID={reco.PID}, dR={taup_vis.DeltaR(reco.P4()):.5f}")
-    for i, reco in enumerate(taup_reco_photon_matches):
-        print(f"  Reco photon match {i}: pT={reco.ET:.5f}, eta={reco.Eta:.5f}, phi={reco.Phi:.5f}, dR={taup_vis.DeltaR(reco.P4()):.5f}")
-    print("N strips: ", len(taup_strips))
-    if len(taup_strips) > 0:
-        print(f"  Reco strips:")
-        for i, strip in enumerate(taup_strips):
-            print(f"    Strip {i}: pT={strip[0].Pt():.5f}, eta={strip[0].Eta():.5f}, phi={strip[0].Phi():.5f}, dR={taup_vis.DeltaR(strip[0]):.5f}, nGammas={len(strip[1])}")
-
     taup_cands = GetTauCands(taup_reco_track_matches, taup_strips, incDM2=False) # Note: not allowing DM2 taus for now to match CMS reco where DM2 is very rare 
     reco_taup_vis = taup_cands[0][0] if len(taup_cands) > 0 else ROOT.TLorentzVector()
     taun_cands = GetTauCands(taun_reco_track_matches, taun_strips, incDM2=False)
@@ -496,19 +453,42 @@ for iev in range(reader.GetEntries()):
 
     # TODO: implement 3-prongs at some point - the below assumes only dm=0 and dm=1 are present
     if len(taup_cands) > 0:
-        branch_vals['reco_taup_npi'][0] = 1
-        branch_vals['reco_taup_npizero'][0] = len(taup_cands[0][1]) - 1 # number of strips is number of candidates - 1 (since one candidate is the track
+        branch_vals['reco_taup_npi'][0] = len(taup_cands[0][1])
+        branch_vals['reco_taup_npizero'][0] = len(taup_cands[0][2])
         branch_vals['reco_taup_pi1_px'][0] = taup_cands[0][1][0].P4().Px()
         branch_vals['reco_taup_pi1_py'][0] = taup_cands[0][1][0].P4().Py()
         branch_vals['reco_taup_pi1_pz'][0] = taup_cands[0][1][0].P4().Pz()
         branch_vals['reco_taup_pi1_e'][0] = taup_cands[0][1][0].P4().E()
-    
 
-    #print out the tau candidates
-    print(f"  Tau candidates:")
-    for i, cand in enumerate(taup_cands):
-        print(f"    Candidate {i}: pT={cand[0].Pt():.5f}, eta={cand[0].Eta():.5f}, phi={cand[0].Phi():.5f}, nStrips={len([c for c in cand[2] if isinstance(c, ROOT.TLorentzVector)])}, dR={taup_vis.DeltaR(cand[0]):.5f}")
+        branch_vals['reco_taup_pi1_ipx'][0] = taup_cands[0][1][0].Xd
+        branch_vals['reco_taup_pi1_ipy'][0] = taup_cands[0][1][0].Yd
+        branch_vals['reco_taup_pi1_ipz'][0] = taup_cands[0][1][0].Zd
 
+        if len(taup_cands[0][2]) > 0:
+            branch_vals['reco_taup_pizero1_px'][0] = taup_cands[0][2][0].Px()
+            branch_vals['reco_taup_pizero1_py'][0] = taup_cands[0][2][0].Py()
+            branch_vals['reco_taup_pizero1_pz'][0] = taup_cands[0][2][0].Pz()
+            branch_vals['reco_taup_pizero1_e'][0] = taup_cands[0][2][0].E()
+
+    if len(taun_cands) > 0:
+        branch_vals['reco_taun_npi'][0] = len(taun_cands[0][1])
+        branch_vals['reco_taun_npizero'][0] = len(taun_cands[0][2])
+        branch_vals['reco_taun_pi1_px'][0] = taun_cands[0][1][0].P4().Px()
+        branch_vals['reco_taun_pi1_py'][0] = taun_cands[0][1][0].P4().Py()
+        branch_vals['reco_taun_pi1_pz'][0] = taun_cands[0][1][0].P4().Pz()
+        branch_vals['reco_taun_pi1_e'][0] = taun_cands[0][1][0].P4().E()
+
+        branch_vals['reco_taun_pi1_ipx'][0] = taun_cands[0][1][0].Xd
+        branch_vals['reco_taun_pi1_ipy'][0] = taun_cands[0][1][0].Yd
+        branch_vals['reco_taun_pi1_ipz'][0] = taun_cands[0][1][0].Zd
+
+        if len(taun_cands[0][2]) > 0:
+            branch_vals['reco_taun_pizero1_px'][0] = taun_cands[0][2][0].Px()
+            branch_vals['reco_taun_pizero1_py'][0] = taun_cands[0][2][0].Py()
+            branch_vals['reco_taun_pizero1_pz'][0] = taun_cands[0][2][0].Pz()
+            branch_vals['reco_taun_pizero1_e'][0] = taun_cands[0][2][0].E()
+
+    #TODO: add SVs for other pions for 3-prongs, and leptons for leptonic modes 
 
     #store reco MET
     branch_vals['reco_met_px'][0] = MET.At(0).MET * math.cos(MET.At(0).Phi)
