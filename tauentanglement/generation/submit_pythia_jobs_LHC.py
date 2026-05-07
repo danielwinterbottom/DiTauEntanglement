@@ -43,7 +43,7 @@ if not args.no_lhe:
 python tauentanglement/generation/shower_events.py -c {args.cmnd_file}  -i {args.input}/job_output_$2/events_$2.lhe -o {args.input}/job_output_$2/pythia_events_$2.hepmc --seed $2 -n -1 {args.extra}\n\
 ' % vars()
 else:
-    nperjob = 1000 #10000 #TODO change back to 10000 after testing
+    nperjob = 10000
     out_string += f'mkdir -p {args.job_name}/job_output_$2/\n\
 python tauentanglement/generation/shower_events.py -c {args.cmnd_file} -n {nperjob} -o {args.job_name}/job_output_$2/pythia_events_$2.hepmc --seed $2 {args.extra}\n\
 DelphesHepMC3 tauentanglement/generation/configs/delphes_card_CMS.tcl {args.job_name}/job_output_$2/delphes_output_$2.root {args.job_name}/job_output_$2/pythia_events_$2.hepmc\n\

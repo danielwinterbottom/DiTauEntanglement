@@ -6,6 +6,7 @@ import ROOT
 import math
 import argparse
 from array import array
+import numpy as np
 from tauentanglement.utils.ReconstructTaus import FindDMin_Point
 
 def TraceTauMother(part, particles, verbose=False):
@@ -60,25 +61,28 @@ def GetStableDaughters(part, particles):
                 stable_daughters.extend(GetStableDaughters(p, particles))
     return stable_daughters
 
-def get_impact_parameter(p):
+def get_impact_parameter(p, pv_3vec=ROOT.TVector3(0, 0, 0), reco_track=False):
 
-    #FindDMin_Point(taup_vtx_vec3, taup_pi1_dir_vec3, pv_vec3)
-    p_vtx_vec3 = ROOT.TVector3(p.X, p.Y, p.Z)
+    if reco_track:
+        p_vtx_vec3 = ROOT.TVector3(p.Xd, p.Yd, p.Zd) # note this isn't the vertex but another point on the track but it should work the same
+    else: 
+        p_vtx_vec3 = ROOT.TVector3(p.X, p.Y, p.Z)
     # set up direction using PT, Eta, Phi
     px = p.PT * math.cos(p.Phi)
     py = p.PT * math.sin(p.Phi)
     pz = p.PT * math.sinh(p.Eta)
     p_dir_vec3 = ROOT.TVector3(px, py, pz).Unit()
 
-    pv_vec3 = ROOT.TVector3(0, 0, 0)
-    impact_point_vec3 = FindDMin_Point(p_vtx_vec3, p_dir_vec3, pv_vec3)
+    impact_point_vec3 = FindDMin_Point(p_vtx_vec3, p_dir_vec3, pv_3vec)
 
-    # also compute d0 and dz
+    return impact_point_vec3
 
-    d0 = (impact_point_vec3 - pv_vec3).Perp()
-    dz = impact_point_vec3.Z()
-    return impact_point_vec3, d0, dz
+def get_3d_point_from_phi_d0_dz(phi, d0, dz):
+    #d0 = x0*sinphi -y0*cosphi
+    dx = d0 * math.sin(phi)
+    dy = -d0 * math.cos(phi)
 
+    return ROOT.TVector3(dx, dy, dz)
 
 def GetMatchingRecoParticle(gen_vis, reco_particles, threshold=0.4):
     matched_particles = []
@@ -165,7 +169,7 @@ def CheckWithinSigCone(tau_cand):
             return False
     return True
 
-def GetTauCands(tracks, strips, incDM2=True):
+def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
     #apply pT and eta cuts to tracks
     tracks_ = [t for t in tracks if t.PT > 0.5 and abs(t.Eta) < 2.5]
 
@@ -197,13 +201,174 @@ def GetTauCands(tracks, strips, incDM2=True):
     # filter any tau_cands not passing signal cone requirement
     tau_cands = [c for c in tau_cands if CheckWithinSigCone(c)]
 
+    #if match_charge is specified, filter tau_cands to only those where the track has the specified charge
+    if match_charge is not None:
+        tau_cands = [c for c in tau_cands if c[1][0].Charge == match_charge]
+
     #sort tau_cands by pT
     tau_cands.sort(key=lambda x: x[0].Pt(), reverse=True)
 
     return tau_cands
 
+class ResolutionGraph:
+    def __init__(self, path, unit_conversion=1.0):
+        pts = []
+        ress = []
 
-    
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                # skip if line contains any text
+                if any(c.isalpha() for c in line):
+                    continue
+
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+
+                try:
+                    pt = float(parts[0])
+                    res = float(parts[1])
+                except ValueError:
+                    continue
+
+                pts.append(pt)
+                ress.append(res * unit_conversion)
+
+        self.log_pt = np.log(np.asarray(pts))
+        self.res = np.asarray(ress)
+
+    def eval(self, pt):
+        log_pt = np.log(pt)
+
+        # clamp to avoid extrapolation
+        log_pt = np.clip(log_pt, self.log_pt[0], self.log_pt[-1])
+
+        return np.interp(log_pt, self.log_pt, self.res)
+
+class TrackAngularSmearer:
+    def __init__(
+        self,
+        base="tauentanglement/generation/configs/track_resolutions/",
+        seed=None,
+    ):
+        self.rng = np.random.default_rng(seed)
+
+        self.phi_res = {
+            1: ResolutionGraph(base + "phi_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3), # convert from mrad to rad
+            2: ResolutionGraph(base + "phi_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "phi_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        }
+
+        self.costheta_res = {
+            1: ResolutionGraph(base + "costheta_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
+            2: ResolutionGraph(base + "costheta_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "costheta_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        }
+
+        self.d0_res = {
+            1: ResolutionGraph(base + "d0_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3), # convert from microns to mm
+            2: ResolutionGraph(base + "d0_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "d0_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        }
+
+        self.dz_res = {
+            1: ResolutionGraph(base + "z0_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
+            2: ResolutionGraph(base + "z0_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "z0_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        }
+
+    def get_eta_bin(self, eta):
+        abs_eta = abs(eta)
+
+        if abs_eta < 0.9:
+            return 1
+        elif abs_eta < 1.4:
+            return 2
+        else:
+            return 3
+
+    def wrap_phi(self, phi):
+        return np.arctan2(np.sin(phi), np.cos(phi))
+
+    def get_phi_resolution(self, eta, pt):
+        eta_bin = self.get_eta_bin(eta)
+        return self.phi_res[eta_bin].eval(pt)
+
+    def get_costheta_resolution(self, eta, pt):
+        eta_bin = self.get_eta_bin(eta)
+        return self.costheta_res[eta_bin].eval(pt)
+
+    def get_d0_resolution(self, eta, pt):
+        eta_bin = self.get_eta_bin(eta)
+        return self.d0_res[eta_bin].eval(pt)
+
+    def get_dz_resolution(self, eta, pt):
+        eta_bin = self.get_eta_bin(eta)
+        return self.dz_res[eta_bin].eval(pt)
+
+    def smear_eta_phi(self, eta, phi, pt):
+        sigma_phi = self.get_phi_resolution(eta, pt)
+        sigma_costheta = self.get_costheta_resolution(eta, pt)
+
+        phi_smeared = phi + self.rng.normal(0.0, sigma_phi)
+        phi_smeared = self.wrap_phi(phi_smeared)
+
+        costheta = np.tanh(eta)
+        costheta_smeared = costheta + self.rng.normal(0.0, sigma_costheta)
+
+        eps = 1e-9
+        costheta_smeared = np.clip(costheta_smeared, -1.0 + eps, 1.0 - eps)
+
+        eta_smeared = np.arctanh(costheta_smeared)
+
+        return eta_smeared, phi_smeared
+
+    def smear_tlorentzvector_angles(self, vec):
+        pt = vec.Pt()
+        eta = vec.Eta()
+        phi = vec.Phi()
+
+        p = vec.P()
+        energy = vec.E()
+
+        eta_smeared, phi_smeared = self.smear_eta_phi(eta, phi, pt)
+
+        pt_smeared = p / np.cosh(eta_smeared)
+
+        px = pt_smeared * np.cos(phi_smeared)
+        py = pt_smeared * np.sin(phi_smeared)
+        pz = p * np.tanh(eta_smeared)
+
+        vec_smeared = ROOT.TLorentzVector()
+        vec_smeared.SetPxPyPzE(px, py, pz, energy)
+
+        return vec_smeared
+
+    def smear_d0_dz(self, d0, dz, eta, pt):
+        sigma_d0 = self.get_d0_resolution(eta, pt)
+        sigma_dz = self.get_dz_resolution(eta, pt)
+
+        d0_smeared = d0 + self.rng.normal(0.0, sigma_d0)
+        dz_smeared = dz + self.rng.normal(0.0, sigma_dz)
+
+        return d0_smeared, dz_smeared
+
+def smear_PV(pv_3vec):
+    # CMS PV resolutions from here: https://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-20-006/CMS-HIG-20-006_Figure-aux_026.png
+    sigma_x = 0.005
+    sigma_y = 0.005
+    sigma_z = 0.029
+
+    smeared_pv_3vec = ROOT.TVector3(
+        pv_3vec.X() + np.random.normal(0.0, sigma_x),
+        pv_3vec.Y() + np.random.normal(0.0, sigma_y),
+        pv_3vec.Z() + np.random.normal(0.0, sigma_z)
+    )
+
+    return smeared_pv_3vec
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output" ,'-o', help="Name of output file")
@@ -224,6 +389,9 @@ genMET = reader.UseBranch("GenMissingET")
 photons = reader.UseBranch("EFlowPhoton")
 eflowtracks = reader.UseBranch("EFlowTrack")
 tracks = reader.UseBranch("Track")
+
+# for track angular smearing:
+smearer = TrackAngularSmearer(seed=12345)
 
 #setup output tree
 
@@ -267,7 +435,7 @@ for b in branches:
 for iev in range(reader.GetEntries()):
 
     # initialize the branch values to zero
-    for b in branches:
+    for b in branch_vals:
         branch_vals[b][0] = 0
 
     reader.ReadEntry(iev)
@@ -406,14 +574,14 @@ for iev in range(reader.GetEntries()):
     branch_vals['taun_pi1_e'][0] = taun_pis[0].P4().E() if len(taun_pis) > 0 else 0
 
     taup_ip = get_impact_parameter(taup_pis[0]) if len(taup_pis) > 0 else (ROOT.TVector3(0,0,0), 0, 0)
-    branch_vals['taup_pi1_ipx'][0] = taup_ip[0].X()
-    branch_vals['taup_pi1_ipy'][0] = taup_ip[0].Y()
-    branch_vals['taup_pi1_ipz'][0] = taup_ip[0].Z()
+    branch_vals['taup_pi1_ipx'][0] = taup_ip.X()
+    branch_vals['taup_pi1_ipy'][0] = taup_ip.Y()
+    branch_vals['taup_pi1_ipz'][0] = taup_ip.Z()
 
     taun_ip = get_impact_parameter(taun_pis[0]) if len(taun_pis) > 0 else (ROOT.TVector3(0,0,0), 0, 0)
-    branch_vals['taun_pi1_ipx'][0] = taun_ip[0].X()
-    branch_vals['taun_pi1_ipy'][0] = taun_ip[0].Y()
-    branch_vals['taun_pi1_ipz'][0] = taun_ip[0].Z()
+    branch_vals['taun_pi1_ipx'][0] = taun_ip.X()
+    branch_vals['taun_pi1_ipy'][0] = taun_ip.Y()
+    branch_vals['taun_pi1_ipz'][0] = taun_ip.Z()
 
     # get SVs but only if 3-prongs 
     taup_sv = ROOT.TVector3(taup.X, taup.Y, taup.Z) if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
@@ -433,6 +601,27 @@ for iev in range(reader.GetEntries()):
     taun_reco_track_matches = GetMatchingRecoParticle(taun_vis, eflowtracks, threshold=0.5) # add in the track matches as well (these will have some smearing but also have charge and impact parameter info which is useful for the study)
     taun_reco_photon_matches = GetMatchingRecoParticle(taun_vis, photons, threshold=0.5)
 
+    do_track_angular_smearing = True
+
+    if do_track_angular_smearing:
+        # apply eta-phi and ip smearing for tracks, since this is not done by delphes
+        for t in taup_reco_track_matches:
+            new_p4 = smearer.smear_tlorentzvector_angles(t.P4())
+            new_d0, new_dz = smearer.smear_d0_dz(t.D0, t.DZ, t.Eta, t.PT)
+            t.PT = new_p4.Pt()
+            t.Eta = new_p4.Eta()
+            t.Phi = new_p4.Phi()
+            t.D0 = new_d0
+            t.DZ = new_dz
+        for t in taun_reco_track_matches:
+            new_p4 = smearer.smear_tlorentzvector_angles(t.P4())
+            new_d0, new_dz = smearer.smear_d0_dz(t.D0, t.DZ, t.Eta, t.PT)
+            t.PT = new_p4.Pt()
+            t.Eta = new_p4.Eta()
+            t.Phi = new_p4.Phi()
+            t.D0 = new_d0
+            t.DZ = new_dz
+
     taup_strips = RecoStrips(taup_reco_photon_matches)
     # sort by pT of the strip
     taup_strips.sort(key=lambda x: x[0].Pt(), reverse=True)
@@ -441,15 +630,35 @@ for iev in range(reader.GetEntries()):
     # sort by pT of the strip
     taun_strips.sort(key=lambda x: x[0].Pt(), reverse=True)
 
-    taup_cands = GetTauCands(taup_reco_track_matches, taup_strips, incDM2=False) # Note: not allowing DM2 taus for now to match CMS reco where DM2 is very rare 
+    # get tau candidates, we also match the charges to the tau+ and tau- to avoid using the same track twice
+
+    taup_cands = GetTauCands(taup_reco_track_matches, taup_strips, incDM2=False, match_charge=1) # Note: not allowing DM2 taus for now to match CMS reco where DM2 is very rare 
+    taun_cands = GetTauCands(taun_reco_track_matches, taun_strips, incDM2=False, match_charge=-1)
+
     reco_taup_vis = taup_cands[0][0] if len(taup_cands) > 0 else ROOT.TLorentzVector()
-    taun_cands = GetTauCands(taun_reco_track_matches, taun_strips, incDM2=False)
     reco_taun_vis = taun_cands[0][0] if len(taun_cands) > 0 else ROOT.TLorentzVector()
+
+    # we apply a dR cut to make sure the taus are not overlapping mimicking what is done for a real analysis
+    dR_taus = reco_taup_vis.DeltaR(reco_taun_vis)
+    if dR_taus < 0.5:
+        continue
+
+    # as an extra check make sure the taus don't share any tracks or strips
+    shared_tracks = set(taup_cands[0][1]) & set(taun_cands[0][1]) if len(taup_cands) > 0 and len(taun_cands) > 0 else set()
+    shared_strips = set(taup_cands[0][2]) & set(taun_cands[0][2]) if len(taup_cands) > 0 and len(taun_cands) > 0 else set()
+    if len(shared_tracks) > 0 or len(shared_strips) > 0:
+        print('WARNING: Found overlapping tau candidates with shared tracks or strips, skipping event')
+        continue
 
     branch_vals['reco_taup_vis_pT'][0] = reco_taup_vis.Pt()
     branch_vals['reco_taup_vis_eta'][0] = reco_taup_vis.Eta()
     branch_vals['reco_taun_vis_pT'][0] = reco_taun_vis.Pt()
     branch_vals['reco_taun_vis_eta'][0] = reco_taun_vis.Eta()
+
+    reco_pv_3vec = ROOT.TVector3(0,0,0) # gen-level PV position is always 0,0,0
+    if do_track_angular_smearing:
+        reco_pv_3vec = smear_PV(ROOT.TVector3(0,0,0)) # smear the PV position (gen-level is always 0,0,0)
+
 
     # TODO: implement 3-prongs at some point - the below assumes only dm=0 and dm=1 are present
     if len(taup_cands) > 0:
@@ -460,9 +669,16 @@ for iev in range(reader.GetEntries()):
         branch_vals['reco_taup_pi1_pz'][0] = taup_cands[0][1][0].P4().Pz()
         branch_vals['reco_taup_pi1_e'][0] = taup_cands[0][1][0].P4().E()
 
-        branch_vals['reco_taup_pi1_ipx'][0] = taup_cands[0][1][0].Xd
-        branch_vals['reco_taup_pi1_ipy'][0] = taup_cands[0][1][0].Yd
-        branch_vals['reco_taup_pi1_ipz'][0] = taup_cands[0][1][0].Zd
+        reco_taup_point = get_3d_point_from_phi_d0_dz(taup_cands[0][1][0].Phi, taup_cands[0][1][0].D0, taup_cands[0][1][0].DZ)
+        # overwrite Xd, Yd, Zd with the new 3D point
+        taup_cands[0][1][0].Xd = reco_taup_point.X()
+        taup_cands[0][1][0].Yd = reco_taup_point.Y()
+        taup_cands[0][1][0].Zd = reco_taup_point.Z()
+        reco_taup_ip = get_impact_parameter(taup_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
+
+        branch_vals['reco_taup_pi1_ipx'][0] = reco_taup_ip.X()
+        branch_vals['reco_taup_pi1_ipy'][0] = reco_taup_ip.Y()
+        branch_vals['reco_taup_pi1_ipz'][0] = reco_taup_ip.Z()
 
         if len(taup_cands[0][2]) > 0:
             branch_vals['reco_taup_pizero1_px'][0] = taup_cands[0][2][0].Px()
@@ -478,9 +694,16 @@ for iev in range(reader.GetEntries()):
         branch_vals['reco_taun_pi1_pz'][0] = taun_cands[0][1][0].P4().Pz()
         branch_vals['reco_taun_pi1_e'][0] = taun_cands[0][1][0].P4().E()
 
-        branch_vals['reco_taun_pi1_ipx'][0] = taun_cands[0][1][0].Xd
-        branch_vals['reco_taun_pi1_ipy'][0] = taun_cands[0][1][0].Yd
-        branch_vals['reco_taun_pi1_ipz'][0] = taun_cands[0][1][0].Zd
+        reco_taun_point = get_3d_point_from_phi_d0_dz(taun_cands[0][1][0].Phi, taun_cands[0][1][0].D0, taun_cands[0][1][0].DZ)
+        # overwrite Xd, Yd, Zd with the new 3D point
+        taun_cands[0][1][0].Xd = reco_taun_point.X()
+        taun_cands[0][1][0].Yd = reco_taun_point.Y()
+        taun_cands[0][1][0].Zd = reco_taun_point.Z()
+
+        reco_taun_ip = get_impact_parameter(taun_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
+        branch_vals['reco_taun_pi1_ipx'][0] = reco_taun_ip.X()
+        branch_vals['reco_taun_pi1_ipy'][0] = reco_taun_ip.Y()
+        branch_vals['reco_taun_pi1_ipz'][0] = reco_taun_ip.Z()
 
         if len(taun_cands[0][2]) > 0:
             branch_vals['reco_taun_pizero1_px'][0] = taun_cands[0][2][0].Px()
@@ -495,7 +718,7 @@ for iev in range(reader.GetEntries()):
     branch_vals['reco_met_py'][0] = MET.At(0).MET * math.sin(MET.At(0).Phi)
 
     tree.Fill()
-
+  
 fout.Write()
 fout.Close()
     
