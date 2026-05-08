@@ -20,10 +20,10 @@ pip install -e .
 
 This example uses the reduced datasets for that it can be run reasonably quickly.
 
-Prepare datadrames:
+Prepare dataframes:
 
 ```
-python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LHC.yaml
 ```
 
 
@@ -31,26 +31,26 @@ Run Nflows training:
 
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml
 ```
 
 
 Train a "normal" neural network with MSE loss to compare to:
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml --useMLP
+python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml --useMLP
 ```
 
 
 Test Nflows model:
 
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml
 ```
 
 Test MLP model (haven't tested this explicitly yet)
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml --useMLP
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml --useMLP
 ```
 
 ## Instructions for pp->H training
@@ -199,3 +199,14 @@ Install with condor:
 
 Run delphes starting from a .hepmc file:
 	DelphesHepMC3 $CONDA_PREFIX/cards/delphes_card_CMS.tcl delphes_output_pp.root pythia_events_test.hepmc
+
+### generating LHC events
+
+This is run in 3 stages. First pythia is run to produce .hepmc files, then delphes is run to do the detector smearing, and then the outputs of delphes are processed to reconstruct the taus and their decay products using HPS-like algorithms
+
+
+To run all 3 stages together as batch jobs use:
+
+	python tauentanglement/generation/submit_pythia_jobs_LHC.py -c tauentanglement/generation/configs/pythia_cmnd_dm0and1 -j ppToHToTauTau_DM0and1_CPOdd_May07 --extra="--phi=0" -n 3000
+
+This runs 10000 events per job. The phi angle changes the CP nature of the higgs. phi=0 = CP-odd, 1.5708 = CP-even, +/-0.7854 = max-mix (+/- determines sign of inteference term)

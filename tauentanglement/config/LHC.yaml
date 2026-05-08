@@ -1,10 +1,10 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: test_model_onorm_v3 #model_NFlows_LHC_onrom_April29
+  model_name: model_NFlows_LHC_onnorm_reco_May08
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 2
+  n_epochs: 3
   hyperparams:  { # for NuFlow
               'batch_size': 8192,
               'num_layers': 6,
@@ -26,14 +26,16 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_DM0and1_CPEven']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_DM0and1_CPEven_May07']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
-  test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven/test_dataframe.parquet'
+  use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
+  #test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd/test_dataframe.parquet'
+  test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven_May07/test_dataframe.parquet'
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
   coordinates: onorm  # options: standard, polar, onorm
-  train_fraction: 0.9  # fraction of the dataset to use for training, rest will be used for validation
-  val_fraction: 0.09 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
+  train_fraction: 0.85  # fraction of the dataset to use for training, rest will be used for validation
+  val_fraction: 0.10 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
   full_dataframe_testing: False # if True will use full dataset for testing
   Features:
     dataframe_variables: [
@@ -46,24 +48,32 @@ Data:
                     'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
                     'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
                     'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+                    'reco_taup_npi', 'reco_taup_npizero',
+                    'reco_taun_npi', 'reco_taun_npizero',
+                    'taup_vis_pT', 'taun_vis_pT',
+                    'reco_met_px', 'reco_met_py',
+                    'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                    'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                    'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                    'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                    'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                    'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                    'reco_taup_vis_pT', 'reco_taun_vis_pT',
                     'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
                     'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
                 ]
-    input_features: ['taup_haspizero', 'taun_haspizero',
-                    'met_px', 'met_py',
-                    'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
-                    'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
-                    'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
-                    'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
-                    'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
-                    'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
+    input_features: ['reco_taup_haspizero', 'reco_taun_haspizero',
+                    'reco_met_px', 'reco_met_py',
+                    'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                    'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                    'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                    'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                    'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                    'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
                   ]
     output_features: {'standard': ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz'],
                       'polar':['taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi','taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'],
                       'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
   available_files: { # TODO: fix naming of validation/evaluation
-                    'ppToHToTauTau_DM0and1_CPEven': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven/pythia_events_training.root',
-                    'ppToHToTauTau_DM0and1_CPOdd': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd/pythia_events_training.root',
-                    'ppToHToTauTau_DM0and1_CPMaxMix': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMix/pythia_events_training.root',
-                    'ppToHToTauTau_DM0and1_CPMaxMixneg': '/vols/cms/dw515/HH_reweighting/DiTauEntanglement/ppToHToTauTau_DM0and1_CPMaxMixneg/pythia_events_training.root',
+                    'ppToHToTauTau_DM0and1_CPEven_May07': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven_May07/reco_events.root',
                     }
