@@ -25,10 +25,6 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
     data_config = config['Data']
     nn_config = config['SetupNN']
-    use_reco = data_config['use_reco']
-
-    if use_reco: prefix = 'reco_'
-    else: prefix = ''
 
     # set gpu or cpu
     device = torch.device("cuda:0" if torch.cuda.is_available() and not args.useCPU else "cpu")
@@ -59,17 +55,23 @@ if __name__ == "__main__":
     model.eval()
 
     # get tau pi and pizero four vectors from test_df
-    true_taun_pi = test_df[['taun_pi1_e', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
-    true_taup_pi  = test_df[['taup_pi1_e', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
-    true_taun_pizero  = test_df[['taun_pizero1_e', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
-    true_taup_pizero = test_df[['taup_pizero1_e', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
+    if config['collider'] == 'LHC':
+        true_taun_pi = test_df[['taun_pi1_e', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
+        true_taup_pi  = test_df[['taup_pi1_e', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
+        true_taun_pizero  = test_df[['taun_pizero1_e', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
+        true_taup_pizero = test_df[['taup_pizero1_e', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
 
-    if use_reco:
-        reco_taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
-        reco_taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
-        reco_taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
-        reco_taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
-
+        taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
+        taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
+        taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
+        taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
+    elif config['collider'] == 'LEP':
+        taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
+        taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
+        taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
+        taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
+    else:
+        raise ValueError(f"Collider {config['collider']} not recognized. Should be 'LHC' or 'LEP'.")
 
     # move X_test and model to device
     X_test, _ = test_dataset[:]
@@ -98,12 +100,8 @@ if __name__ == "__main__":
         predictions = ConvertPredictionsToCartesian(predictions, output_features)
     elif data_config['coordinates'] == 'onorm':
         # convert predictions back from orthonormal basis
-        if use_reco:
-            predictions = ConvertFromOrthonormalNRK_Predictions(predictions, taup_pi=reco_taup_pi, taup_pi0=reco_taup_pizero,
-                                                                taun_pi=reco_taun_pi, taun_pi0=reco_taun_pizero)
-        else:
-            predictions = ConvertFromOrthonormalNRK_Predictions(predictions, taup_pi=true_taup_pi, taup_pi0=true_taup_pizero,
-                                                                taun_pi=true_taun_pi, taun_pi0=true_taun_pizero)
+        predictions = ConvertFromOrthonormalNRK_Predictions(predictions, taup_pi=taup_pi, taup_pi0=taup_pizero,
+                                                            taun_pi=taun_pi, taun_pi0=taun_pizero)
 
     if not args.useMLP:
         # define alternative prediction by taking most probable value from flow
@@ -114,19 +112,15 @@ if __name__ == "__main__":
             model,
             X_test,
             test_dataset=test_dataset,
-            num_draws=10,#100, # TODO: back to 100
+            num_draws=100, # TODO: back to 100
             chunk_size=1000 if device.type == 'cpu' else 10000,
         )
 
         if data_config['coordinates'] == 'polar':
             samples_alt = ConvertPredictionsToCartesian(samples_alt, output_features)
         elif data_config['coordinates'] == 'onorm':
-            if use_reco:
-                samples_alt = ConvertFromOrthonormalNRK_Predictions(samples_alt, taup_pi=reco_taup_pi, taup_pi0=reco_taup_pizero,
-                                                                taun_pi=reco_taun_pi, taun_pi0=reco_taun_pizero)
-            else:
-                samples_alt = ConvertFromOrthonormalNRK_Predictions(samples_alt, taup_pi=true_taup_pi, taup_pi0=true_taup_pizero,
-                                                                    taun_pi=true_taun_pi, taun_pi0=true_taun_pizero)
+            samples_alt = ConvertFromOrthonormalNRK_Predictions(samples_alt, taup_pi=taup_pi, taup_pi0=taup_pizero,
+                                                                taun_pi=taun_pi, taun_pi0=taun_pizero)
 
     if samples_alt is not None:
 
@@ -156,12 +150,12 @@ if __name__ == "__main__":
         true_values = ConvertPredictionsToCartesian(true_values, output_features)
     elif data_config['coordinates'] == 'onorm':
         # convert true values back from orthonormal basis
-        if use_reco:
-            true_values = ConvertFromOrthonormalNRK_Predictions(true_values, taup_pi=reco_taup_pi, taup_pi0=reco_taup_pizero,
-                                                                taun_pi=reco_taun_pi, taun_pi0=reco_taun_pizero)
-        else:
-            true_values = ConvertFromOrthonormalNRK_Predictions(true_values, taup_pi=taup_pi, taup_pi0=taup_pizero,
-                                                                taun_pi=taun_pi, taun_pi0=taun_pizero)
+        true_values = ConvertFromOrthonormalNRK_Predictions(true_values, taup_pi=taup_pi, taup_pi0=taup_pizero,
+                                                            taun_pi=taun_pi, taun_pi0=taun_pizero)
+
+    if config['collider'] == 'LEP':
+        ana_values = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz',
+            'reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
 
     # predictions dont include E so we need to compute them # TODO: make function
     # compute E for nu and nubar
@@ -198,40 +192,59 @@ if __name__ == "__main__":
     # final true taus (8 columns total)
     true_taus = np.concatenate([taup, taun], axis=1)
 
-    # now use predicted neutrino but add to true visible products to get predicted taus
-    taup_pred = predictions[:, 0:4] + true_taup_pi + true_taup_pizero
-    taun_pred = predictions[:, 4:8] + true_taun_pi + true_taun_pizero
+    # same for predictions, but not use reco-level visible tau products
+    taup_pred = predictions[:, 0:4] + taup_pi + taup_pizero
+    taun_pred = predictions[:, 4:8] + taun_pi + taun_pizero
 
     pred_taus = np.concatenate([taup_pred, taun_pred], axis=1)
 
-    if use_reco:
-        reco_taup_pred = predictions[:, 0:4] + reco_taup_pi + reco_taup_pizero
-        reco_taun_pred = predictions[:, 4:8] + reco_taun_pi + reco_taun_pizero
-
-        reco_pred_taus = np.concatenate([reco_taup_pred, reco_taun_pred], axis=1)
-
     # get alternative predictions
     if predictions_alt is not None:
-        alt_taup_pred = predictions_alt[:, 0:4] + true_taup_pi + true_taup_pizero
-        alt_taun_pred = predictions_alt[:, 4:8] + true_taun_pi + true_taun_pizero
+        alt_taup_pred = predictions_alt[:, 0:4] + taup_pi + taup_pizero
+        alt_taun_pred = predictions_alt[:, 4:8] + taun_pi + taun_pizero
         pred_taus_alt = np.concatenate([alt_taup_pred, alt_taun_pred], axis=1)
 
-        if use_reco:
-            alt_reco_taup_pred = predictions_alt[:, 0:4] + reco_taup_pi + reco_taup_pizero
-            alt_reco_taun_pred = predictions_alt[:, 4:8] + reco_taun_pi + reco_taun_pizero
-            alt_reco_pred_taus = np.concatenate([alt_reco_taup_pred, alt_reco_taun_pred], axis=1)
+    if config['collider'] == 'LEP':
+        # get analytical precitions using reco_taup_nu and reco_taun_nu
+        # first get the pis and pizeros again
+        reco_taup_nu = test_df[['reco_taup_nu_px', 'reco_taup_nu_py', 'reco_taup_nu_pz']].values
+        reco_taun_nu = test_df[['reco_taun_nu_px', 'reco_taun_nu_py', 'reco_taun_nu_pz']].values
+        # compute E for these nus
+        reco_taup_nu_E = np.sqrt(reco_taup_nu[:,0]**2 + reco_taup_nu[:,1]**2 + reco_taup_nu[:,2]**2)
+        reco_taun_nu_E = np.sqrt(reco_taun_nu[:,0]**2 + reco_taun_nu[:,1]**2 + reco_taun_nu[:,2]**2)
+        reco_taup_nu = np.column_stack((reco_taup_nu_E, reco_taup_nu))
+        reco_taun_nu = np.column_stack((reco_taun_nu_E, reco_taun_nu))
+
+        ana_pred_values = np.concatenate([reco_taup_nu, reco_taun_nu], axis=1)
+
+        # get the predicted taus as well
+        ana_pred_taup = reco_taup_nu + taup_pi + taup_pizero
+        ana_pred_taun = reco_taun_nu + taun_pi + taun_pizero
+        ana_pred_taus =  np.concatenate([ana_pred_taup, ana_pred_taun], axis=1)
+
+        # get the alt ones as well
+        reco_alt_taup_nu = test_df[['reco_alt_taup_nu_px', 'reco_alt_taup_nu_py', 'reco_alt_taup_nu_pz']].values
+        reco_alt_taun_nu = test_df[['reco_alt_taun_nu_px', 'reco_alt_taun_nu_py', 'reco_alt_taun_nu_pz']].values
+        # compute E for these nus
+        reco_alt_taup_nu_E = np.sqrt(reco_alt_taup_nu[:,0]**2 + reco_alt_taup_nu[:,1]**2 + reco_alt_taup_nu[:,2]**2)
+        reco_alt_taun_nu_E = np.sqrt(reco_alt_taun_nu[:,0]**2 + reco_alt_taun_nu[:,1]**2 + reco_alt_taun_nu[:,2]**2)
+        reco_alt_taup_nu = np.column_stack((reco_alt_taup_nu_E, reco_alt_taup_nu))
+        reco_alt_taun_nu = np.column_stack((reco_alt_taun_nu_E, reco_alt_taun_nu))
+
+        ana_alt_pred_values = np.concatenate([reco_alt_taup_nu, reco_alt_taun_nu], axis=1)
+
+        # get the predicted taus as well
+        ana_alt_pred_taup = reco_alt_taup_nu + taup_pi + taup_pizero
+        ana_alt_pred_taun = reco_alt_taun_nu + taun_pi + taun_pizero
+        ana_alt_pred_taus =  np.concatenate([ana_alt_pred_taun, ana_alt_pred_taup], axis=1)
 
     # collect true and predicted nus true and predicted taus AND pi's into pandas dataframe, label the collumns
 
-    true_taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
-    true_taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
+    taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
+    taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
-    if use_reco:
-        reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
-        reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
-
-    results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero,
-                              true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero], axis=1),
+    results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, taun_haspizero, taup_haspizero,
+                              taup_pi, taup_pizero, taun_pi, taun_pizero], axis=1),
                               columns=[
                                        'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                        'true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
@@ -241,27 +254,26 @@ if __name__ == "__main__":
                                        'true_tau_minus_E', 'true_tau_minus_px', 'true_tau_minus_py', 'true_tau_minus_pz',
                                        'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
                                        'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
-                                       'true_taun_haspizero', 'true_taup_haspizero',
-                                       'true_taup_pi1_E', 'true_taup_pi1_px', 'true_taup_pi1_py', 'true_taup_pi1_pz',
-                                       'true_taup_pizero1_E', 'true_taup_pizero1_px', 'true_taup_pizero1_py', 'true_taup_pizero1_pz',
-                                       'true_taun_pi1_E', 'true_taun_pi1_px', 'true_taun_pi1_py', 'true_taun_pi1_pz',
-                                       'true_taun_pizero1_E', 'true_taun_pizero1_px', 'true_taun_pizero1_py', 'true_taun_pizero1_pz',
+                                       'taun_haspizero', 'taup_haspizero',
+                                       'taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz',
+                                       'taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz',
+                                       'taun_pi1_E', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz',
+                                       'taun_pizero1_E', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz',
                                        ])
 
-    if use_reco:
-        results_df_extra = pd.DataFrame(data=np.concatenate([reco_pred_taus, reco_taup_haspizero, reco_taun_haspizero,
-                                                            reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero], axis=1),
-                              columns=[
-                                        'reco_pred_tau_plus_E',  'reco_pred_tau_plus_px',  'reco_pred_tau_plus_py',  'reco_pred_tau_plus_pz',
-                                        'reco_pred_tau_minus_E', 'reco_pred_tau_minus_px', 'reco_pred_tau_minus_py', 'reco_pred_tau_minus_pz',
-                                        'reco_taup_haspizero', 'reco_taun_haspizero',
-                                        'reco_taup_pi1_E', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz',
-                                        'reco_taup_pizero1_E', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz',
-                                        'reco_taun_pi1_E', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz',
-                                        'reco_taun_pizero1_E', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz',
-                                       ])
-        results_df = pd.concat([results_df, results_df_extra], axis=1)
-
+    if config['collider'] == 'LEP':
+        ana_results_df = pd.DataFrame(data=np.concatenate([ana_pred_values, ana_alt_pred_values, ana_pred_taus, ana_alt_pred_taus], axis=1),
+                                  columns=[
+                                           'ana_pred_nubar_E', 'ana_pred_nubar_px', 'ana_pred_nubar_py', 'ana_pred_nubar_pz',
+                                           'ana_pred_nu_E', 'ana_pred_nu_px', 'ana_pred_nu_py', 'ana_pred_nu_pz',
+                                           'ana_alt_pred_nubar_E', 'ana_alt_pred_nubar_px', 'ana_alt_pred_nubar_py', 'ana_alt_pred_nubar_pz',
+                                           'ana_alt_pred_nu_E', 'ana_alt_pred_nu_px', 'ana_alt_pred_nu_py', 'ana_alt_pred_nu_pz',
+                                           'ana_pred_tau_plus_E',  'ana_pred_tau_plus_px',  'ana_pred_tau_plus_py',  'ana_pred_tau_plus_pz',
+                                           'ana_pred_tau_minus_E', 'ana_pred_tau_minus_px', 'ana_pred_tau_minus_py', 'ana_pred_tau_minus_pz',
+                                           'ana_alt_pred_tau_plus_E',  'ana_alt_pred_tau_plus_px',  'ana_alt_pred_tau_plus_py',  'ana_alt_pred_tau_plus_pz',
+                                           'ana_alt_pred_tau_minus_E', 'ana_alt_pred_tau_minus_px', 'ana_alt_pred_tau_minus_py', 'ana_alt_pred_tau_minus_pz',
+                                           ])
+        results_df = pd.concat([results_df, ana_results_df], axis=1)
 
     if predictions_alt is not None:
         results_df_extra = pd.DataFrame(data=np.concatenate([predictions_alt, pred_taus_alt], axis=1),
@@ -274,65 +286,50 @@ if __name__ == "__main__":
                                        ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 
-        if use_reco:
-            results_df_extra = pd.DataFrame(data=np.concatenate([alt_reco_pred_taus], axis=1),
-                                columns=[
-                                        'alt_reco_pred_tau_plus_E',  'alt_reco_pred_tau_plus_px',  'alt_reco_pred_tau_plus_py',  'alt_reco_pred_tau_plus_pz',
-                                        'alt_reco_pred_tau_minus_E', 'alt_reco_pred_tau_minus_px', 'alt_reco_pred_tau_minus_py', 'alt_reco_pred_tau_minus_pz',
-                                       ])
-            results_df = pd.concat([results_df, results_df_extra], axis=1)
-
     # compute predicted mass of taus and Z boson and store on dataframe
     pred_tau_plus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
     pred_tau_minus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
-    pred_boson_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
+    pred_z_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
     results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
     results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
     results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
     results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
-    results_df['pred_boson_mass'] = pred_boson_mass
-
-    if use_reco:
-        reco_pred_tau_plus_mass = np.sqrt(np.maximum(reco_pred_taus[:,0]**2 - reco_pred_taus[:,1]**2 - reco_pred_taus[:,2]**2 - reco_pred_taus[:,3]**2, 0))
-        reco_pred_tau_minus_mass  = np.sqrt(np.maximum(reco_pred_taus[:,4]**2 - reco_pred_taus[:,5]**2 - reco_pred_taus[:,6]**2 - reco_pred_taus[:,7]**2, 0))
-        results_df['reco_pred_tau_plus_mass'] = reco_pred_tau_plus_mass
-        results_df['reco_pred_tau_minus_mass'] = reco_pred_tau_minus_mass
-
-        reco_pred_boson_mass = np.sqrt(np.maximum((reco_pred_taus[:,0] + reco_pred_taus[:,4])**2 - (reco_pred_taus[:,1] + reco_pred_taus[:,5])**2 - (reco_pred_taus[:,2] + reco_pred_taus[:,6])**2 - (reco_pred_taus[:,3] + reco_pred_taus[:,7])**2, 0))
-        results_df['reco_pred_boson_mass'] = reco_pred_boson_mass
-
     if predictions_alt is not None:
         results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
         results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
-        if use_reco:
-            results_df['alt_reco_pred_tau_plus_mass'] = np.sqrt(np.maximum(alt_reco_pred_taus[:,0]**2 - alt_reco_pred_taus[:,1]**2 - alt_reco_pred_taus[:,2]**2 - alt_reco_pred_taus[:,3]**2, 0))
-            results_df['alt_reco_pred_tau_minus_mass'] = np.sqrt(np.maximum(alt_reco_pred_taus[:,4]**2 - alt_reco_pred_taus[:,5]**2 - alt_reco_pred_taus[:,6]**2 - alt_reco_pred_taus[:,7]**2, 0))
-            results_df['alt_reco_pred_boson_mass'] = np.sqrt(np.maximum((alt_reco_pred_taus[:,0] + alt_reco_pred_taus[:,4])**2 - (alt_reco_pred_taus[:,1] + alt_reco_pred_taus[:,5])**2 - (alt_reco_pred_taus[:,2] + alt_reco_pred_taus[:,6])**2 - (alt_reco_pred_taus[:,3] + alt_reco_pred_taus[:,7])**2, 0))
 
+    if config['collider'] == 'LEP':
+        results_df['ana_pred_tau_plus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,0]**2 - ana_pred_taus[:,1]**2 - ana_pred_taus[:,2]**2 - ana_pred_taus[:,3]**2, 0))
+        results_df['ana_pred_tau_minus_mass'] = np.sqrt(np.maximum(ana_pred_taus[:,4]**2 - ana_pred_taus[:,5]**2 - ana_pred_taus[:,6]**2 - ana_pred_taus[:,7]**2, 0))
+    results_df['pred_z_mass'] = pred_z_mass
 
     # get spin vars for true_tau
     print("Computing spin variables...")
-    results_df = compute_spin_vars(results_df, tau_pred_prefix='true_', tau_vis_prefix='true_')  # for true taus we can use the true visible products as well
+    results_df = compute_spin_vars(results_df, tau_pred_prefix='true_')
+    # get spin vars for ana_pred_tau
+    if config['collider'] == 'LEP':
+        results_df = compute_spin_vars(results_df, tau_pred_prefix='ana_pred_')
     # get spin vars for pred_tau
-    results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
+    results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_')
     # get spin vars for alt_pred_tau if present
     if predictions_alt is not None:
-        results_df = compute_spin_vars(results_df, tau_pred_prefix='alt_pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
+        results_df = compute_spin_vars(results_df, tau_pred_prefix='alt_pred_')
 
     # loop over dm categories and compute spin density matrix variables for each
     for dm_category in ['all','dm_0_0','dm_0_1','dm_1_1']:
 
-        #TODO: could also do splitting based on reco dm category
         if dm_category == 'dm_0_0':
-            results_df_dm = results_df[(results_df['true_taup_haspizero'] == 0) & (results_df['true_taun_haspizero'] == 0)]
+            results_df_dm = results_df[(results_df['taup_haspizero'] == 0) & (results_df['taun_haspizero'] == 0)]
         elif dm_category == 'dm_0_1':
-            results_df_dm = results_df[((results_df['true_taup_haspizero'] == 0) & (results_df['true_taun_haspizero'] == 1)) | ((results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 0))]
+            results_df_dm = results_df[((results_df['taup_haspizero'] == 0) & (results_df['taun_haspizero'] == 1)) | ((results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 0))]
         elif dm_category == 'dm_1_1':
-            results_df_dm = results_df[(results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 1)]
+            results_df_dm = results_df[(results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 1)]
         else:
             results_df_dm = results_df
 
         true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_')
+        if config['collider'] == 'LEP':
+            ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='ana_pred_')
         pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
         if predictions_alt is not None:
             alt_pred_Bplus, alt_pred_Bminus, alt_pred_C, alt_pred_con, alt_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='alt_pred_')
@@ -344,6 +341,13 @@ if __name__ == "__main__":
         print(true_C)
         print(true_con, true_m12)
         print()
+        if config['collider'] == 'LEP':
+            print('Analytical predicted spin density matrix variables:')
+            print(ana_pred_Bplus)
+            print(ana_pred_Bminus)
+            print(ana_pred_C)
+            print(ana_pred_con, ana_pred_m12)
+            print()
         print('NN predicted spin density matrix variables:')
         print(pred_Bplus)
         print(pred_Bminus)
@@ -357,6 +361,7 @@ if __name__ == "__main__":
             print(alt_pred_C)
             print(alt_pred_con, alt_pred_m12)
 
+
     # write the results dataframe to a pickle file
     results_df.to_pickle(f"{output_dir}/output_results.pkl")
 
@@ -366,3 +371,20 @@ if __name__ == "__main__":
     with uproot.recreate(output_root_file) as f:
         f["tree"] = results_df.to_dict(orient="list")
     
+    # make a few plots of the samples PDFs vs the analytical solutions for some events
+    if not args.useMLP and config['collider'] == 'LEP':
+        for event_number in [0, 1, 2, 3, 4]:
+            save_sampled_pdfs(
+                model=model,
+                device=device,
+                dataset=test_dataset,
+                df=results_df,
+                output_features=['nubar_px', 'nubar_py', 'nubar_pz',
+                                 'nu_px', 'nu_py', 'nu_pz'],
+                event_number=event_number,
+                num_samples=50000,
+                bins=100,
+                outdir=f"{output_dir}/pdf_slices_sampled",
+                use_polar=True if data_config['coordinates'] == 'polar' else False,
+                use_onorm=True if data_config['coordinates'] == 'onorm' else False,
+            )

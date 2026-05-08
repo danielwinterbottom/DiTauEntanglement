@@ -271,6 +271,40 @@ elif pythia_process == "eeToZHtoTauTau":
 
     pythia.readString("HiggsH1:parity = 4")
     pythia.readString(f"HiggsH1:phiParity = {args.phi}")
+elif pythia_process == "ppToZToTauTau":
+    print('Producing pp -> Z -> tautau event in pythia')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z production and decay to taus
+    pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
+    pythia.readString("WeakZ0:gmZmode = 2") # switch off photon contribution 
+    pythia.readString("23:onMode = off")  # Turn off all Z decays
+    pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
+elif pythia_process == "ppToZToTauTau_HLikeMass":
+    print('Producing pp -> Z -> tautau event in pythia with Z mass set to Higgs mass to get more boosted taus')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z production and decay to taus
+    pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
+    pythia.readString("WeakZ0:gmZmode = 2") # switch off photon contribution 
+    pythia.readString("23:onMode = off")  # Turn off all Z decays
+    pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
+    pythia.readString("23:m0 = 125.0") # set Z mass to Higgs mass
+    pythia.readString("23:mWidth = 0.00407") # set Z width to Higgs width
+elif pythia_process == "ppToZPrimeToTauTau":
+    print('Producing pp -> Z\' -> tautau event in pythia with Z\' mass set to 125 GeV')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z' production and decay to taus
+    pythia.readString("NewGaugeBoson:ffbar2Zprime = on")
+    pythia.readString("Zprime:gmZmode = 3") # only pure Z' contribution, no interference with gamma/Z
+    pythia.readString("32:onMode = off")  # Turn off all Z' decays
+    pythia.readString("32:onIfAny = 15")  # Enable Z' -> tau+ tau-
+    pythia.readString("32:m0 = 125.0") # set Z' mass to Higgs mass
+    pythia.readString("32:mWidth = 0.00407") # set Z' width to Higgs width
 
 pythia.readString("Random:setSeed = on")
 pythia.readString(f"Random:seed = {args.seed}")  # Set random seed for reproducibility
