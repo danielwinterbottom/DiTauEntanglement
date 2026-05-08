@@ -41,6 +41,11 @@ Train a "normal" neural network with MSE loss to compare to:
 python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml --useMLP
 ```
 
+Can use the tauentanglement/utils/batch_submission.py script to run any python script as a batch job e.g using one of the GPU nodes.
+For running the training on the batch use:
+
+	python tauentanglement/utils/batch_submission.py -c "python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml" --gpu --runtime 86400 --job_name model_NFlows_LHC_onnorm_reco_May08
+
 
 Test Nflows model:
 
