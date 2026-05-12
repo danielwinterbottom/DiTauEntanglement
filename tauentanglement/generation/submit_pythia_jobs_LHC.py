@@ -53,7 +53,8 @@ else:
 rm {args.job_name}/job_output_$SEED/*.{{root,hepmc}}\n\
 python tauentanglement/generation/shower_events.py -c {args.cmnd_file} -n {nperjob} -o {args.job_name}/job_output_$SEED/pythia_events_$SEED.hepmc --seed $SEED {args.extra}\n\
 DelphesHepMC3 tauentanglement/generation/configs/delphes_card_CMS.tcl {args.job_name}/job_output_$SEED/delphes_output_$SEED.root {args.job_name}/job_output_$SEED/pythia_events_$SEED.hepmc\n\
-python tauentanglement/generation/run_delphes.py -i {args.job_name}/job_output_$SEED/delphes_output_$SEED.root -o {args.job_name}/job_output_$SEED/reco_events_$SEED.root'
+python tauentanglement/generation/run_delphes.py -i {args.job_name}/job_output_$SEED/delphes_output_$SEED.root -o {args.job_name}/job_output_$SEED/reco_events_$SEED.root\n\
+rm {args.job_name}/job_output_$SEED/pythia_events_$SEED.hepmc'
 
 os.system('mkdir -p jobs')
 

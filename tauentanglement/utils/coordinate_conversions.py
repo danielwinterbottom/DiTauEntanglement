@@ -73,36 +73,60 @@ def _get_vec(df, pref: str) -> np.ndarray:
         axis=1
     ).astype(float)
 
-def _build_nrk_basis_from_visible_tau(df, pi_prefix: str, pi0_prefix: str, eps: float = 1e-12):
+def _build_nrk_basis_from_visible_tau(
+    df,
+    pi_prefix: str,
+    pi0_prefix: str,
+    eps: float = 1e-12,
+):
     """
     Build event-by-event orthonormal basis (n_hat, r_hat, k_hat) using:
       p_hat = (0,0,-1)
       k_hat = unit(pi + pi0)
       n_hat = unit(p_hat x k_hat)
       r_hat = unit(p_hat - k_hat (p_hat·k_hat))
+
     Returns:
       n, r, k as (N,3) arrays
     """
+
     v_vis = _get_vec(df, pi_prefix) + _get_vec(df, pi0_prefix)
 
+    # --- k_hat ---
     k_norm = np.linalg.norm(v_vis, axis=1, keepdims=True)
-    k = np.where(k_norm > eps, v_vis / k_norm, 0.0)
 
+    k = np.zeros_like(v_vis)
+    np.divide(v_vis, k_norm, out=k, where=(k_norm > eps))
+
+    # beam axis
     N = len(df)
     p = np.zeros((N, 3), dtype=float)
     p[:, 2] = -1.0
 
     n = np.cross(p, k)
     n_norm = np.linalg.norm(n, axis=1, keepdims=True)
-    n = np.where(n_norm > eps, n / n_norm, 0.0)
+
+    n_unit = np.zeros_like(n)
+    np.divide(n, n_norm, out=n_unit, where=(n_norm > eps))
+    n = n_unit
 
     cosTheta = np.sum(p * k, axis=1, keepdims=True)
+
     r = p - k * cosTheta
     r_norm = np.linalg.norm(r, axis=1, keepdims=True)
-    r = np.where(r_norm > eps, r / r_norm, 0.0)
+
+    r_unit = np.zeros_like(r)
+    np.divide(r, r_norm, out=r_unit, where=(r_norm > eps))
+    r = r_unit
+
+    # fallback basis if everything vanished
+    zero_mask = ((n_norm <= eps) & (k_norm <= eps)).ravel()
+
+    n[zero_mask] = [1.0, 0.0, 0.0]
+    r[zero_mask] = [0.0, 1.0, 0.0]
+    k[zero_mask] = [0.0, 0.0, 1.0]
 
     return n, r, k
-
 
 def ConvertToOrthonormalNRK(
     df,

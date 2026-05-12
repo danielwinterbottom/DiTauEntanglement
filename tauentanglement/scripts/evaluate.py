@@ -114,7 +114,7 @@ if __name__ == "__main__":
             model,
             X_test,
             test_dataset=test_dataset,
-            num_draws=10,#100, # TODO: back to 100
+            num_draws=100,
             chunk_size=1000 if device.type == 'cpu' else 10000,
         )
 
@@ -150,6 +150,7 @@ if __name__ == "__main__":
     
     # get true values
     true_values = test_df[output_features].values
+    true_values_alt = test_df[['taup_nu_px', 'taup_nu_py', 'taup_nu_pz', 'taun_nu_px', 'taun_nu_py', 'taun_nu_pz']].values
 
     if data_config['coordinates'] == 'polar':
         # convert true values back to cartesian coordinates
@@ -338,6 +339,7 @@ if __name__ == "__main__":
             alt_pred_Bplus, alt_pred_Bminus, alt_pred_C, alt_pred_con, alt_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='alt_pred_')
 
         print('\n===== DM CATEGORY:', dm_category, '=====')
+        print(f'Number of events in this category: {len(results_df_dm)}')
         print('True spin density matrix variables:')
         print(true_Bplus)
         print(true_Bminus)
