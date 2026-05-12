@@ -64,12 +64,19 @@ if __name__ == "__main__":
     true_taun_pizero  = test_df[['taun_pizero1_e', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
     true_taup_pizero = test_df[['taup_pizero1_e', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
 
+    # gets ips as well
+    true_taun_pi_ip = test_df[['taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz']].values
+    true_taup_pi_ip = test_df[['taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz']].values
+
     if use_reco:
         reco_taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
         reco_taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
         reco_taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
         reco_taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
 
+        # get ips for reco pis as well
+        reco_taun_pi_ip = test_df[['reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz']].values
+        reco_taup_pi_ip = test_df[['reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz']].values
 
     # move X_test and model to device
     X_test, _ = test_dataset[:]
@@ -199,30 +206,28 @@ if __name__ == "__main__":
     # final true taus (8 columns total)
     true_taus = np.concatenate([taup, taun], axis=1)
 
-    # now use predicted neutrino but add to true visible products to get predicted taus
-    taup_pred = predictions[:, 0:4] + true_taup_pi + true_taup_pizero
-    taun_pred = predictions[:, 4:8] + true_taun_pi + true_taun_pizero
+    # now use predicted neutrino but add to visible products to get predicted taus
+    if use_reco:
+        taup_pred = predictions[:, 0:4] + reco_taup_pi + reco_taup_pizero
+        taun_pred = predictions[:, 4:8] + reco_taun_pi + reco_taun_pizero
+    else: 
+        taup_pred = predictions[:, 0:4] + true_taup_pi + true_taup_pizero
+        taun_pred = predictions[:, 4:8] + true_taun_pi + true_taun_pizero
 
     pred_taus = np.concatenate([taup_pred, taun_pred], axis=1)
 
-    if use_reco:
-        reco_taup_pred = predictions[:, 0:4] + reco_taup_pi + reco_taup_pizero
-        reco_taun_pred = predictions[:, 4:8] + reco_taun_pi + reco_taun_pizero
-
-        reco_pred_taus = np.concatenate([reco_taup_pred, reco_taun_pred], axis=1)
-
     # get alternative predictions
     if predictions_alt is not None:
-        alt_taup_pred = predictions_alt[:, 0:4] + true_taup_pi + true_taup_pizero
-        alt_taun_pred = predictions_alt[:, 4:8] + true_taun_pi + true_taun_pizero
+        if use_reco:
+            alt_taup_pred = predictions_alt[:, 0:4] + reco_taup_pi + reco_taup_pizero
+            alt_taun_pred = predictions_alt[:, 4:8] + reco_taun_pi + reco_taun_pizero
+        else:
+            alt_taup_pred = predictions_alt[:, 0:4] + true_taup_pi + true_taup_pizero
+            alt_taun_pred = predictions_alt[:, 4:8] + true_taun_pi + true_taun_pizero
+        
         pred_taus_alt = np.concatenate([alt_taup_pred, alt_taun_pred], axis=1)
 
-        if use_reco:
-            alt_reco_taup_pred = predictions_alt[:, 0:4] + reco_taup_pi + reco_taup_pizero
-            alt_reco_taun_pred = predictions_alt[:, 4:8] + reco_taun_pi + reco_taun_pizero
-            alt_reco_pred_taus = np.concatenate([alt_reco_taup_pred, alt_reco_taun_pred], axis=1)
-
-    # collect true and predicted nus true and predicted taus AND pi's into pandas dataframe, label the collumns
+    # collect true and predicted nus, true and predicted taus, and pi's into pandas dataframe, label the collumns
 
     true_taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
     true_taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
@@ -232,7 +237,7 @@ if __name__ == "__main__":
         reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
 
     results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero,
-                              true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero], axis=1),
+                              true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero, true_taun_pi_ip, true_taup_pi_ip], axis=1),
                               columns=[
                                        'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                        'true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
@@ -247,19 +252,21 @@ if __name__ == "__main__":
                                        'true_taup_pizero1_E', 'true_taup_pizero1_px', 'true_taup_pizero1_py', 'true_taup_pizero1_pz',
                                        'true_taun_pi1_E', 'true_taun_pi1_px', 'true_taun_pi1_py', 'true_taun_pi1_pz',
                                        'true_taun_pizero1_E', 'true_taun_pizero1_px', 'true_taun_pizero1_py', 'true_taun_pizero1_pz',
+                                       'true_taun_pi1_ipx', 'true_taun_pi1_ipy', 'true_taun_pi1_ipz',
+                                       'true_taup_pi1_ipx', 'true_taup_pi1_ipy', 'true_taup_pi1_ipz'
                                        ])
 
     if use_reco:
-        results_df_extra = pd.DataFrame(data=np.concatenate([reco_pred_taus, reco_taup_haspizero, reco_taun_haspizero,
-                                                            reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero], axis=1),
+        results_df_extra = pd.DataFrame(data=np.concatenate([reco_taup_haspizero, reco_taun_haspizero,
+                                                            reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero, reco_taun_pi_ip, reco_taup_pi_ip], axis=1),
                               columns=[
-                                        'reco_pred_tau_plus_E',  'reco_pred_tau_plus_px',  'reco_pred_tau_plus_py',  'reco_pred_tau_plus_pz',
-                                        'reco_pred_tau_minus_E', 'reco_pred_tau_minus_px', 'reco_pred_tau_minus_py', 'reco_pred_tau_minus_pz',
                                         'reco_taup_haspizero', 'reco_taun_haspizero',
                                         'reco_taup_pi1_E', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz',
                                         'reco_taup_pizero1_E', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz',
                                         'reco_taun_pi1_E', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz',
                                         'reco_taun_pizero1_E', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz',
+                                        'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                                        'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz'
                                        ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 
@@ -271,51 +278,29 @@ if __name__ == "__main__":
                                         'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
                                         'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
                                         'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
-
                                        ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 
-        if use_reco:
-            results_df_extra = pd.DataFrame(data=np.concatenate([alt_reco_pred_taus], axis=1),
-                                columns=[
-                                        'alt_reco_pred_tau_plus_E',  'alt_reco_pred_tau_plus_px',  'alt_reco_pred_tau_plus_py',  'alt_reco_pred_tau_plus_pz',
-                                        'alt_reco_pred_tau_minus_E', 'alt_reco_pred_tau_minus_px', 'alt_reco_pred_tau_minus_py', 'alt_reco_pred_tau_minus_pz',
-                                       ])
-            results_df = pd.concat([results_df, results_df_extra], axis=1)
-
     # compute predicted mass of taus and Z boson and store on dataframe
+    results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
+    results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0)) 
     pred_tau_plus_mass = np.sqrt(np.maximum(pred_taus[:,0]**2 - pred_taus[:,1]**2 - pred_taus[:,2]**2 - pred_taus[:,3]**2, 0))
     pred_tau_minus_mass  = np.sqrt(np.maximum(pred_taus[:,4]**2 - pred_taus[:,5]**2 - pred_taus[:,6]**2 - pred_taus[:,7]**2, 0))
     pred_boson_mass = np.sqrt(np.maximum((pred_taus[:,0] + pred_taus[:,4])**2 - (pred_taus[:,1] + pred_taus[:,5])**2 - (pred_taus[:,2] + pred_taus[:,6])**2 - (pred_taus[:,3] + pred_taus[:,7])**2, 0))
-    results_df['true_tau_plus_mass'] = np.sqrt(np.maximum(true_taus[:,0]**2 - true_taus[:,1]**2 - true_taus[:,2]**2 - true_taus[:,3]**2, 0))
-    results_df['true_tau_minus_mass'] = np.sqrt(np.maximum(true_taus[:,4]**2 - true_taus[:,5]**2 - true_taus[:,6]**2 - true_taus[:,7]**2, 0))
     results_df['pred_tau_minus_mass'] = pred_tau_minus_mass
     results_df['pred_tau_plus_mass'] = pred_tau_plus_mass
     results_df['pred_boson_mass'] = pred_boson_mass
 
-    if use_reco:
-        reco_pred_tau_plus_mass = np.sqrt(np.maximum(reco_pred_taus[:,0]**2 - reco_pred_taus[:,1]**2 - reco_pred_taus[:,2]**2 - reco_pred_taus[:,3]**2, 0))
-        reco_pred_tau_minus_mass  = np.sqrt(np.maximum(reco_pred_taus[:,4]**2 - reco_pred_taus[:,5]**2 - reco_pred_taus[:,6]**2 - reco_pred_taus[:,7]**2, 0))
-        results_df['reco_pred_tau_plus_mass'] = reco_pred_tau_plus_mass
-        results_df['reco_pred_tau_minus_mass'] = reco_pred_tau_minus_mass
-
-        reco_pred_boson_mass = np.sqrt(np.maximum((reco_pred_taus[:,0] + reco_pred_taus[:,4])**2 - (reco_pred_taus[:,1] + reco_pred_taus[:,5])**2 - (reco_pred_taus[:,2] + reco_pred_taus[:,6])**2 - (reco_pred_taus[:,3] + reco_pred_taus[:,7])**2, 0))
-        results_df['reco_pred_boson_mass'] = reco_pred_boson_mass
-
     if predictions_alt is not None:
         results_df['alt_pred_tau_plus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,0]**2 - pred_taus_alt[:,1]**2 - pred_taus_alt[:,2]**2 - pred_taus_alt[:,3]**2, 0))
         results_df['alt_pred_tau_minus_mass'] = np.sqrt(np.maximum(pred_taus_alt[:,4]**2 - pred_taus_alt[:,5]**2 - pred_taus_alt[:,6]**2 - pred_taus_alt[:,7]**2, 0))
-        if use_reco:
-            results_df['alt_reco_pred_tau_plus_mass'] = np.sqrt(np.maximum(alt_reco_pred_taus[:,0]**2 - alt_reco_pred_taus[:,1]**2 - alt_reco_pred_taus[:,2]**2 - alt_reco_pred_taus[:,3]**2, 0))
-            results_df['alt_reco_pred_tau_minus_mass'] = np.sqrt(np.maximum(alt_reco_pred_taus[:,4]**2 - alt_reco_pred_taus[:,5]**2 - alt_reco_pred_taus[:,6]**2 - alt_reco_pred_taus[:,7]**2, 0))
-            results_df['alt_reco_pred_boson_mass'] = np.sqrt(np.maximum((alt_reco_pred_taus[:,0] + alt_reco_pred_taus[:,4])**2 - (alt_reco_pred_taus[:,1] + alt_reco_pred_taus[:,5])**2 - (alt_reco_pred_taus[:,2] + alt_reco_pred_taus[:,6])**2 - (alt_reco_pred_taus[:,3] + alt_reco_pred_taus[:,7])**2, 0))
-
+        results_df['alt_pred_boson_mass'] = np.sqrt(np.maximum((pred_taus_alt[:,0] + pred_taus_alt[:,4])**2 - (pred_taus_alt[:,1] + pred_taus_alt[:,5])**2 - (pred_taus_alt[:,2] + pred_taus_alt[:,6])**2 - (pred_taus_alt[:,3] + pred_taus_alt[:,7])**2, 0))
 
     # get spin vars for true_tau
     print("Computing spin variables...")
     results_df = compute_spin_vars(results_df, tau_pred_prefix='true_', tau_vis_prefix='true_')  # for true taus we can use the true visible products as well
     # get spin vars for pred_tau
-    results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
+    results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_',  tau_vis_prefix='reco_' if use_reco else 'true_')
     # get spin vars for alt_pred_tau if present
     if predictions_alt is not None:
         results_df = compute_spin_vars(results_df, tau_pred_prefix='alt_pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
@@ -323,7 +308,7 @@ if __name__ == "__main__":
     # loop over dm categories and compute spin density matrix variables for each
     for dm_category in ['all','dm_0_0','dm_0_1','dm_1_1']:
 
-        #TODO: could also do splitting based on reco dm category
+        #TODO: could also do splitting based on reco dm category - both give us different but useful information
         if dm_category == 'dm_0_0':
             results_df_dm = results_df[(results_df['true_taup_haspizero'] == 0) & (results_df['true_taun_haspizero'] == 0)]
         elif dm_category == 'dm_0_1':

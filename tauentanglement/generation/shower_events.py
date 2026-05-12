@@ -299,7 +299,8 @@ elif pythia_process == "ppToZPrimeToTauTau":
     pythia.readString("Beams:idB = 2212")  # Proton
     pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
     # Enable Z' production and decay to taus
-    pythia.readString("NewGaugeBoson:ffbar2Zprime = on")
+    #pythia.readString("NewGaugeBoson:ffbar2Zprime = on")
+    pythia.readString("NewGaugeBoson:ffbar2gmZZprime = on")
     pythia.readString("Zprime:gmZmode = 3") # only pure Z' contribution, no interference with gamma/Z
     pythia.readString("32:onMode = off")  # Turn off all Z' decays
     pythia.readString("32:onIfAny = 15")  # Enable Z' -> tau+ tau-
