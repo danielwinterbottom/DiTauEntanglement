@@ -76,4 +76,5 @@ Data:
                       'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
   available_files: { # TODO: fix naming of validation/evaluation
                     'ppToHToTauTau_DM0and1_CPEven_May07': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven_May07/reco_events.root',
+                    'ppToHToTauTau_DM0and1_CPOdd_May07': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd_May07/reco_events.root',
                     }
