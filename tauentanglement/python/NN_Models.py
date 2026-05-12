@@ -169,6 +169,15 @@ class ConditionalFlow(nn.Module):
         cond_embed = self.condition_net(context)
         x, logabsdet = self.flow._transform.inverse(z, context=cond_embed)
         return x, logabsdet
+
+    def sample_and_log_prob(self, num_samples, context):
+        """
+        Sample and compute log-prob in a single forward pass.
+        Returns samples [B, num_samples, F] and log_prob [B, num_samples].
+        More efficient than separate sample() + log_prob() calls.
+        """
+        cond_embed = self.condition_net(context)
+        return self.flow.sample_and_log_prob(num_samples=num_samples, context=cond_embed)
     
 
 class ConditionalMorphingFlow(nn.Module):

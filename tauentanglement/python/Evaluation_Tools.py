@@ -3,7 +3,12 @@ from tqdm import tqdm
 import numpy as np
 from tauentanglement.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
 import os
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
+import mplhep as hep
+
 
 def flow_map_predict(
     model,
@@ -11,22 +16,26 @@ def flow_map_predict(
     test_dataset=None,
     num_draws=100,
     chunk_size=5000,
+    method='stochastic'
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
-    
+
     Parameters
     ----------
-    model : flow model
+    model : ConditionalFlow
         The trained normalizing flow model.
     X : torch.Tensor
         Conditioning features of shape [B, context_dim].
     test_dataset : object, optional
         Must supply .destandardize_outputs(tensor). If None, no destandardization is performed.
     num_draws : int
-        Number of samples per event to approximate the MAP estimate.
+        Number of samples per event. Used by method='stochastic'
     chunk_size : int
         Number of events to process at once (controls memory usage).
+    method : str
+        'stochastic'          — draw num_draws samples per event and pick the highest log-prob
+                                one.
 
     Returns
     -------
@@ -39,56 +48,28 @@ def flow_map_predict(
     model.eval()
 
     B = X.shape[0]
-
     all_best_samples = []
 
-    for start in tqdm(range(0, B, chunk_size), desc="Processing chunks"):
-        end = min(start + chunk_size, B)
-        X_chunk = X[start:end]
-        C = X_chunk.shape[0]
+    if method == 'stochastic':
+        # sample from the pdf
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (stochastic)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+            with torch.no_grad():
+                # single pass get both [C, num_draws, F] and [C, num_draws]
+                samples_norm_chunk, log_probs = model.sample_and_log_prob(
+                    num_samples=num_draws, context=X_chunk
+                )
+            best_idx = torch.argmax(log_probs, dim=1)              # [C]
+            best_samples_chunk = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+            all_best_samples.append(best_samples_chunk.cpu())
 
-        # -----------------------------------------------------------
-        # 1. Sample num_draws from the flow for this chunk
-        #    samples_norm_chunk: [C, num_draws, features]
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            samples_norm_chunk = model.sample(num_samples=num_draws, context=X_chunk)
+    else:
+        raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
 
-        # Flatten for log_prob input
-        # [C, D, F] → [C*D, F]
-        flat_samples = samples_norm_chunk.reshape(C * num_draws, -1)
-
-        # Repeat context for each sample
-        # [C, ctx] → [C*D, ctx]
-        flat_context = X_chunk.repeat_interleave(num_draws, dim=0)
-
-        # -----------------------------------------------------------
-        # 2. Compute log_prob for all C*D samples
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
-
-        # Reshape back to [C, D]
-        log_probs = flat_log_probs.view(C, num_draws)
-
-        # -----------------------------------------------------------
-        # 3. Select the best (MAP) sample per event
-        # -----------------------------------------------------------
-        best_idx = torch.argmax(log_probs, dim=1)   # [C]
-        batch_idx = torch.arange(C)
-
-        best_samples_chunk = samples_norm_chunk[batch_idx, best_idx]  # [C, F]
-
-        all_best_samples.append(best_samples_chunk.cpu())
-
-    # -----------------------------------------------------------
-    # Combine chunks → [B, F]
-    # -----------------------------------------------------------
     samples_norm_alt = torch.cat(all_best_samples, dim=0)
 
-    # -----------------------------------------------------------
-    # Optional destandardization
-    # -----------------------------------------------------------
     if test_dataset is not None:
         samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
     else:
