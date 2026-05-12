@@ -16,7 +16,9 @@ def flow_map_predict(
     test_dataset=None,
     num_draws=100,
     chunk_size=5000,
-    method='stochastic'
+    method='stochastic',
+    n_steps=200,
+    lr=1e-2,
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
@@ -30,12 +32,25 @@ def flow_map_predict(
     test_dataset : object, optional
         Must supply .destandardize_outputs(tensor). If None, no destandardization is performed.
     num_draws : int
-        Number of samples per event. Used by method='stochastic'
+        Number of samples per event. Used by method='stochastic' and 'gradient_warmstart'.
     chunk_size : int
         Number of events to process at once (controls memory usage).
     method : str
         'stochastic'          — draw num_draws samples per event and pick the highest log-prob
-                                one.
+                                one. Uses sample_and_log_prob() for a single forward pass.
+        'latent_zero'         — decode the latent origin z=0 for each event. Deterministic,
+                                single forward pass. Best for unimodal posteriors.
+        'gradient'            — z-space MAP: optimise z via Adam using the change-of-variables
+                                identity log p = log p_Z(z) - log|det J_decode|. Initialises
+                                from z=0. Single decode pass per step.
+        'gradient_warmstart'  — same as 'gradient' but initialises z from the best of
+                                num_draws stochastic samples (encoded back to z-space).
+                                Handles multimodal posteriors: sampling finds the right basin,
+                                gradient descent finds the exact mode within it.
+    n_steps : int
+        Number of Adam steps. Only used by gradient methods.
+    lr : float
+        Adam learning rate. Only used by gradient methods.
 
     Returns
     -------
@@ -50,7 +65,19 @@ def flow_map_predict(
     B = X.shape[0]
     all_best_samples = []
 
-    if method == 'stochastic':
+    if method == 'latent_zero':
+        # this doesn't work very well, but might as well leave it in
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (latent_zero)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+            z_zero = torch.zeros(C, latent_dim, device=X_chunk.device)
+            with torch.no_grad():
+                x_map, _ = model.decode(z_zero, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
+
+    elif method == 'stochastic':
         # sample from the pdf
         for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (stochastic)"):
             end = min(start + chunk_size, B)
@@ -64,6 +91,68 @@ def flow_map_predict(
             best_idx = torch.argmax(log_probs, dim=1)              # [C]
             best_samples_chunk = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
             all_best_samples.append(best_samples_chunk.cpu())
+
+    elif method == 'gradient':
+        # optimisation of the MAP estimate
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+
+            # optimise z directly using the change-of-variables log p(x|c) = log p_Z(z) - log|det J_decode(z)|
+            # (z-space geometry is isotropic so easier to optimise)
+            z = torch.zeros(C, latent_dim, device=X_chunk.device, requires_grad=True)
+            optimizer = torch.optim.Adam([z], lr=lr)
+
+            for _ in range(n_steps):
+                optimizer.zero_grad()
+                _, logabsdet = model.decode(z, context=X_chunk)
+                log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                log_p = log_pz - logabsdet
+                (-log_p.sum()).backward()
+                optimizer.step()
+
+            with torch.no_grad():
+                x_map, _ = model.decode(z, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
+
+    elif method == 'gradient_warmstart':
+        # mix of stochastic
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient_warmstart)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+
+            # sample stochastic to get a good start pointwith torch.no_grad():
+            with torch.no_grad():
+                # single pass get both [C, num_draws, F] and [C, num_draws]
+                samples_norm_chunk, log_probs = model.sample_and_log_prob(
+                    num_samples=num_draws, context=X_chunk
+                )
+            best_idx = torch.argmax(log_probs, dim=1)              # [C]
+            x_best = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+
+            # encode this best sampled point to z space
+            with torch.no_grad():
+                z_init, _ = model.encode(x_best, context=X_chunk)
+
+            # optimise from there
+            z = z_init.detach().clone().requires_grad_(True)
+            optimizer = torch.optim.Adam([z], lr=lr)
+
+            for _ in range(n_steps):
+                optimizer.zero_grad()
+                _, logabsdet = model.decode(z, context=X_chunk)
+                log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                log_p = log_pz - logabsdet
+                (-log_p.sum()).backward()
+                optimizer.step()
+
+            with torch.no_grad():
+                x_map, _ = model.decode(z, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
 
     else:
         raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
