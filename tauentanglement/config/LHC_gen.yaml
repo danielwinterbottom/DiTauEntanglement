@@ -31,6 +31,7 @@ Data:
   use_reco: False # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   #test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd/test_dataframe.parquet'
   test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven/test_dataframe.parquet'
+  test_output_name: 'output_results_CPEven'
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
   coordinates: onorm  # options: standard, polar, onorm

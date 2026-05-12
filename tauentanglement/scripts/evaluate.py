@@ -360,10 +360,10 @@ if __name__ == "__main__":
             print(alt_pred_con, alt_pred_m12)
 
     # write the results dataframe to a pickle file
-    results_df.to_pickle(f"{output_dir}/output_results.pkl")
+    results_df.to_pickle(f"{output_dir}/{data_config['test_output_name']}.pkl")
 
     # write root file aswell
-    output_root_file = f"{output_dir}/output_results.root"
+    output_root_file = f"{output_dir}/{data_config['test_output_name']}.root"
 
     with uproot.recreate(output_root_file) as f:
         f["tree"] = results_df.to_dict(orient="list")
