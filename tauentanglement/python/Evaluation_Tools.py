@@ -303,3 +303,87 @@ def save_sampled_pdfs(
         plt.tight_layout()
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
+
+def plot_spin_density_matrix(results, dm_category, outdir):
+    os.makedirs(outdir, exist_ok=True)
+
+    labels = list(results.keys())
+    n = len(labels)
+    axes_labels = ['n', 'r', 'k']
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    def _draw_row_separators(ax, n_rows, n_cols):
+        for row in range(1, n_rows):
+            ax.hlines(row - 0.5, -0.5, n_cols - 0.5, colors='white', linewidths=2)
+
+    # C matrix
+    vmax = max(np.abs(results[l][2]).max() for l in labels)
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 3.5))
+    if n == 1:
+        axes = [axes]
+    for ax, label in zip(axes, labels):
+        C = results[label][2]
+        im = ax.imshow(C, cmap='RdBu', norm=norm)
+        ax.set_xticks(range(3))
+        ax.set_yticks(range(3))
+        ax.set_xticklabels(axes_labels)
+        ax.set_yticklabels(axes_labels)
+        for i in range(3):
+            for j in range(3):
+                ax.text(j, i, f'{C[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                        color='white' if abs(C[i, j]) > 0.6 * vmax else 'black')
+        ax.set_title(label)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Spin correlation matrix C  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'C_matrix_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()
+
+    # B+ and B-
+    bplus_mat  = np.array([results[l][0] for l in labels])   # [n, 3]
+    bminus_mat = np.array([results[l][1] for l in labels])   # [n, 3]
+    b_vmax = max(np.abs(bplus_mat).max(), np.abs(bminus_mat).max())
+    b_norm = TwoSlopeNorm(vmin=-b_vmax, vcenter=0, vmax=b_vmax)
+
+    fig, axes = plt.subplots(1, 2, figsize=(7, 0.6 * n + 1.5))
+    for ax, mat, title in zip(axes, [bplus_mat, bminus_mat], ['$B^+$', '$B^-$']):
+        im = ax.imshow(mat, cmap='RdBu', norm=b_norm, aspect='auto')
+        ax.set_xticks(range(3))
+        ax.set_xticklabels(axes_labels)
+        ax.set_yticks(range(n))
+        ax.set_yticklabels(labels)
+        for i in range(n):
+            for j in range(3):
+                ax.text(j, i, f'{mat[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                        color='white' if abs(mat[i, j]) > 0.6 * b_vmax else 'black')
+        _draw_row_separators(ax, n, 3)
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Polarisation vectors  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'B_vectors_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()
+
+    # Entanglement info
+    ent_mat = np.array([[results[l][3].real, results[l][4].real] for l in labels])  # [n, 2]
+    e_vmax = np.abs(ent_mat).max()
+    e_norm = TwoSlopeNorm(vmin=-e_vmax, vcenter=0, vmax=e_vmax) if e_vmax > 0 else None
+
+    fig, ax = plt.subplots(figsize=(4, 0.6 * n + 1.5))
+    im = ax.imshow(ent_mat, cmap='RdBu', norm=e_norm, aspect='auto')
+    ax.set_xticks(range(2))
+    ax.set_xticklabels(['concurrence', '$m_{12}$'])
+    ax.set_yticks(range(n))
+    ax.set_yticklabels(labels)
+    for i in range(n):
+        for j in range(2):
+            ax.text(j, i, f'{ent_mat[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                    color='white' if e_vmax > 0 and abs(ent_mat[i, j]) > 0.6 * e_vmax else 'black')
+    _draw_row_separators(ax, n, 2)
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Entanglement variables  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'entanglement_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()

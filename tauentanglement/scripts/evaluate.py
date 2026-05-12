@@ -8,8 +8,8 @@ import numpy as np
 from tauentanglement.python.NN_Tools import load_model
 from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.utils.coordinate_conversions import ConvertPredictionsToCartesian, ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
-from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs
-from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars
+from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
+from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars, add_energies_pair, add_energy, inv_mass
 
 
 def main():
@@ -74,7 +74,7 @@ def main():
     X_test = X_test.to(device)
     model = model.to(device)
 
-    samples_alt = None
+    samples_map = None
     if args.useMLP:
         # for MLP we just do a forward pass then get predictions
         with torch.no_grad():
@@ -94,17 +94,19 @@ def main():
     if not args.useMLP:
         # define alternative prediction by taking most probable value from flow, do this by sampling to find MAP estimate
         print("Computing alternative predictions using flow_map_predict...")
-        _, samples_alt = flow_map_predict(
+        map_method = nn_config.get('map_method', 'latent_zero')
+        _, samples_map = flow_map_predict(
             model, X_test,
             test_dataset=test_dataset,
-            num_draws=10,
+            num_draws=nn_config.get('map_num_draws', 100),
             chunk_size=1000 if device.type == 'cpu' else 10000,
+            method=map_method,
         )
-        samples_alt = convert_coordinates_pred(samples_alt, **conv_kwargs)
+        samples_map = convert_coordinates_pred(samples_map, **conv_kwargs)
 
     # add energies (E=|p|) and build neutrino 4-vectors
     predictions     = add_energies_pair(predictions)
-    predictions_alt = add_energies_pair(samples_alt) if samples_alt is not None else None
+    predictions_map = add_energies_pair(samples_map) if samples_map is not None else None
 
     # also get the gen values
     true_values = convert_coordinates_pred(test_df[output_features].values, **conv_kwargs)
@@ -116,10 +118,10 @@ def main():
                                 true_values[:, 4:8] + taun_pi + taun_pizero], axis=1)
     pred_taus = np.concatenate([predictions[:, 0:4] + taup_pi + taup_pizero,
                                 predictions[:, 4:8] + taun_pi + taun_pizero], axis=1)
-    pred_taus_alt = None
-    if predictions_alt is not None:
-        pred_taus_alt = np.concatenate([predictions_alt[:, 0:4] + taup_pi + taup_pizero,
-                                        predictions_alt[:, 4:8] + taun_pi + taun_pizero], axis=1)
+    pred_taus_map = None
+    if predictions_map is not None:
+        pred_taus_map = np.concatenate([predictions_map[:, 0:4] + taup_pi + taup_pizero,
+                                        predictions_map[:, 4:8] + taun_pi + taun_pizero], axis=1)
 
     # analytical LEP predictions
     if collider == 'LEP':
@@ -174,14 +176,14 @@ def main():
             ])
         results_df = pd.concat([results_df, ana_results_df], axis=1)
 
-    if predictions_alt is not None:
+    if predictions_map is not None:
         results_df_extra = pd.DataFrame(
-            data=np.concatenate([predictions_alt, pred_taus_alt], axis=1),
+            data=np.concatenate([predictions_map, pred_taus_map], axis=1),
             columns=[
-                'alt_pred_nubar_E', 'alt_pred_nubar_px', 'alt_pred_nubar_py', 'alt_pred_nubar_pz',
-                'alt_pred_nu_E', 'alt_pred_nu_px', 'alt_pred_nu_py', 'alt_pred_nu_pz',
-                'alt_pred_tau_plus_E',  'alt_pred_tau_plus_px',  'alt_pred_tau_plus_py',  'alt_pred_tau_plus_pz',
-                'alt_pred_tau_minus_E', 'alt_pred_tau_minus_px', 'alt_pred_tau_minus_py', 'alt_pred_tau_minus_pz',
+                'map_pred_nubar_E', 'map_pred_nubar_px', 'map_pred_nubar_py', 'map_pred_nubar_pz',
+                'map_pred_nu_E', 'map_pred_nu_px', 'map_pred_nu_py', 'map_pred_nu_pz',
+                'map_pred_tau_plus_E',  'map_pred_tau_plus_px',  'map_pred_tau_plus_py',  'map_pred_tau_plus_pz',
+                'map_pred_tau_minus_E', 'map_pred_tau_minus_px', 'map_pred_tau_minus_py', 'map_pred_tau_minus_pz',
             ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 
@@ -193,9 +195,9 @@ def main():
     results_df['pred_z_mass'] = np.sqrt(np.maximum(
         (pred_taus[:,0]+pred_taus[:,4])**2 - (pred_taus[:,1]+pred_taus[:,5])**2
         - (pred_taus[:,2]+pred_taus[:,6])**2 - (pred_taus[:,3]+pred_taus[:,7])**2, 0))
-    if predictions_alt is not None:
-        results_df['alt_pred_tau_plus_mass']  = inv_mass(pred_taus_alt, 0)
-        results_df['alt_pred_tau_minus_mass'] = inv_mass(pred_taus_alt, 4)
+    if predictions_map is not None:
+        results_df['map_pred_tau_plus_mass']  = inv_mass(pred_taus_map, 0)
+        results_df['map_pred_tau_minus_mass'] = inv_mass(pred_taus_map, 4)
     if collider == 'LEP':
         results_df['ana_pred_tau_plus_mass']  = inv_mass(ana_pred_taus, 0)
         results_df['ana_pred_tau_minus_mass'] = inv_mass(ana_pred_taus, 4)
@@ -208,8 +210,8 @@ def main():
     if collider == 'LEP':
         results_df = compute_spin_vars(results_df, tau_prefix='ana_pred_')
 
-    if predictions_alt is not None:
-        results_df = compute_spin_vars(results_df, tau_prefix='alt_pred_')
+    if predictions_map is not None:
+        results_df = compute_spin_vars(results_df, tau_prefix='map_pred_')
 
     # spin density matrix per DM category
     dm_masks = {
@@ -219,14 +221,14 @@ def main():
                               ((results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 0))],
         'dm_1_1': results_df[(results_df['taup_haspizero'] == 1) & (results_df['taun_haspizero'] == 1)],
     }
+    spin_plot_dir = f"{output_plots_dir}/spin_density"
     for dm_category, results_df_dm in dm_masks.items():
         true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_')
         if collider == 'LEP':
             ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='ana_pred_')
         pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
-        if predictions_alt is not None:
-            alt_pred_Bplus, alt_pred_Bminus, alt_pred_C, alt_pred_con, alt_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='alt_pred_')
-
+        if predictions_map is not None:
+            map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='map_pred_')
 
         print('\n===== DM CATEGORY:', dm_category, '=====')
         print('True spin density matrix variables:')
@@ -241,17 +243,26 @@ def main():
             print(ana_pred_Bminus)
             print(ana_pred_C)
             print(ana_pred_con, ana_pred_m12)
-        print('\nNN predicted spin density matrix variables:')
+        print('\nSampled spin density matrix variables:')
         print(pred_Bplus)
         print(pred_Bminus)
         print(pred_C)
         print(pred_con, pred_m12)
-        if predictions_alt is not None:
-            print('\nAlternative NN predicted spin density matrix variables:')
-            print(alt_pred_Bplus)
-            print(alt_pred_Bminus)
-            print(alt_pred_C)
-            print(alt_pred_con, alt_pred_m12)
+        if predictions_map is not None:
+            print('\nMAP estimate spin density matrix variables:')
+            print(map_pred_Bplus)
+            print(map_pred_Bminus)
+            print(map_pred_C)
+            print(map_pred_con, map_pred_m12)
+
+        # collect results for plotting
+        plot_results = {'True': (true_Bplus, true_Bminus, true_C, true_con, true_m12)}
+        if collider == 'LEP':
+            plot_results['ana pred'] = (ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12)
+        plot_results['Sampled'] = (pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12)
+        if predictions_map is not None:
+            plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)
+        plot_spin_density_matrix(plot_results, dm_category, outdir=spin_plot_dir)
 
 
     # write the results dataframe to a parquet file
@@ -259,7 +270,7 @@ def main():
 
     # write root file aswell
     with uproot.recreate(f"{output_dir}/output_results.root") as f:
-        f["tree"] = results_df.to_dict(orient="list")
+        f.mktree('tree', results_df.to_dict(orient="list"))
 
     # make plots of the samples PDFs vs the analytical solutions for some events
     if not args.useMLP and collider == 'LEP':
