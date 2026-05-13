@@ -189,7 +189,7 @@ class MorphDataset(Dataset):
         return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
 
-def convert_root_to_parquet(input_file_name, key, config, collider):
+def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=True):
 
     print("Converting from ROOT to Parquet...")
 
@@ -202,10 +202,24 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
     df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
     df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
 
+    if use_reco:
+        # if reco features are available, also select events where the reco taus have 1 pi and <2 pi0s to be consistent with gen-level selection
+        df = df[(df['reco_taup_npi'] == 1) & (df['reco_taup_npizero'] < 2)]
+        df = df[(df['reco_taun_npi'] == 1) & (df['reco_taun_npizero'] < 2)]
+
+        # apply vis pT cut as well
+        df = df[(df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)]
+
     # now we add a DM float which is 0 or 1 depending on whether tau is pi or pipizero
     df['taup_haspizero'] = (df['taup_npizero'] > 0).astype(float)
     df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
     df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])  # delete the pi and pi0 columns
+
+    # do the same for reco if it exists
+    if 'reco_taup_npizero' in df.columns:
+        df['reco_taup_haspizero'] = (df['reco_taup_npizero'] > 0).astype(float)
+        df['reco_taun_haspizero'] = (df['reco_taun_npizero'] > 0).astype(float)
+        df = df.drop(columns=['reco_taup_npi', 'reco_taup_npizero', 'reco_taun_npi', 'reco_taun_npizero'])  # delete the reco pi and pi0 columns
 
     if collider == 'LEP':
         # also apply a reco_mass cut to select events close to the Z pole with little boost
@@ -217,7 +231,7 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
         df['dmin_y'] = df['reco_taup_pi1_ipy'] - df['reco_taun_pi1_ipy']
         df['dmin_z'] = df['reco_taup_pi1_ipz'] - df['reco_taun_pi1_ipz']
 
-    if collider == 'LHC':
+    if collider == 'LHC': # TODO delete eventaually as this should be stored correctly now
         # recompute met_px and met_py from neutrinos as this wasn't stored properly
         df['met_px'] = df['taup_nu_px'] + df['taun_nu_px']
         df['met_py'] = df['taup_nu_py'] + df['taun_nu_py']
@@ -245,8 +259,10 @@ def convert_root_to_parquet(input_file_name, key, config, collider):
 
     elif config['coordinates'] == 'onorm':  # option to convert to orthonormal basis
 
-        if collider == 'LHC': prefix= "" # currently no smearing for LHC so use gen-level tau
+        if not use_reco: prefix= ""
         else: prefix = "reco_"
+
+        print ("Converting to orthonormal basis"+f" using prefix {prefix} for visible tau vectors" if use_reco else " using gen-level visible tau vectors")
 
         # convert outputs
         df = ConvertToOrthonormalNRK(
@@ -316,6 +332,9 @@ def get_train_val_test_datasets(key, config):
     # print('Number of events in training dataframe:', len(train_df))
     # print number of input features
     print('>> Number of input features:', len(input_features))
+    print('Input features:', input_features)
+    print('>> Number of output features:', len(output_features))
+    print('Output features:', output_features)
 
     # define datasets and normalize inputs and outputs
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)

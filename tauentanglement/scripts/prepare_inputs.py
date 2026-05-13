@@ -26,4 +26,4 @@ if __name__ == "__main__":
         # make output directory for the dataset
         os.makedirs(os.path.join(config_data['output_dir'], key), exist_ok=True)
         # convert root file to parquet
-        df = convert_root_to_parquet(file_path, key, config_data, collider)
+        df = convert_root_to_parquet(file_path, key, config_data, collider, use_reco=config_data['use_reco'])

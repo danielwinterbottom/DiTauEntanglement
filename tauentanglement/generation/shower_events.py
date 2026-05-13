@@ -3,11 +3,11 @@ import argparse
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'python')))
-#from pyHepMC3 import HepMC3
-#from Pythia8ToHepMC3 import Pythia8ToHepMC3
+from pyHepMC3 import HepMC3
+from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
-from ReconstructTaus import FindDMin_Point, FindDMin
+from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindDMin
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', '-i', help= 'LHE file to be converted')
@@ -16,7 +16,7 @@ parser.add_argument('--cmnd_file', '-c', help= 'Pythia8 command file')
 parser.add_argument('--n_events', '-n', help= 'Maximum number of events to process', default=-1, type=int)
 parser.add_argument('--n_skip', '-s', help= 'skip n_events*n_skip', default=0, type=int)
 parser.add_argument('--seed', help= 'Random seed for Pythia', default=1, type=int)
-parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for ee->H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
+parser.add_argument('--phi', help= 'pythia definition of CP mixing angle in degrees (only used for H -> tautau sample) CP-even=pi/2, CP-odd=0, max-mix=pi/4', default=1.5708, type=float)
 parser.add_argument('--extra_vars', action='store_true', help= 'If set, will also store additional variables in the output root file including the analytically predicted tau and spin sensitive quantities used to measure the rho matrix')
 parser.add_argument('--pythia_process', help= 'If set, will use the specified pythia process when generating the full events in pythia (rather than starting from LHE files). Supported options are eeToZtoTauTau, ppToHToTauTau, eeToHtoTauTau, and eeToZHtoTauTau', default=None)
 
@@ -271,6 +271,41 @@ elif pythia_process == "eeToZHtoTauTau":
 
     pythia.readString("HiggsH1:parity = 4")
     pythia.readString(f"HiggsH1:phiParity = {args.phi}")
+elif pythia_process == "ppToZToTauTau":
+    print('Producing pp -> Z -> tautau event in pythia')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z production and decay to taus
+    pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
+    pythia.readString("WeakZ0:gmZmode = 2") # switch off photon contribution 
+    pythia.readString("23:onMode = off")  # Turn off all Z decays
+    pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
+elif pythia_process == "ppToZToTauTau_HLikeMass":
+    print('Producing pp -> Z -> tautau event in pythia with Z mass set to Higgs mass to get more boosted taus')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z production and decay to taus
+    pythia.readString("WeakSingleBoson:ffbar2gmZ = on")
+    pythia.readString("WeakZ0:gmZmode = 2") # switch off photon contribution 
+    pythia.readString("23:onMode = off")  # Turn off all Z decays
+    pythia.readString("23:onIfAny = 15")  # Enable Z -> tau+ tau-
+    pythia.readString("23:m0 = 125.0") # set Z mass to Higgs mass
+    pythia.readString("23:mWidth = 0.00407") # set Z width to Higgs width
+elif pythia_process == "ppToZPrimeToTauTau":
+    print('Producing pp -> Z\' -> tautau event in pythia with Z\' mass set to 125 GeV')
+    pythia.readString("Beams:idA = 2212") # Proton
+    pythia.readString("Beams:idB = 2212")  # Proton
+    pythia.readString("Beams:eCM = 13600")  # Center-of-mass energy
+    # Enable Z' production and decay to taus
+    #pythia.readString("NewGaugeBoson:ffbar2Zprime = on")
+    pythia.readString("NewGaugeBoson:ffbar2gmZZprime = on")
+    pythia.readString("Zprime:gmZmode = 3") # only pure Z' contribution, no interference with gamma/Z
+    pythia.readString("32:onMode = off")  # Turn off all Z' decays
+    pythia.readString("32:onIfAny = 15")  # Enable Z' -> tau+ tau-
+    pythia.readString("32:m0 = 125.0") # set Z' mass to Higgs mass
+    pythia.readString("32:mWidth = 0.00407") # set Z' width to Higgs width
 
 pythia.readString("Random:setSeed = on")
 pythia.readString(f"Random:seed = {args.seed}")  # Set random seed for reproducibility
@@ -279,8 +314,8 @@ pythia.init()
 
 pythia.LHAeventSkip(args.n_skip*args.n_events)
 
-#hepmc_converter = Pythia8ToHepMC3()
-#hepmc_writer = HepMC3.WriterAscii(args.output)
+hepmc_converter = Pythia8ToHepMC3()
+hepmc_writer = HepMC3.WriterAscii(args.output)
 
 def IsLastCopy(part, event):
     ''' 
@@ -850,9 +885,9 @@ while not stopGenerating:
         branch_vals['cosTheta'][0] = cosTheta
 
 
-    #hepmc_event = HepMC3.GenEvent()
-    #hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
-    #hepmc_writer.write_event(hepmc_event)
+    hepmc_event = HepMC3.GenEvent()
+    hepmc_converter.fill_next_event1(pythia, hepmc_event, count+1)
+    hepmc_writer.write_event(hepmc_event)
 
     if not stopGenerating: 
         # check if both taun and taup were found (LastCopy), if not print a warning and don't fill the tree

@@ -168,14 +168,14 @@ def flow_map_predict(
 
 
 
-def compute_spin_vars(df, tau_prefix='true_'):
+def compute_spin_vars(df, tau_pred_prefix='true_', tau_vis_prefix=''):
 
-    taup = df[[f'{tau_prefix}tau_plus_E', f'{tau_prefix}tau_plus_px', f'{tau_prefix}tau_plus_py', f'{tau_prefix}tau_plus_pz']].values
-    taun = df[[f'{tau_prefix}tau_minus_E', f'{tau_prefix}tau_minus_px', f'{tau_prefix}tau_minus_py', f'{tau_prefix}tau_minus_pz']].values
-    taup_pi1 = df[['taup_pi1_E', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
-    taup_pizero1 = df[['taup_pizero1_E', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
-    taun_pi1 = df[['taun_pi1_E', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
-    taun_pizero1 = df[['taun_pizero1_E', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
+    taup = df[[f'{tau_pred_prefix}tau_plus_E', f'{tau_pred_prefix}tau_plus_px', f'{tau_pred_prefix}tau_plus_py', f'{tau_pred_prefix}tau_plus_pz']].values
+    taun = df[[f'{tau_pred_prefix}tau_minus_E', f'{tau_pred_prefix}tau_minus_px', f'{tau_pred_prefix}tau_minus_py', f'{tau_pred_prefix}tau_minus_pz']].values
+    taup_pi1 = df[[f'{tau_vis_prefix}taup_pi1_E', f'{tau_vis_prefix}taup_pi1_px', f'{tau_vis_prefix}taup_pi1_py', f'{tau_vis_prefix}taup_pi1_pz']].values
+    taup_pizero1 = df[[f'{tau_vis_prefix}taup_pizero1_E', f'{tau_vis_prefix}taup_pizero1_px', f'{tau_vis_prefix}taup_pizero1_py', f'{tau_vis_prefix}taup_pizero1_pz']].values
+    taun_pi1 = df[[f'{tau_vis_prefix}taun_pi1_E', f'{tau_vis_prefix}taun_pi1_px', f'{tau_vis_prefix}taun_pi1_py', f'{tau_vis_prefix}taun_pi1_pz']].values
+    taun_pizero1 = df[[f'{tau_vis_prefix}taun_pizero1_E', f'{tau_vis_prefix}taun_pizero1_px', f'{tau_vis_prefix}taun_pizero1_py', f'{tau_vis_prefix}taun_pizero1_pz']].values
 
     com_boost_vec = boost_vector(taup + taun)
     taup = boost(taup, -com_boost_vec)
@@ -188,11 +188,11 @@ def compute_spin_vars(df, tau_prefix='true_'):
 
     taup_s = polarimetric_vector_tau(
         taup, taup_pi1, taup_pizero1,
-        np.ones_like(df['taup_haspizero'].values), df['taup_haspizero'].values
+        np.ones_like(df[f'{tau_vis_prefix}taup_haspizero'].values), df[f'{tau_vis_prefix}taup_haspizero'].values
     )
     taun_s = polarimetric_vector_tau(
         taun, taun_pi1, taun_pizero1,
-        np.ones_like(df['taun_haspizero'].values), df['taun_haspizero'].values
+        np.ones_like(df[f'{tau_vis_prefix}taun_haspizero'].values), df[f'{tau_vis_prefix}taun_haspizero'].values
     )
 
     spin_angles = compute_spin_angles(
@@ -203,7 +203,7 @@ def compute_spin_vars(df, tau_prefix='true_'):
 
     # now add these to the dataframe
     for key, values in spin_angles.items():
-        df[f'{tau_prefix}{key}'] = values
+        df[f'{tau_pred_prefix}{key}'] = values
 
     return df
 
