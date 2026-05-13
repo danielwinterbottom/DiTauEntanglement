@@ -81,18 +81,25 @@ def main():
 
     # move X_test and model to device
     X_test, _ = test_dataset[:]
+    del _
     X_test = X_test.to(device)
     model = model.to(device)
 
     samples_map = None
+    sample_chunk_size = 50000 if device.type == 'cpu' else 100000
     if args.useMLP:
         # for MLP we just do a forward pass then get predictions
         with torch.no_grad():
             predictions_norm = model(X_test)
     else:
-        # sample from the normflow pdf
+        # sample from the normflow pdf in chunks to avoid memory issues
+        pred_chunks = []
         with torch.no_grad():
-            predictions_norm = model.sample(num_samples=1, context=X_test).squeeze()
+            for start in range(0, X_test.shape[0], sample_chunk_size):
+                chunk = model.sample(num_samples=1, context=X_test[start:start + sample_chunk_size]).squeeze(1)
+                pred_chunks.append(chunk.cpu())
+        predictions_norm = torch.cat(pred_chunks, dim=0)
+        del pred_chunks
 
     # destandardize predictions so that they are in physical units
     predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
@@ -268,8 +275,6 @@ def main():
 
         # collect results for plotting
         plot_results = {'True': (true_Bplus, true_Bminus, true_C, true_con, true_m12)}
-        if collider == 'LEP':
-            plot_results['ana pred'] = (ana_pred_Bplus, ana_pred_Bminus, ana_pred_C, ana_pred_con, ana_pred_m12)
         plot_results['Sampled'] = (pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12)
         if predictions_map is not None:
             plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)

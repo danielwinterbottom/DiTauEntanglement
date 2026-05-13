@@ -89,6 +89,8 @@ def flow_map_predict(
                 )
             best_idx = torch.argmax(log_probs, dim=1)              # [C]
             best_samples_chunk = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+            # free the large [C, num_draws, F] tensor before appending to avoid two chunks in memory at once
+            del samples_norm_chunk, log_probs, best_idx
             all_best_samples.append(best_samples_chunk.cpu())
 
     elif method == 'gradient':
@@ -124,7 +126,6 @@ def flow_map_predict(
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
 
-            # sample stochastic to get a good start pointwith torch.no_grad():
             with torch.no_grad():
                 # single pass get both [C, num_draws, F] and [C, num_draws]
                 samples_norm_chunk, log_probs = model.sample_and_log_prob(
@@ -132,6 +133,7 @@ def flow_map_predict(
                 )
             best_idx = torch.argmax(log_probs, dim=1)              # [C]
             x_best = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+            del samples_norm_chunk, log_probs, best_idx
 
             # encode this best sampled point to z space
             with torch.no_grad():
