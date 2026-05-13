@@ -102,7 +102,7 @@ def main():
                     taup_pi=reco_taup_pi, taup_pizero=reco_taup_pizero, taun_pi=reco_taun_pi, taun_pizero=reco_taun_pizero)
     else:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_pi=taup_pi, taup_pizero=taup_pizero, taun_pi=taun_pi, taun_pizero=taun_pizero)
+                    taup_pi=true_taup_pi, taup_pizero=true_taup_pizero, taun_pi=true_taun_pi, taun_pizero=true_taun_pizero)
     predictions = convert_coordinates_pred(predictions, **conv_kwargs)
 
     if not args.useMLP:
@@ -150,8 +150,8 @@ def main():
   
   
     # build dataframe for results
-    taup_haspizero = test_df['taup_haspizero'].values.reshape(-1, 1)
-    taun_haspizero = test_df['taun_haspizero'].values.reshape(-1, 1)
+    true_taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
+    true_taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
 
     if use_reco:
         reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
@@ -225,7 +225,7 @@ def main():
     results_df = compute_spin_vars(results_df, tau_pred_prefix='true_', tau_vis_prefix='true_') 
     results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_',  tau_vis_prefix='reco_' if use_reco else 'true_')
     # get spin vars for MAP prediction if present
-    if predictions_alt is not None:
+    if predictions_map is not None:
         results_df = compute_spin_vars(results_df, tau_pred_prefix='map_pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
 
     # loop over dm categories and compute spin density matrix variables for each
