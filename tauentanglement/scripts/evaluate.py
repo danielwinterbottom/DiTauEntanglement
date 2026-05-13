@@ -108,7 +108,6 @@ def main():
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
                     taup_pi=true_taup_pi, taup_pizero=true_taup_pizero, taun_pi=true_taun_pi, taun_pizero=true_taun_pizero)
     predictions = convert_coordinates_pred(predictions, **conv_kwargs)
-    print('test4')
 
     if not args.useMLP:
         # define alternative prediction by taking most probable value from flow, do this by sampling to find MAP estimate
