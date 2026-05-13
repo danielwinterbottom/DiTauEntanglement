@@ -36,7 +36,7 @@ def get_R_P_vectors_all(df, tau_prefix='tau'):
         "px": df[f"{tau_prefix}_pi1_px"],
         "py": df[f"{tau_prefix}_pi1_py"],
         "pz": df[f"{tau_prefix}_pi1_pz"],
-        "E":  df[f"{tau_prefix}_pi1_e"],
+        "E":  df[f"{tau_prefix}_pi1_E"],
     }, with_name="Momentum4D")
 
     R_ip = ak.zip({
@@ -50,7 +50,7 @@ def get_R_P_vectors_all(df, tau_prefix='tau'):
         "px": df[f"{tau_prefix}_pizero1_px"],
         "py": df[f"{tau_prefix}_pizero1_py"],
         "pz": df[f"{tau_prefix}_pizero1_pz"],
-        "E":  df[f"{tau_prefix}_pizero1_e"],
+        "E":  df[f"{tau_prefix}_pizero1_E"],
     }, with_name="Momentum4D")
 
     is_dm1 = df[f"{tau_prefix}_haspizero"].values == 1
@@ -135,19 +135,23 @@ def get_ditau_polarimetric_gen(df):
     return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
 
 
-def get_ditau_polarimetric_reco(df):
+def get_ditau_polarimetric_reco(df, smeared=True):
     """Compute the R and P vectors in the reco case using regressed neutrinos."""
+    if smeared:
+        prefix = 'reco_tau'
+    else:
+        prefix = 'tau'
     # Define positive tau vectors
-    pi_p     = ak.zip({"px": df["taup_pi1_px"], "py": df["taup_pi1_py"], "pz": df["taup_pi1_pz"], "E": df["taup_pi1_E"]}, with_name="Momentum4D")
+    pi_p     = ak.zip({"px": df[f"{prefix}p_pi1_px"], "py": df[f"{prefix}p_pi1_py"], "pz": df[f"{prefix}p_pi1_pz"], "E": df[f"{prefix}p_pi1_E"]}, with_name="Momentum4D")
     tau_p    = ak.zip({"px": df["alt_pred_tau_plus_px"], "py": df["alt_pred_tau_plus_py"], "pz": df["alt_pred_tau_plus_pz"], "E": df["alt_pred_tau_plus_E"]}, with_name="Momentum4D")
-    pizero_p = ak.zip({"px": df["taup_pizero1_px"], "py": df["taup_pizero1_py"], "pz": df["taup_pizero1_pz"], "E": df["taup_pizero1_E"]}, with_name="Momentum4D")
-    taup_is_dm1 = df["taup_haspizero"].values == 1
+    pizero_p = ak.zip({"px": df[f"{prefix}p_pizero1_px"], "py": df[f"{prefix}p_pizero1_py"], "pz": df[f"{prefix}p_pizero1_pz"], "E": df[f"{prefix}p_pizero1_E"]}, with_name="Momentum4D")
+    taup_is_dm1 = df[f"{prefix}p_haspizero"].values == 1
 
     # Define negative tau vectors
-    pi_n     = ak.zip({"px": df["taun_pi1_px"], "py": df["taun_pi1_py"], "pz": df["taun_pi1_pz"], "E": df["taun_pi1_E"]}, with_name="Momentum4D")
+    pi_n     = ak.zip({"px": df[f"{prefix}n_pi1_px"], "py": df[f"{prefix}n_pi1_py"], "pz": df[f"{prefix}n_pi1_pz"], "E": df[f"{prefix}n_pi1_E"]}, with_name="Momentum4D")
     tau_n    = ak.zip({"px": df["alt_pred_tau_minus_px"], "py": df["alt_pred_tau_minus_py"], "pz": df["alt_pred_tau_minus_pz"], "E": df["alt_pred_tau_minus_E"]}, with_name="Momentum4D")
-    pizero_n = ak.zip({"px": df["taun_pizero1_px"], "py": df["taun_pizero1_py"], "pz": df["taun_pizero1_pz"], "E": df["taun_pizero1_E"]}, with_name="Momentum4D")
-    taun_is_dm1 = df["taun_haspizero"].values == 1
+    pizero_n = ak.zip({"px": df[f"{prefix}n_pizero1_px"], "py": df[f"{prefix}n_pizero1_py"], "pz": df[f"{prefix}n_pizero1_pz"], "E": df[f"{prefix}n_pizero1_E"]}, with_name="Momentum4D")
+    taun_is_dm1 = df[f"{prefix}n_haspizero"].values == 1
 
     # Boost to Higgs rest frame
     higgs_bv = boost_vec(tau_p + tau_n)

@@ -27,14 +27,20 @@ options = {
         'tag':   'POL_GEN',
     },
     'recoRun3': {
-        'even':  "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/prepared_LHC_data/test_smeared_CPeven_v5/full_onorm_dataframe.parquet",
-        'odd':   "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/prepared_LHC_data/test_smeared_CPodd_v5/full_onorm_dataframe.parquet",
+        'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_v4.pkl",
+        'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_v4.pkl",
         'label': 'Run 3 Reconstruction',
         'tag':   'RecoRun3',
     },
+    # 'recoRun3': {
+    #     'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven_May07/full_onorm_dataframe.parquet",
+    #     'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd_May07/full_onorm_dataframe.parquet",
+    #     'label': 'Run 3 Reconstruction',
+    #     'tag':   'RecoRun3',
+    # },
     'recoNu': {
-        'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results.pkl",
-        'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd.pkl",
+        'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_v4.pkl",
+        'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_v4.pkl",
         'label': 'Regressed Neutrino',
         'tag':   'RecoNu_Smeared',
     },
@@ -60,7 +66,7 @@ def compute_phicp_all(df, option):
 
 def load_data(option):
     cfg = options[option]
-    read = pd.read_pickle if option == 'recoNu' else pd.read_parquet
+    read = pd.read_pickle if option == 'recoNu' or option == 'recoRun3' else pd.read_parquet
     return read(cfg['even']), read(cfg['odd'])
 
 
@@ -95,16 +101,22 @@ def main():
         print(odd['phiCP'].describe())
 
         fig, ax = plt.subplots(figsize=(8, 6))
-        ax.hist(even['phiCP'], bins=20, histtype='step', label='CP-even',
+        bin_edges = np.linspace(0, 2 * np.pi, 21)
+        even_counts, _ = np.histogram(even['phiCP'], bins=bin_edges, density=True)
+        odd_counts, _  = np.histogram(odd['phiCP'],  bins=bin_edges, density=True)
+        ax.hist(even['phiCP'], bins=bin_edges, histtype='step', label='CP-even',
                 density=True, linewidth=2, color='red')
-        ax.hist(odd['phiCP'],  bins=20, histtype='step', label='CP-odd',
+        ax.hist(odd['phiCP'],  bins=bin_edges, histtype='step', label='CP-odd',
                 density=True, linewidth=2, color='blue')
+        avg = 0.5 * (even_counts + odd_counts)
+        asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
         ax.set_xlabel(r'$\phi_{CP}$')
         ax.set_title(f'DM{dm_taup} - DM{dm_taun} - {options[args.option]["label"]}')
         ax.set_xlim(0, 2 * np.pi)
         ax.set_ylim(0, 0.28)
         ax.legend()
-
+        ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
+                verticalalignment='top', fontweight='bold')
         out = f"{args.output_dir}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
         plt.savefig(out)
         plt.close()
