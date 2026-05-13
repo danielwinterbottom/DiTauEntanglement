@@ -320,6 +320,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
 
         train_size = int(config['train_fraction'] * len(df))
         val_size = int(config['val_fraction'] * len(df))
+
         # check if test_fraction is defined, if not use the rest of the data for testing
         if 'test_fraction' in config:
             test_size = int(config['test_fraction'] * len(df))
@@ -332,7 +333,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         if config['full_dataframe_testing']:
             test_df_ = df.copy()
         else:
-            test_df_ = df.iloc[train_size + val_size:]
+            test_df_ = df.iloc[train_size + val_size:train_size + val_size + test_size]
         del df
 
         val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe.parquet'))
@@ -372,7 +373,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
 
     return train_dataset, val_dataset, input_features, output_features
 
-def get_test_dataset(key, config, norm_data):
+def get_test_dataset(config, norm_data):
 
     test_df = pd.read_parquet(config['test_dataset'])
 

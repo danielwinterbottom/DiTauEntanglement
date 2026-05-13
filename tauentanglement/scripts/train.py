@@ -32,10 +32,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     ## Get train and validation datasets
-    #if len(data_config['datasets']) > 1:
-    #    raise NotImplementedError("Currently only supports one dataset at a time.")
-    #else:
-    #    dataset=data_config['datasets'][0]
+
     datasets = data_config['datasets']
     train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config)
 
