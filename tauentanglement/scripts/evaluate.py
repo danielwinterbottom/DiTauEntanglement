@@ -99,7 +99,7 @@ def main():
 
     if use_reco:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_pi=reco_taup_pi, taup_pi0=reco_taup_pizero, taun_pi=reco_taun_pi, taun_pi0=reco_taun_pizero)
+                    taup_pi=reco_taup_pi, taup_pizero=reco_taup_pizero, taun_pi=reco_taun_pi, taun_pizero=reco_taun_pizero)
     else:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
                     taup_pi=taup_pi, taup_pizero=taup_pizero, taun_pi=taun_pi, taun_pizero=taun_pizero)
@@ -253,7 +253,7 @@ def main():
         print(true_con, true_m12)
         print()
 
-        print('\n Sampled predicted spin density matrix variables:)
+        print('\n Sampled predicted spin density matrix variables:')
         print(pred_Bplus)
         print(pred_Bminus)
         print(pred_C)
