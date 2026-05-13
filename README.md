@@ -20,10 +20,10 @@ pip install -e .
 
 This example uses the reduced datasets for that it can be run reasonably quickly.
 
-Prepare datadrames:
+Prepare dataframes:
 
 ```
-python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LHC.yaml
 ```
 
 
@@ -31,26 +31,31 @@ Run Nflows training:
 
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml
 ```
 
 
 Train a "normal" neural network with MSE loss to compare to:
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LEP.yaml --useMLP
+python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml --useMLP
 ```
+
+Can use the tauentanglement/utils/batch_submission.py script to run any python script as a batch job e.g using one of the GPU nodes.
+For running the training on the batch use:
+
+	python tauentanglement/utils/batch_submission.py -c "python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml" --gpu --runtime 86400 --job_name model_NFlows_LHC_onnorm_reco_May08
 
 
 Test Nflows model:
 
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml
 ```
 
 Test MLP model (haven't tested this explicitly yet)
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LEP.yaml --useMLP
+python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml --useMLP
 ```
 
 ## Instructions for pp->H training
@@ -191,3 +196,22 @@ ee->Z->tautau LEP events, where taus are forced to decay into either DM=0 or DM=
 
 ee->Z->tautau LEP events with no entanglement, where taus are forced to decay into either DM=0 or DM=1: 
 	/vols/cms/dw515/HH_reweighting/DiTauEntanglement/batch_job_outputs/ee_to_tauhtauh_dm0and1only_no_entanglement_Ntot_30000000_Njob_10000/pythia_events_extravars_reduced.root
+
+### Running Delphes
+
+Install with condor:
+	conda install --channel conda-forge delphes
+
+Run delphes starting from a .hepmc file:
+	DelphesHepMC3 $CONDA_PREFIX/cards/delphes_card_CMS.tcl delphes_output_pp.root pythia_events_test.hepmc
+
+### generating LHC events
+
+This is run in 3 stages. First pythia is run to produce .hepmc files, then delphes is run to do the detector smearing, and then the outputs of delphes are processed to reconstruct the taus and their decay products using HPS-like algorithms
+
+
+To run all 3 stages together as batch jobs use:
+
+	python tauentanglement/generation/submit_pythia_jobs_LHC.py -c tauentanglement/generation/configs/pythia_cmnd_dm0and1 -j ppToHToTauTau_DM0and1_CPOdd_May07 --extra="--phi=0" -n 3000
+
+This runs 10000 events per job. The phi angle changes the CP nature of the higgs. phi=0 = CP-odd, 1.5708 = CP-even, +/-0.7854 = max-mix (+/- determines sign of inteference term)
