@@ -23,6 +23,8 @@ SetupNN:
               'hidden_size': 512,
               'lr': 0.0005,
               'weight_decay': !!float 1e-05}
+  map_method: stochastic
+  map_num_draws: 100
 
 
 Data:
@@ -61,7 +63,16 @@ Data:
                     'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
                     'reco_taup_vis_pT', 'reco_taun_vis_pT',
                     'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-                    'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+                    'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
+                    'reco_taup_npi', 'reco_taup_npizero',
+                    'reco_taun_npi', 'reco_taun_npizero',
+                    'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e',
+                    'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                    'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e',
+                    'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
+                    'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e',
+                    'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e',
+                    'reco_taup_vis_pT', 'reco_taun_vis_pT'
                 ]
     input_features: ['reco_taup_haspizero', 'reco_taun_haspizero',
                     'reco_met_px', 'reco_met_py',

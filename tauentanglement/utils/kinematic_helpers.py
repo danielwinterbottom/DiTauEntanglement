@@ -28,6 +28,21 @@ def boost_vector(p):
     """
     return spatial(p) / p[..., 0:1]
 
+def add_energy(pvec3):
+    """Prepend E=|p| to a (N,3) array, returning (N,4) [E,px,py,pz]."""
+    return np.column_stack((np.sqrt((pvec3**2).sum(axis=1)), pvec3))
+
+
+def add_energies_pair(arr6):
+    """Convert (N,6) [nubar_px,py,pz, nu_px,py,pz] to (N,8) with E=|p| prepended to each triplet."""
+    return np.column_stack((add_energy(arr6[:, 0:3]), add_energy(arr6[:, 3:6])))
+
+
+def inv_mass(taus, offset=0):
+    t = taus[:, offset:offset+4]
+    return np.sqrt(np.maximum(t[:,0]**2 - t[:,1]**2 - t[:,2]**2 - t[:,3]**2, 0))
+
+
 
 def boost(v, beta):
     """

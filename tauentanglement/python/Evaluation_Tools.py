@@ -3,7 +3,12 @@ from tqdm import tqdm
 import numpy as np
 from tauentanglement.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
 import os
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.colors import TwoSlopeNorm
+import mplhep as hep
+
 
 def flow_map_predict(
     model,
@@ -11,22 +16,41 @@ def flow_map_predict(
     test_dataset=None,
     num_draws=100,
     chunk_size=5000,
+    method='stochastic',
+    n_steps=200,
+    lr=1e-2,
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
-    
+
     Parameters
     ----------
-    model : flow model
+    model : ConditionalFlow
         The trained normalizing flow model.
     X : torch.Tensor
         Conditioning features of shape [B, context_dim].
     test_dataset : object, optional
         Must supply .destandardize_outputs(tensor). If None, no destandardization is performed.
     num_draws : int
-        Number of samples per event to approximate the MAP estimate.
+        Number of samples per event. Used by method='stochastic' and 'gradient_warmstart'.
     chunk_size : int
         Number of events to process at once (controls memory usage).
+    method : str
+        'stochastic'          — draw num_draws samples per event and pick the highest log-prob
+                                one. Uses sample_and_log_prob() for a single forward pass.
+        'latent_zero'         — decode the latent origin z=0 for each event. Deterministic,
+                                single forward pass. Best for unimodal posteriors.
+        'gradient'            — z-space MAP: optimise z via Adam using the change-of-variables
+                                identity log p = log p_Z(z) - log|det J_decode|. Initialises
+                                from z=0. Single decode pass per step.
+        'gradient_warmstart'  — same as 'gradient' but initialises z from the best of
+                                num_draws stochastic samples (encoded back to z-space).
+                                Handles multimodal posteriors: sampling finds the right basin,
+                                gradient descent finds the exact mode within it.
+    n_steps : int
+        Number of Adam steps. Only used by gradient methods.
+    lr : float
+        Adam learning rate. Only used by gradient methods.
 
     Returns
     -------
@@ -39,56 +63,102 @@ def flow_map_predict(
     model.eval()
 
     B = X.shape[0]
-
     all_best_samples = []
 
-    for start in tqdm(range(0, B, chunk_size), desc="Processing chunks"):
-        end = min(start + chunk_size, B)
-        X_chunk = X[start:end]
-        C = X_chunk.shape[0]
+    if method == 'latent_zero':
+        # this doesn't work very well, but might as well leave it in
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (latent_zero)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+            z_zero = torch.zeros(C, latent_dim, device=X_chunk.device)
+            with torch.no_grad():
+                x_map, _ = model.decode(z_zero, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
 
-        # -----------------------------------------------------------
-        # 1. Sample num_draws from the flow for this chunk
-        #    samples_norm_chunk: [C, num_draws, features]
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            samples_norm_chunk = model.sample(num_samples=num_draws, context=X_chunk)
+    elif method == 'stochastic':
+        # sample from the pdf
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (stochastic)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+            with torch.no_grad():
+                # single pass get both [C, num_draws, F] and [C, num_draws]
+                samples_norm_chunk, log_probs = model.sample_and_log_prob(
+                    num_samples=num_draws, context=X_chunk
+                )
+            best_idx = torch.argmax(log_probs, dim=1)              # [C]
+            best_samples_chunk = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+            all_best_samples.append(best_samples_chunk.cpu())
 
-        # Flatten for log_prob input
-        # [C, D, F] → [C*D, F]
-        flat_samples = samples_norm_chunk.reshape(C * num_draws, -1)
+    elif method == 'gradient':
+        # optimisation of the MAP estimate
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
 
-        # Repeat context for each sample
-        # [C, ctx] → [C*D, ctx]
-        flat_context = X_chunk.repeat_interleave(num_draws, dim=0)
+            # optimise z directly using the change-of-variables log p(x|c) = log p_Z(z) - log|det J_decode(z)|
+            # (z-space geometry is isotropic so easier to optimise)
+            z = torch.zeros(C, latent_dim, device=X_chunk.device, requires_grad=True)
+            optimizer = torch.optim.Adam([z], lr=lr)
 
-        # -----------------------------------------------------------
-        # 2. Compute log_prob for all C*D samples
-        # -----------------------------------------------------------
-        with torch.no_grad():
-            flat_log_probs = model.log_prob(flat_samples, context=flat_context)
+            for _ in range(n_steps):
+                optimizer.zero_grad()
+                _, logabsdet = model.decode(z, context=X_chunk)
+                log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                log_p = log_pz - logabsdet
+                (-log_p.sum()).backward()
+                optimizer.step()
 
-        # Reshape back to [C, D]
-        log_probs = flat_log_probs.view(C, num_draws)
+            with torch.no_grad():
+                x_map, _ = model.decode(z, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
 
-        # -----------------------------------------------------------
-        # 3. Select the best (MAP) sample per event
-        # -----------------------------------------------------------
-        best_idx = torch.argmax(log_probs, dim=1)   # [C]
-        batch_idx = torch.arange(C)
+    elif method == 'gradient_warmstart':
+        # mix of stochastic
+        latent_dim = model.flow._distribution._shape[0]
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient_warmstart)"):
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
 
-        best_samples_chunk = samples_norm_chunk[batch_idx, best_idx]  # [C, F]
+            # sample stochastic to get a good start pointwith torch.no_grad():
+            with torch.no_grad():
+                # single pass get both [C, num_draws, F] and [C, num_draws]
+                samples_norm_chunk, log_probs = model.sample_and_log_prob(
+                    num_samples=num_draws, context=X_chunk
+                )
+            best_idx = torch.argmax(log_probs, dim=1)              # [C]
+            x_best = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
 
-        all_best_samples.append(best_samples_chunk.cpu())
+            # encode this best sampled point to z space
+            with torch.no_grad():
+                z_init, _ = model.encode(x_best, context=X_chunk)
 
-    # -----------------------------------------------------------
-    # Combine chunks → [B, F]
-    # -----------------------------------------------------------
+            # optimise from there
+            z = z_init.detach().clone().requires_grad_(True)
+            optimizer = torch.optim.Adam([z], lr=lr)
+
+            for _ in range(n_steps):
+                optimizer.zero_grad()
+                _, logabsdet = model.decode(z, context=X_chunk)
+                log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                log_p = log_pz - logabsdet
+                (-log_p.sum()).backward()
+                optimizer.step()
+
+            with torch.no_grad():
+                x_map, _ = model.decode(z, context=X_chunk)
+            all_best_samples.append(x_map.cpu())
+
+    else:
+        raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
+
     samples_norm_alt = torch.cat(all_best_samples, dim=0)
 
-    # -----------------------------------------------------------
-    # Optional destandardization
-    # -----------------------------------------------------------
     if test_dataset is not None:
         samples_alt = test_dataset.destandardize_outputs(samples_norm_alt).cpu().numpy()
     else:
@@ -233,3 +303,87 @@ def save_sampled_pdfs(
         plt.tight_layout()
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
+
+def plot_spin_density_matrix(results, dm_category, outdir):
+    os.makedirs(outdir, exist_ok=True)
+
+    labels = list(results.keys())
+    n = len(labels)
+    axes_labels = ['n', 'r', 'k']
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+
+    def _draw_row_separators(ax, n_rows, n_cols):
+        for row in range(1, n_rows):
+            ax.hlines(row - 0.5, -0.5, n_cols - 0.5, colors='white', linewidths=2)
+
+    # C matrix
+    vmax = max(np.abs(results[l][2]).max() for l in labels)
+    norm = TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 3.5))
+    if n == 1:
+        axes = [axes]
+    for ax, label in zip(axes, labels):
+        C = results[label][2]
+        im = ax.imshow(C, cmap='RdBu', norm=norm)
+        ax.set_xticks(range(3))
+        ax.set_yticks(range(3))
+        ax.set_xticklabels(axes_labels)
+        ax.set_yticklabels(axes_labels)
+        for i in range(3):
+            for j in range(3):
+                ax.text(j, i, f'{C[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                        color='white' if abs(C[i, j]) > 0.6 * vmax else 'black')
+        ax.set_title(label)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Spin correlation matrix C  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'C_matrix_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()
+
+    # B+ and B-
+    bplus_mat  = np.array([results[l][0] for l in labels])   # [n, 3]
+    bminus_mat = np.array([results[l][1] for l in labels])   # [n, 3]
+    b_vmax = max(np.abs(bplus_mat).max(), np.abs(bminus_mat).max())
+    b_norm = TwoSlopeNorm(vmin=-b_vmax, vcenter=0, vmax=b_vmax)
+
+    fig, axes = plt.subplots(1, 2, figsize=(7, 0.6 * n + 1.5))
+    for ax, mat, title in zip(axes, [bplus_mat, bminus_mat], ['$B^+$', '$B^-$']):
+        im = ax.imshow(mat, cmap='RdBu', norm=b_norm, aspect='auto')
+        ax.set_xticks(range(3))
+        ax.set_xticklabels(axes_labels)
+        ax.set_yticks(range(n))
+        ax.set_yticklabels(labels)
+        for i in range(n):
+            for j in range(3):
+                ax.text(j, i, f'{mat[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                        color='white' if abs(mat[i, j]) > 0.6 * b_vmax else 'black')
+        _draw_row_separators(ax, n, 3)
+        ax.set_title(title)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Polarisation vectors  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'B_vectors_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()
+
+    # Entanglement info
+    ent_mat = np.array([[results[l][3].real, results[l][4].real] for l in labels])  # [n, 2]
+    e_vmax = np.abs(ent_mat).max()
+    e_norm = TwoSlopeNorm(vmin=-e_vmax, vcenter=0, vmax=e_vmax) if e_vmax > 0 else None
+
+    fig, ax = plt.subplots(figsize=(4, 0.6 * n + 1.5))
+    im = ax.imshow(ent_mat, cmap='RdBu', norm=e_norm, aspect='auto')
+    ax.set_xticks(range(2))
+    ax.set_xticklabels(['concurrence', '$m_{12}$'])
+    ax.set_yticks(range(n))
+    ax.set_yticklabels(labels)
+    for i in range(n):
+        for j in range(2):
+            ax.text(j, i, f'{ent_mat[i, j]:.3f}', ha='center', va='center', fontsize=8,
+                    color='white' if e_vmax > 0 and abs(ent_mat[i, j]) > 0.6 * e_vmax else 'black')
+    _draw_row_separators(ax, n, 2)
+    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.suptitle(f'Entanglement variables  —  {dm_category}', y=1.01)
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f'entanglement_{dm_category}.pdf'), bbox_inches='tight')
+    plt.close()
