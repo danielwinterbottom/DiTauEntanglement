@@ -5,6 +5,7 @@ from tauentanglement.python.DataProcessing import get_train_val_test_datasets
 from tauentanglement.python.NN_Tools import setup_model_and_training, train_model
 import yaml
 import os
+import numpy as np
 
 # TODO: Transfer hyperparam optimisation code here and make work with new def
 
@@ -30,12 +31,22 @@ if __name__ == "__main__":
     # gpu or cpu
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-    # Get train and validation datasets
-    if len(data_config['datasets']) > 1:
-        raise NotImplementedError("Currently only supports one dataset at a time.")
-    else:
-        dataset=data_config['datasets'][0]
-    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(dataset, data_config)
+    ## Get train and validation datasets
+    #if len(data_config['datasets']) > 1:
+    #    raise NotImplementedError("Currently only supports one dataset at a time.")
+    #else:
+    #    dataset=data_config['datasets'][0]
+    datasets = data_config['datasets']
+    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config)
+
+    # store the means and stds used for normalization
+    in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
+    out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
+
+    np.savez(f'{output_dir}/normalization_params.npz',
+             input_mean=in_mean, input_std=in_std,
+             output_mean=out_mean, output_std=out_std)
+
     print(f"Train dataset size: {len(train_dataset)}, Validation dataset size: {len(val_dataset)}")
 
     # Get hyperparameters

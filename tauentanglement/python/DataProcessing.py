@@ -293,27 +293,11 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
     print('Columns in the saved dataframe:', df.columns.tolist())
     return df
 
-def get_train_val_test_datasets(key, config):
+def get_train_val_test_datasets(keys, config, shuffle=True):
 
-    if config['coordinates'] == 'standard':
-        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_dataframe.parquet'))
-    elif config['coordinates'] == 'polar':
-        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_polar_dataframe.parquet'))
-    elif config['coordinates'] == 'onorm':
-        df = pd.read_parquet(os.path.join(config['output_dir'], key, 'full_onorm_dataframe.parquet'))
-
-    train_size = int(config['train_fraction'] * len(df))
-    val_size = int(config['val_fraction'] * len(df))
-    test_size = len(df) - train_size - val_size
-
-    train_df = df.iloc[:train_size]
-    val_df = df.iloc[train_size:train_size + val_size]
-
-    if config['full_dataframe_testing']:
-        test_df = df.copy()
-    else:
-        test_df = df.iloc[train_size + val_size:]
-    del df
+    # check if key is not a list, if not add it to a list
+    if not isinstance(keys, list):
+        keys = [keys]
 
     input_features = config['Features']['input_features']
     if config['inc_reco_taus']:
@@ -321,16 +305,57 @@ def get_train_val_test_datasets(key, config):
 
     output_features = config['Features']['output_features'][config['coordinates']]
 
-    val_df.to_parquet(os.path.join(config['output_dir'], key, f'val_dataframe.parquet'))
-    test_df.to_parquet(os.path.join(config['output_dir'], key, f'test_dataframe.parquet'))
-    train_df.to_parquet(os.path.join(config['output_dir'], key, f'train_dataframe.parquet'))
-    print(f">> Train, validation and test dataframes for {key} saved.")
-    print(f">> Train dataframe size: {len(train_df)}, Validation dataframe size: {len(val_df)}, Test dataframe size: {len(test_df)}")
+    train_df = None
+    val_df = None
 
-    #print the names of all the columns and information on the number of events in the dataframe
+    for k in keys:
+        if config['coordinates'] == 'standard':
+            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_dataframe.parquet'))
+        elif config['coordinates'] == 'polar':
+            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
+        elif config['coordinates'] == 'onorm':
+            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
+        # add a column to identify the dataset
+        df['dataset'] = k
+
+        train_size = int(config['train_fraction'] * len(df))
+        val_size = int(config['val_fraction'] * len(df))
+        # check if test_fraction is defined, if not use the rest of the data for testing
+        if 'test_fraction' in config:
+            test_size = int(config['test_fraction'] * len(df))
+        else:
+            test_size = len(df) - train_size - val_size
+
+        train_df_ = df.iloc[:train_size]
+        val_df_ = df.iloc[train_size:train_size + val_size]
+
+        if config['full_dataframe_testing']:
+            test_df_ = df.copy()
+        else:
+            test_df_ = df.iloc[train_size + val_size:]
+        del df
+
+        val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe.parquet'))
+        test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe.parquet'))
+        train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe.parquet'))
+        print(f">> Train, validation and test dataframes for {k} saved.")
+        print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
+
+        if train_df is None:
+            train_df = train_df_
+        else:
+            train_df = pd.concat([train_df, train_df_], ignore_index=True)
+        if val_df is None:
+            val_df = val_df_
+        else:
+            val_df = pd.concat([val_df, val_df_], ignore_index=True)
+
+    if shuffle:
+        train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
+        val_df = val_df.sample(frac=1, random_state=42).reset_index(drop=True)     
+
+    print(f"Number of events in training dataframe: {len(train_df)}, validation dataframe: {len(val_df)}")
     print('Columns in training dataframe:', train_df.columns.tolist())
-    # print('Number of events in training dataframe:', len(train_df))
-    # print number of input features
     print('>> Number of input features:', len(input_features))
     print('Input features:', input_features)
     print('>> Number of output features:', len(output_features))
@@ -338,20 +363,16 @@ def get_train_val_test_datasets(key, config):
 
     # define datasets and normalize inputs and outputs
     train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
+    del train_df
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
     val_dataset = RegressionDataset(val_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
                                       input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
-    del train_df, val_df, test_df
-
-    # store the means and stds used for normalization
-    np.savez(f'{config["output_dir"]}/{key}/normalization_params.npz',
-             input_mean=in_mean, input_std=in_std,
-             output_mean=out_mean, output_std=out_std)
+    del val_df
 
     return train_dataset, val_dataset, input_features, output_features
 
-def get_test_dataset(key, config):
+def get_test_dataset(key, config, norm_data):
 
     test_df = pd.read_parquet(config['test_dataset'])
 
@@ -365,8 +386,6 @@ def get_test_dataset(key, config):
     print('>> Number of events in test dataframe:', len(test_df))
     print('>> Number of input features:', len(input_features))
 
-    # test dataset with normalization using the same means and stds as the training dataset
-    norm_data = np.load(f'{config["output_dir"]}/{key}/normalization_params.npz')
     in_mean  = torch.from_numpy(norm_data['input_mean'])
     in_std   = torch.from_numpy(norm_data['input_std'])
     out_mean = torch.from_numpy(norm_data['output_mean'])
