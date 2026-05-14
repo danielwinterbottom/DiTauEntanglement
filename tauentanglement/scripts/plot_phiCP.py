@@ -80,8 +80,12 @@ def main():
     odd_df  = compute_phicp_all(odd_df,  args.option)
 
 
-    for dm_taup, dm_taun in [[0, 0], [1,0], [0,1], [1,1]]:
-        dm_mask = lambda df: (df['reco_taup_haspizero'] == dm_taup) & (df['reco_taun_haspizero'] == dm_taun)
+    for dm_taup, dm_taun in [[0, 0], [0,1], [1,1]]:
+
+        if dm_taup != dm_taun:
+            dm_mask = lambda df, p=dm_taup, n=dm_taun: ((df['reco_taup_haspizero'] == p) & (df['reco_taun_haspizero'] == n)) | ((df['reco_taup_haspizero'] == n) & (df['reco_taun_haspizero'] == p))
+        else:
+            dm_mask = lambda df, p=dm_taup, n=dm_taun: (df['reco_taup_haspizero'] == p) & (df['reco_taun_haspizero'] == n)
         even = even_df[dm_mask(even_df)]
         odd  = odd_df[dm_mask(odd_df)]
 
