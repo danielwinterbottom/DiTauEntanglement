@@ -1,10 +1,10 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_NFlows_LHC_onnorm_reco_May11
+  model_name: model_NFlows_LHC_onnorm_reco_mixedCPtraining_May13
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 200
+  n_epochs: 100
   hyperparams:  { # for NuFlow
               'batch_size': 8192,
               'num_layers': 6,
@@ -28,7 +28,7 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_DM0and1_CPEven_May07']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_DM0and1_CPEven_May07','ppToHToTauTau_DM0and1_CPOdd_May07']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   #test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd/test_dataframe.parquet'
@@ -37,8 +37,9 @@ Data:
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
   coordinates: onorm  # options: standard, polar, onorm
-  train_fraction: 0.85  # fraction of the dataset to use for training, rest will be used for validation
-  val_fraction: 0.10 # fraction of the dataset to use for validation, rest will be used for testing (after using train_fraction for training)
+  train_fraction: 0.85  # fraction of the dataset to use for training
+  val_fraction: 0.10 # fraction of the dataset to use for validation
+  test_fraction: 0.05 # fraction of the dataset to use for testing
   full_dataframe_testing: False # if True will use full dataset for testing
   Features:
     dataframe_variables: [

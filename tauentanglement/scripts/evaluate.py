@@ -34,16 +34,13 @@ def main():
     # set gpu or cpu
     device = torch.device("cuda:0" if torch.cuda.is_available() and not args.useCPU else "cpu")
 
-    # load test dataset
-    if len(data_config['datasets']) > 1:
-        raise NotImplementedError("Currently only supports one dataset at a time.")
-
-    dataset = data_config['datasets'][0]
-    test_dataset, test_df, input_features, output_features = get_test_dataset(dataset, data_config)
-
-    # load model
     output_dir = f"outputs_{nn_config['model_name']}"
     output_plots_dir = f"{output_dir}/plots"
+
+    norm_data = np.load(f'{output_dir}/normalization_params.npz') # we get the means and stds used in training the model so that we can apply the same normalization to the test dataset
+    test_dataset, test_df, input_features, output_features = get_test_dataset(data_config, norm_data)
+
+    # load model
     print(f'Evaluating final model {nn_config["model_name"]} on test dataset {data_config["test_dataset"]}')
     print(f'Number of events in test dataset: {len(test_dataset)}')
     hp = nn_config['MLP_hyperparams'] if args.useMLP else nn_config['hyperparams']
@@ -56,7 +53,7 @@ def main():
     except:
         print(f"Loading model from {model_path} failed. Trying to load from CPU.")
         model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-        print(">> Successfully loaded model")
+    print(">> Successfully loaded model")
     model.eval()
 
     # get tau pi and pizero four vectors from test_df
