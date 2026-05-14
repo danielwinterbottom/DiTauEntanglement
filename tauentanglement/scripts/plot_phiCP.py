@@ -20,27 +20,19 @@ plt.style.use(hep.style.CMS)
 plt.rcParams.update({"font.size": 16})
 
 options = {
+    'files':{  # set files here (ones from eval have all info we need)
+            'even':  "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_GRADIENT.parquet",
+            'odd':   "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_GRADIENT.parquet"
+    },
     'gen': {
-        'even':  "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/prepared_LHC_data/test_smeared_CPeven/full_onorm_dataframe.parquet",
-        'odd':   "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/prepared_LHC_data/test_smeared_CPodd/full_onorm_dataframe.parquet",
         'label': 'Generator Neutrino',
         'tag':   'POL_GEN',
     },
     'recoRun3': {
-        'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_v4.pkl",
-        'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_v4.pkl",
         'label': 'Run 3 Reconstruction',
         'tag':   'RecoRun3',
     },
-    # 'recoRun3': {
-    #     'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/prepared_LHC_data/ppToHToTauTau_DM0and1_CPEven_May07/full_onorm_dataframe.parquet",
-    #     'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd_May07/full_onorm_dataframe.parquet",
-    #     'label': 'Run 3 Reconstruction',
-    #     'tag':   'RecoRun3',
-    # },
     'recoNu': {
-        'even':  "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_v4.pkl",
-        'odd':   "/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_v4.pkl",
         'label': 'Regressed Neutrino',
         'tag':   'RecoNu_Smeared',
     },
@@ -64,9 +56,10 @@ def compute_phicp_all(df, option):
     return df
 
 
-def load_data(option):
-    cfg = options[option]
-    read = pd.read_pickle if option == 'recoNu' or option == 'recoRun3' else pd.read_parquet
+def load_data():
+    cfg = options['files']
+    # read = pd.read_pickle if option == 'recoNu' else pd.read_parquet
+    read = pd.read_parquet
     return read(cfg['even']), read(cfg['odd'])
 
 
@@ -82,7 +75,7 @@ def main():
     if args.output_dir != '.':
         os.makedirs(args.output_dir, exist_ok=True)
 
-    even_df, odd_df = load_data(args.option)
+    even_df, odd_df = load_data()
     even_df = compute_phicp_all(even_df, args.option)
     odd_df  = compute_phicp_all(odd_df,  args.option)
 

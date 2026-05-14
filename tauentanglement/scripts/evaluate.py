@@ -244,7 +244,7 @@ def main():
                               ((results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 0))],
         'dm_1_1': results_df[(results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 1)],
     }
-    spin_plot_dir = f"{output_plots_dir}/spin_density"
+    spin_plot_dir = f"{output_plots_dir}/spin_density/{data_config['test_output_name']}"
     for dm_category, results_df_dm in dm_masks.items():
         true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_')
         pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
