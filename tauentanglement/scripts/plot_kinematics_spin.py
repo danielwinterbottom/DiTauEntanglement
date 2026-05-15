@@ -71,15 +71,15 @@ spin_density_products = {
 
 
 
-def plotter(df, var_dict, output_dir, subdir, clip=False):
+def plotter(df, var_dict, output_dir, subdir, clip=False, useMAP=True):
 
     os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
 
     for var, label in var_dict.items():
         true_col = f"true_{var}"
-        map_col = f"map_pred_{var}"
+        pred_col = f"map_pred_{var}" if useMAP else f"pred_{var}"
 
-        combined = pd.concat([df[true_col].dropna() if true_col in df.columns else pd.Series(dtype=float), df[map_col].dropna() if map_col in df.columns else pd.Series(dtype=float),])
+        combined = pd.concat([df[true_col].dropna() if true_col in df.columns else pd.Series(dtype=float), df[pred_col].dropna() if pred_col in df.columns else pd.Series(dtype=float),])
         if len(combined) > 0:
             if clip:
                 if var.endswith('_E') or var.endswith('_mass'):
@@ -94,7 +94,7 @@ def plotter(df, var_dict, output_dir, subdir, clip=False):
 
         fig, (ax_main, ax_diff) = plt.subplots(1, 2, figsize=(12, 5))
         fig.suptitle(label)
-        for col, color, legend_label in [(true_col, "#00c04b", "Generator"),(map_col, "#2979ff", "MAP predicted")]:
+        for col, color, legend_label in [(true_col, "#00c04b", "Generator"),(pred_col, "#2979ff", "Predicted")]:
             if col in df.columns:
                 ax_main.hist(df[col].dropna(), bins=bins, histtype="step", linewidth=1.5, color=color, label=legend_label)
             else:
@@ -106,12 +106,12 @@ def plotter(df, var_dict, output_dir, subdir, clip=False):
         if clip:
             ax_main.text(0.97, 0.97, "(2% clipped)", ha="right", va="top", fontsize=11, transform=ax_main.transAxes, color="grey")
 
-        if true_col in df.columns and map_col in df.columns:
-            mask = df[true_col].notna() & df[map_col].notna()
+        if true_col in df.columns and pred_col in df.columns:
+            mask = df[true_col].notna() & df[pred_col].notna()
             if clip:
                 lo, hi = bin_range
-                mask &= df[true_col].between(lo, hi) & df[map_col].between(lo, hi)
-            diff = df.loc[mask, map_col] - df.loc[mask, true_col]
+                mask &= df[true_col].between(lo, hi) & df[pred_col].between(lo, hi)
+            diff = df.loc[mask, col] - df.loc[mask, true_col]
             diff_bins = np.histogram_bin_edges(diff, bins=50)
             ax_diff.hist(diff, bins=diff_bins, histtype="stepfilled", linewidth=1.5, alpha=0.7, color="#C84B2F", edgecolor="#7a2010")
             ax_diff.set_xlim(diff_bins[0], diff_bins[-1])
@@ -127,9 +127,11 @@ def plotter(df, var_dict, output_dir, subdir, clip=False):
 
 
 
-def add_spin_density_cols(df):
+def add_spin_density_cols(df, useMAP=True):
+    pred_prefix = 'map_pred_' if useMAP else 'pred_'
+    print('Adding columns for spin density')
     for name, (var1, var2) in spin_density_products.items():
-        for prefix in ("true_", "map_pred_"):
+        for prefix in ("true_", pred_prefix):
             col1 = f"{prefix}{var1}"
             if var2 is not None:
                 col2 = f"{prefix}{var2}"
@@ -141,17 +143,17 @@ def add_spin_density_cols(df):
     return df
 
 
-def plot_spin_density_vars(df, output_dir):
-    df = add_spin_density_cols(df)
-    plotter(df, spin_density_vars, output_dir, 'spin_density')
+def plot_spin_density_vars(df, output_dir, useMAP):
+    df = add_spin_density_cols(df, useMAP=useMAP)
+    plotter(df, spin_density_vars, output_dir, 'spin_density', useMAP=useMAP)
 
 
-def plot_spin_vars(df, output_dir):
-    plotter(df, spin_vars, output_dir, 'spin_vars')
+def plot_spin_vars(df, output_dir, useMAP):
+    plotter(df, spin_vars, output_dir, 'spin_vars', useMAP=useMAP)
 
 
-def plot_pred_taunu(df, output_dir):
-    plotter(df, pred_taunu_vars, output_dir, 'pred_taunu', clip=True)
+def plot_pred_taunu(df, output_dir, useMAP):
+    plotter(df, pred_taunu_vars, output_dir, 'pred_taunu', clip=True, useMAP=useMAP)
 
 
 
@@ -159,14 +161,16 @@ def main():
 
     parser = argparse.ArgumentParser(description="Plot kinematics and spin variables")
     parser.add_argument("--input", type=str, help="Path to input parquet file")
+    parser.add_argument('--useMLP', action='store_true')
     args = parser.parse_args()
+    use_map = not args.useMLP
     df = pd.read_parquet(args.input)
     output_dir = args.input.replace('.parquet', '')
     print(f">> Loaded {len(df)} events from {args.input}")
 
-    plot_spin_vars(df, output_dir)
-    plot_pred_taunu(df, output_dir)
-    plot_spin_density_vars(df, output_dir)
+    plot_spin_vars(df, output_dir, use_map)
+    plot_pred_taunu(df, output_dir, use_map)
+    plot_spin_density_vars(df, output_dir, use_map)
 
 
 

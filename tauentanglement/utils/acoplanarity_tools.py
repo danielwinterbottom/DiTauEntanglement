@@ -138,21 +138,25 @@ def get_ditau_polarimetric_gen(df):
     return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
 
 
-def get_ditau_polarimetric_reco(df, smeared=True):
+def get_ditau_polarimetric_reco(df, smeared=True, useMAP=True):
     """Compute the R and P vectors in the reco case using regressed neutrinos."""
     if smeared:
         prefix = 'reco_tau'
     else:
         prefix = 'tau'
+    if useMAP:
+        pred_prefix = 'map_pred'
+    else:
+        pred_prefix = 'pred'
     # Define positive tau vectors
     pi_p     = ak.zip({"px": df[f"{prefix}p_pi1_px"], "py": df[f"{prefix}p_pi1_py"], "pz": df[f"{prefix}p_pi1_pz"], "E": df[f"{prefix}p_pi1_E"]}, with_name="Momentum4D")
-    tau_p    = ak.zip({"px": df["map_pred_tau_plus_px"], "py": df["map_pred_tau_plus_py"], "pz": df["map_pred_tau_plus_pz"], "E": df["map_pred_tau_plus_E"]}, with_name="Momentum4D")
+    tau_p    = ak.zip({"px": df[f"{pred_prefix}_tau_plus_px"], "py": df[f"{pred_prefix}_tau_plus_py"], "pz": df[f"{pred_prefix}_tau_plus_pz"], "E": df[f"{pred_prefix}_tau_plus_E"]}, with_name="Momentum4D")
     pizero_p = ak.zip({"px": df[f"{prefix}p_pizero1_px"], "py": df[f"{prefix}p_pizero1_py"], "pz": df[f"{prefix}p_pizero1_pz"], "E": df[f"{prefix}p_pizero1_E"]}, with_name="Momentum4D")
     taup_is_dm1 = df[f"{prefix}p_haspizero"].values == 1
 
     # Define negative tau vectors
     pi_n     = ak.zip({"px": df[f"{prefix}n_pi1_px"], "py": df[f"{prefix}n_pi1_py"], "pz": df[f"{prefix}n_pi1_pz"], "E": df[f"{prefix}n_pi1_E"]}, with_name="Momentum4D")
-    tau_n    = ak.zip({"px": df["map_pred_tau_minus_px"], "py": df["map_pred_tau_minus_py"], "pz": df["map_pred_tau_minus_pz"], "E": df["map_pred_tau_minus_E"]}, with_name="Momentum4D")
+    tau_n    = ak.zip({"px": df[f"{pred_prefix}_tau_minus_px"], "py": df[f"{pred_prefix}_tau_minus_py"], "pz": df[f"{pred_prefix}_tau_minus_pz"], "E": df[f"{pred_prefix}_tau_minus_E"]}, with_name="Momentum4D")
     pizero_n = ak.zip({"px": df[f"{prefix}n_pizero1_px"], "py": df[f"{prefix}n_pizero1_py"], "pz": df[f"{prefix}n_pizero1_pz"], "E": df[f"{prefix}n_pizero1_E"]}, with_name="Momentum4D")
     taun_is_dm1 = df[f"{prefix}n_haspizero"].values == 1
 

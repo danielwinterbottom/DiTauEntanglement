@@ -21,9 +21,9 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-            'even':  "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPEven_GRADIENT.parquet",
-            'odd':   "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_May11/output_results_CPOdd_GRADIENT.parquet"
-    },
+        'even': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_Flow_cartesian_CPmix_15May/output_mixedmodel_cartesian_CPEven_gradient.parquet",
+        'odd': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_Flow_cartesian_CPmix_15May/output_mixedmodel_cartesian_CPOdd_gradient.parquet"
+},
     'gen': {
         'label': 'Generator Neutrino',
         'tag':   'POL_GEN',
@@ -39,14 +39,14 @@ options = {
 }
 
 
-def compute_phicp_all(df, option):
+def compute_phicp_all(df, option, use_map=True):
     """Compute phiCP for all events in the df (splitting of methods by DM done automatically, vectorised)"""
     df = df.copy()
     if option == 'gen':
         R1, P1, R2, P2 = get_ditau_polarimetric_gen(df)
         phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
     elif option == 'recoNu':
-        R1, P1, R2, P2 = get_ditau_polarimetric_reco(df)
+        R1, P1, R2, P2 = get_ditau_polarimetric_reco(df, useMAP=use_map)
         phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
     elif option == 'recoRun3':
         R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='reco_taup')
@@ -68,6 +68,7 @@ def main():
     parser.add_argument('-o', '--option', choices=['gen', 'recoRun3', 'recoNu'],
                         default='recoRun3', help="Reconstruction method to use.")
     parser.add_argument('--output-dir', default='.', help="Directory for output PDFs.")
+    parser.add_argument('--useMLP', action='store_true')
 
 
     args = parser.parse_args()
@@ -76,8 +77,9 @@ def main():
         os.makedirs(args.output_dir, exist_ok=True)
 
     even_df, odd_df = load_data()
-    even_df = compute_phicp_all(even_df, args.option)
-    odd_df  = compute_phicp_all(odd_df,  args.option)
+    use_map = not args.useMLP
+    even_df = compute_phicp_all(even_df, args.option, use_map=use_map)
+    odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map)
 
 
     for dm_taup, dm_taun in [[0, 0], [0,1], [1,1]]:
