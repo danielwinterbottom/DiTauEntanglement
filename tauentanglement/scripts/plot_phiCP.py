@@ -121,6 +121,13 @@ def main():
         plt.close()
         print(f"Saved {out}")
 
+        # save numpy arrays to remake plots in future
+        np.savez(
+            f"{args.output_dir}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.npz",
+            even_counts=even_counts,
+            odd_counts=odd_counts,
+            bin_edges=bin_edges,
+        )
 
 if __name__ == '__main__':
     main()
