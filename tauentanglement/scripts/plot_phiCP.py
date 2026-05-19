@@ -21,8 +21,9 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-        'even': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_Flow_cartesian_CPmix_15May/output_mixedmodel_cartesian_CPEven_gradient.parquet",
-        'odd': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_Flow_cartesian_CPmix_15May/output_mixedmodel_cartesian_CPOdd_gradient.parquet"
+        'even': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_May13/output_mixedmodel_CPEven_gradient.parquet",
+        'odd': "/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_May13/output_results_CPOdd_gradient.parquet",
+        'mix': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_May13/output_mixedmodel_CPmix_gradient.parquet',
 },
     'gen': {
         'label': 'Generator Neutrino',
@@ -58,9 +59,9 @@ def compute_phicp_all(df, option, use_map=True):
 
 def load_data():
     cfg = options['files']
-    # read = pd.read_pickle if option == 'recoNu' else pd.read_parquet
     read = pd.read_parquet
-    return read(cfg['even']), read(cfg['odd'])
+    mix_df = read(cfg['mix']) if cfg.get('mix') is not None else None
+    return read(cfg['even']), read(cfg['odd']), mix_df
 
 
 def main():
@@ -76,10 +77,12 @@ def main():
     if args.output_dir != '.':
         os.makedirs(args.output_dir, exist_ok=True)
 
-    even_df, odd_df = load_data()
+    even_df, odd_df, mix_df = load_data()
     use_map = not args.useMLP
     even_df = compute_phicp_all(even_df, args.option, use_map=use_map)
     odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map)
+    if mix_df is not None:
+        mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map)
 
 
     for dm_taup, dm_taun in [[0, 0], [0,1], [1,1]]:
@@ -107,6 +110,10 @@ def main():
                 density=True, linewidth=2, color='red')
         ax.hist(odd['phiCP'],  bins=bin_edges, histtype='step', label='CP-odd',
                 density=True, linewidth=2, color='blue')
+        if mix_df is not None:
+            mix = mix_df[dm_mask(mix_df)]
+            ax.hist(mix['phiCP'], bins=bin_edges, histtype='step', label='CP mix',
+                    density=True, linewidth=2, color='green')
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
         ax.set_xlabel(r'$\phi_{CP}$')
