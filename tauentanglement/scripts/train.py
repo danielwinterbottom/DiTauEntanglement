@@ -6,6 +6,7 @@ from tauentanglement.python.NN_Tools import setup_model_and_training, train_mode
 import yaml
 import os
 import numpy as np
+import shutil
 
 # TODO: Transfer hyperparam optimisation code here and make work with new def
 
@@ -27,6 +28,9 @@ if __name__ == "__main__":
     output_dir = f"outputs_{nn_config['model_name']}"
     output_plots_dir = f"{output_dir}/plots"
     os.makedirs(output_plots_dir, exist_ok=True)
+
+    # save a copy of the config
+    shutil.copy(config_file, f"{output_dir}/config.yaml")
 
     # gpu or cpu
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
