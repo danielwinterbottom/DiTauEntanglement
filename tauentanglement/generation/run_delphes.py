@@ -77,6 +77,11 @@ def get_impact_parameter(p, pv_3vec=ROOT.TVector3(0, 0, 0), reco_track=False):
 
     return impact_point_vec3
 
+def get_pseudo_impact_parameter(p_dir_vec3, sv_vec3, pv_3vec3=ROOT.TVector3(0, 0, 0)):
+    impact_point_vec3 = FindDMin_Point(sv_vec3, p_dir_vec3.Unit(), pv_3vec3)
+    return impact_point_vec3
+
+
 def get_3d_point_from_phi_d0_dz(phi, d0, dz):
     #d0 = x0*sinphi -y0*cosphi
     dx = d0 * math.sin(phi)
@@ -158,6 +163,9 @@ def RecoStrips(cands_, stripPtThreshold=2.5):
 def CheckWithinSigCone(tau_cand):
     tau_vis = tau_cand[0]
     cands = tau_cand[1]+tau_cand[2]
+    if len(tau_cand) > 3:
+        cands += tau_cand[3] # add in the leptons if they exist
+
     Rsig = max(min(3.0/tau_vis.Pt(),0.1),0.05)
 
     for c in cands:
@@ -169,7 +177,7 @@ def CheckWithinSigCone(tau_cand):
             return False
     return True
 
-def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
+def GetTauCands_old(tracks, strips, incDM2=True, match_charge=None):
     #apply pT and eta cuts to tracks
     tracks_ = [t for t in tracks if t.PT > 0.5 and abs(t.Eta) < 2.5]
 
@@ -207,6 +215,117 @@ def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
 
     #sort tau_cands by pT
     tau_cands.sort(key=lambda x: x[0].Pt(), reverse=True)
+
+    return tau_cands
+
+def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
+
+    tau_cands = []
+
+    #apply pT and eta cuts to tracks
+    tracks_ = [] # non muon / electron tracks
+    muon_tracks = [] # tracks identified as electrons or muons
+    electron_tracks = []
+    for t in tracks:
+        if t.PT > 0.5 and abs(t.Eta) < 2.5:
+            if abs(t.PID) == 11: # remove tracks identified as electrons
+                electron_tracks.append(t)
+            elif abs(t.PID) == 13: # remove tracks identified as muons
+                muon_tracks.append(t)
+            elif abs(t.PID) not in [11, 13]: # remove tracks identified as electrons or muons
+                tracks_.append(t)
+
+    # all leptons become their own tau candidate
+    for p in electron_tracks+muon_tracks:
+        tau_vis = p.P4()
+        tau_cands.append([tau_vis, [], [], [p] ]) # 1 track, 0 strips
+
+    # first make all combination of 1 track and 0,1,2 strips
+    for t in tracks_:
+        tau_vis = t.P4()
+        tau_cands.append([tau_vis, [t], []]) # 1 track, 0 strips
+        #TODO: might need to add the additional delta_mass part to the min and max masses below
+        for s in strips:
+            mass_2body = (t.P4() + s[0]).M()
+            pT_2body = (t.P4() + s[0]).Pt()
+            mass_2body_min = 0.3
+            mass_2body_max = max(min(1.3 * math.sqrt(pT_2body/100), 4.2), 1.3)
+            if mass_2body > mass_2body_min and mass_2body < mass_2body_max:
+                tau_vis = t.P4() + s[0]
+                tau_cands.append([tau_vis, [t], [s[0]]]) # 1 track, 1 strip
+            if incDM2:
+                for s2 in strips:
+                    if s2 != s:
+                        mass_3body = (t.P4() + s[0] + s2[0]).M()
+                        pT_3body = (t.P4() + s[0] + s2[0]).Pt()
+                        mass_3body_min = 0.4
+                        mass_3body_max = max(min(1.2 * math.sqrt(pT_3body/100), 4.0), 1.2)
+                        if mass_3body > mass_3body_min and mass_3body < mass_3body_max:
+                            tau_vis = t.P4() + s[0] + s2[0]
+                            tau_cands.append([tau_vis, [t], [s[0], s2[0]]]) # 1 track, 2 strips
+    
+    # make all 2 track combinations
+    for i in range(len(tracks_)):
+        for j in range(i+1, len(tracks_)):
+            t1 = tracks_[i]
+            t2 = tracks_[j]
+            tau_vis = t1.P4() + t2.P4()
+            mass_2body = tau_vis.M()
+            mass_2body_max = 1.2
+            if mass_2body < mass_2body_max:
+                tau_cands.append([tau_vis, [t1, t2], []]) # 2 tracks, 0 strips
+
+
+    # make all combinations of 3 tracks and 0, 1 strips
+    # first find all combination of 3 tracks with total charge = +/- 1
+    for i in range(len(tracks_)):
+        for j in range(i+1, len(tracks_)):
+            for k in range(j+1, len(tracks_)):
+                t1 = tracks_[i]
+                t2 = tracks_[j]
+                t3 = tracks_[k]
+                if abs(t1.Charge + t2.Charge + t3.Charge) != 1: continue
+                tau_vis = t1.P4() + t2.P4() + t3.P4()
+                mass_3body_min =  0.8
+                mass_3body_max =  1.5
+                mass_3body = tau_vis.M()
+                if mass_3body > mass_3body_min and mass_3body < mass_3body_max:
+                    tau_cands.append([tau_vis, [t1, t2, t3], []]) # 3 tracks, 0 strips
+                # now find combination with 1 strip
+                for s in strips:
+                    mass_4body = (t1.P4() + t2.P4() + t3.P4() + s[0]).M()
+                    pT_4body = (t1.P4() + t2.P4() + t3.P4() + s[0]).Pt()
+                    mass_4body_min = 0.9
+                    mass_4body_max = 1.6
+                    if mass_4body > mass_4body_min and mass_4body < mass_4body_max:
+                        tau_vis = t1.P4() + t2.P4() + t3.P4() + s[0]
+                        tau_cands.append([tau_vis, [t1, t2, t3], [s[0]]]) # 3 tracks, 1 strip
+
+    # filter any tau_cands not passing signal cone requirement
+    tau_cands = [c for c in tau_cands if CheckWithinSigCone(c)]
+
+    #sort tau_cands by pT
+    tau_cands.sort(key=lambda x: x[0].Pt(), reverse=True)
+    # if a muon or electron candidate exists, put these at the front of the list (they will be used preferentially in the analysis)
+    tau_cands.sort(key=lambda x: len(x) > 3, reverse=True)
+
+    # if best tau has only 2 prongs then we remove the event
+    if len(tau_cands) > 0:
+        best_cand = tau_cands[0]
+        if len(best_cand[1]) == 2:
+            tau_cands = [] # if the best candidate has only 2 prongs, then reject all candidates
+
+    # if match_charge then require the best candidate to match the charge of the tau
+    if match_charge is not None and len(tau_cands) > 0:
+        best_cand = tau_cands[0]
+        charge = 0
+        for t in best_cand[1]:
+            charge += t.Charge
+        if len(best_cand) > 3: # add in the leptons if they exist
+            for l in best_cand[3]:
+                charge += l.Charge
+        if charge != match_charge:
+            tau_cands = [] # if the best candidate doesn't match the charge, then reject all candidates
 
     return tau_cands
 
@@ -370,6 +489,22 @@ def smear_PV(pv_3vec):
 
     return smeared_pv_3vec
 
+def SortPions(pions, tau_charge):
+    # for 3 prong taus sort the pions based on charge and pT
+    # the first pion is the highest pT pion of opposite charge to the tau, the second pion is the highest pT pion of same charge as the tau, and the third pion is the lowest pT pion of same charge as the tau
+    
+    # first split by charge
+    same_charge = [pion for pion in pions if pion.Charge == tau_charge]
+    opposite_charge = [pion for pion in pions if pion.Charge != tau_charge]
+
+    # sort each group by pT
+    same_charge.sort(key=lambda x: x.PT, reverse=True)
+    opposite_charge.sort(key=lambda x: x.PT, reverse=True)
+
+    # return the sorted pions
+    return opposite_charge + same_charge
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--output" ,'-o', help="Name of output file")
 parser.add_argument("--input" ,'-i', help="Name of input file")
@@ -398,6 +533,8 @@ smearer = TrackAngularSmearer(seed=12345)
 branches = [
   'taup_npi', 'taup_npizero',
   'taun_npi', 'taun_npizero',
+  'taup_nele', 'taun_nele',
+  'taup_nmu', 'taun_nmu',
   'met_px', 'met_py',
   'taup_vis_pT', 'taup_vis_eta',
   'taun_vis_pT', 'taun_vis_eta',
@@ -413,10 +550,16 @@ branches = [
   'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
   'taup_lep_px', 'taup_lep_py', 'taup_lep_pz', 'taup_lep_e',
   'taun_lep_px', 'taun_lep_py', 'taun_lep_pz', 'taun_lep_e',
+  'taup_lep_ipx', 'taup_lep_ipy', 'taup_lep_ipz',
+  'taun_lep_ipx', 'taun_lep_ipy', 'taun_lep_ipz',
+  'taup_charged_px', 'taup_charged_py', 'taup_charged_pz', 'taup_charged_e',
+  'taun_charged_px', 'taun_charged_py', 'taun_charged_pz', 'taun_charged_e',
+  'taup_charged_ipx', 'taup_charged_ipy', 'taup_charged_ipz',
+  'taun_charged_ipx', 'taun_charged_ipy', 'taun_charged_ipz',
   'taup_sv_x', 'taup_sv_y', 'taup_sv_z',
   'taun_sv_x', 'taun_sv_y', 'taun_sv_z',
-  'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-  'taun_nu_px', 'taun_nu_py', 'taun_nu_pz',
+  'taup_nu_px', 'taup_nu_py', 'taup_nu_pz', 'taup_nu_m',
+  'taun_nu_px', 'taun_nu_py', 'taun_nu_pz', 'taun_nu_m',
 ]
 
 fout = ROOT.TFile(args.output,'RECREATE')
@@ -507,6 +650,12 @@ for iev in range(reader.GetEntries()):
         elif abs(d.PID) in [12, 14, 16]:
             taun_neutrinos.append(d)
 
+    #sort the pions if more than 1
+    if len(taup_pis) > 1:
+        taup_pis = SortPions(taup_pis, tau_charge=1)
+    if len(taun_pis) > 1:
+        taun_pis = SortPions(taun_pis, tau_charge=-1)
+
     # now we get the pi0 by summing together the gammas - note for dm=2 this will really be the 4-vector of 2 pi0s but this is anyway more similar to what we have for reco taus
     taup_pi0 = ROOT.TLorentzVector()
     for g in taup_gammas:
@@ -523,6 +672,13 @@ for iev in range(reader.GetEntries()):
     for n in taun_neutrinos:
         taun_neutrinos_sum += n.P4()
 
+    taup_charged_sum = ROOT.TLorentzVector()
+    for c in taup_pis+taup_leptons:
+        taup_charged_sum += c.P4()
+    taun_charged_sum = ROOT.TLorentzVector()
+    for c in taun_pis+taun_leptons:
+        taun_charged_sum += c.P4()
+
     # define visible taus for use later on
     taup_vis = taup.P4() - taup_neutrinos_sum
     taun_vis = taun.P4() - taun_neutrinos_sum
@@ -531,6 +687,11 @@ for iev in range(reader.GetEntries()):
     branch_vals['taup_npizero'][0] = len(taup_gammas)//2 # 2 gammas per pi0 - round down if odd number of gammas
     branch_vals['taun_npi'][0] = len(taun_pis)
     branch_vals['taun_npizero'][0] = len(taun_gammas)//2 # 2 gammas per pi0
+
+    branch_vals['taup_nele'][0] = len([l for l in taup_leptons if abs(l.PID) == 11])
+    branch_vals['taun_nele'][0] = len([l for l in taun_leptons if abs(l.PID) == 11])
+    branch_vals['taup_nmu'][0] = len([l for l in taup_leptons if abs(l.PID) == 13])
+    branch_vals['taun_nmu'][0] = len([l for l in taun_leptons if abs(l.PID) == 13])
 
     branch_vals['taup_vis_pT'][0] = taup_vis.Pt()
     branch_vals['taup_vis_eta'][0] = taup_vis.Eta()
@@ -551,9 +712,11 @@ for iev in range(reader.GetEntries()):
     branch_vals['taup_nu_px'][0] = taup_neutrinos_sum.Px()
     branch_vals['taup_nu_py'][0] = taup_neutrinos_sum.Py()
     branch_vals['taup_nu_pz'][0] = taup_neutrinos_sum.Pz()
+    branch_vals['taup_nu_m'][0] = max(taup_neutrinos_sum.M(),0) if len(taup_neutrinos) > 1 else 0 # set mass to zero if no neutrinos to avoid weird edge cases where we get a small non zero mass from numerical precision
     branch_vals['taun_nu_px'][0] = taun_neutrinos_sum.Px()
     branch_vals['taun_nu_py'][0] = taun_neutrinos_sum.Py()
     branch_vals['taun_nu_pz'][0] = taun_neutrinos_sum.Pz()
+    branch_vals['taun_nu_m'][0] = max(taun_neutrinos_sum.M(), 0) if len(taun_neutrinos) > 1 else 0 # set mass to zero if no neutrinos to avoid weird edge cases where we get a small non zero mass from numerical precision
 
     branch_vals['taup_lep_px'][0] = taup_leptons[0].P4().Px() if len(taup_leptons) > 0 else 0
     branch_vals['taup_lep_py'][0] = taup_leptons[0].P4().Py() if len(taup_leptons) > 0 else 0
@@ -564,6 +727,16 @@ for iev in range(reader.GetEntries()):
     branch_vals['taun_lep_pz'][0] = taun_leptons[0].P4().Pz() if len(taun_leptons) > 0 else 0
     branch_vals['taun_lep_e'][0] = taun_leptons[0].P4().E() if len(taun_leptons) > 0 else 0
 
+    # store ips for leptons
+    taup_lep_ip = get_impact_parameter(taup_leptons[0]) if len(taup_leptons) > 0 else ROOT.TVector3(0,0,0)
+    branch_vals['taup_lep_ipx'][0] = taup_lep_ip.X()
+    branch_vals['taup_lep_ipy'][0] = taup_lep_ip.Y()
+    branch_vals['taup_lep_ipz'][0] = taup_lep_ip.Z()
+    taun_lep_ip = get_impact_parameter(taun_leptons[0]) if len(taun_leptons) > 0 else ROOT.TVector3(0,0,0)
+    branch_vals['taun_lep_ipx'][0] = taun_lep_ip.X()
+    branch_vals['taun_lep_ipy'][0] = taun_lep_ip.Y()
+    branch_vals['taun_lep_ipz'][0] = taun_lep_ip.Z()
+
     branch_vals['taup_pi1_px'][0] = taup_pis[0].P4().Px() if len(taup_pis) > 0 else 0
     branch_vals['taup_pi1_py'][0] = taup_pis[0].P4().Py() if len(taup_pis) > 0 else 0
     branch_vals['taup_pi1_pz'][0] = taup_pis[0].P4().Pz() if len(taup_pis) > 0 else 0
@@ -573,26 +746,77 @@ for iev in range(reader.GetEntries()):
     branch_vals['taun_pi1_pz'][0] = taun_pis[0].P4().Pz() if len(taun_pis) > 0 else 0
     branch_vals['taun_pi1_e'][0] = taun_pis[0].P4().E() if len(taun_pis) > 0 else 0
 
-    taup_ip = get_impact_parameter(taup_pis[0]) if len(taup_pis) > 0 else (ROOT.TVector3(0,0,0), 0, 0)
+    taup_ip = get_impact_parameter(taup_pis[0]) if len(taup_pis) > 0 else ROOT.TVector3(0,0,0)
     branch_vals['taup_pi1_ipx'][0] = taup_ip.X()
     branch_vals['taup_pi1_ipy'][0] = taup_ip.Y()
     branch_vals['taup_pi1_ipz'][0] = taup_ip.Z()
 
-    taun_ip = get_impact_parameter(taun_pis[0]) if len(taun_pis) > 0 else (ROOT.TVector3(0,0,0), 0, 0)
+    taun_ip = get_impact_parameter(taun_pis[0]) if len(taun_pis) > 0 else ROOT.TVector3(0,0,0)
     branch_vals['taun_pi1_ipx'][0] = taun_ip.X()
     branch_vals['taun_pi1_ipy'][0] = taun_ip.Y()
     branch_vals['taun_pi1_ipz'][0] = taun_ip.Z()
 
+    if len(taup_pis) > 1:
+        branch_vals['taup_pi2_px'][0] = taup_pis[1].P4().Px()
+        branch_vals['taup_pi2_py'][0] = taup_pis[1].P4().Py()
+        branch_vals['taup_pi2_pz'][0] = taup_pis[1].P4().Pz()
+        branch_vals['taup_pi2_e'][0] = taup_pis[1].P4().E()
+    if len(taup_pis) > 2:
+        branch_vals['taup_pi3_px'][0] = taup_pis[2].P4().Px()
+        branch_vals['taup_pi3_py'][0] = taup_pis[2].P4().Py()
+        branch_vals['taup_pi3_pz'][0] = taup_pis[2].P4().Pz()
+        branch_vals['taup_pi3_e'][0] = taup_pis[2].P4().E()
+
+    branch_vals['taup_charged_px'][0] = taup_charged_sum.Px()
+    branch_vals['taup_charged_py'][0] = taup_charged_sum.Py()
+    branch_vals['taup_charged_pz'][0] = taup_charged_sum.Pz()
+    branch_vals['taup_charged_e'][0] = taup_charged_sum.E()
+    branch_vals['taun_charged_px'][0] = taun_charged_sum.Px()
+    branch_vals['taun_charged_py'][0] = taun_charged_sum.Py()
+    branch_vals['taun_charged_pz'][0] = taun_charged_sum.Pz()
+    branch_vals['taun_charged_e'][0] = taun_charged_sum.E()
+
     # get SVs but only if 3-prongs 
-    taup_sv = ROOT.TVector3(taup.X, taup.Y, taup.Z) if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
+    taup_sv = ROOT.TVector3(taup_pis[0].X, taup_pis[0].Y, taup_pis[0].Z) if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
     branch_vals['taup_sv_x'][0] = taup_sv.X()
     branch_vals['taup_sv_y'][0] = taup_sv.Y()
     branch_vals['taup_sv_z'][0] = taup_sv.Z()
 
-    taun_sv = ROOT.TVector3(taun.X, taun.Y, taun.Z) if len(taun_pis) > 2 else ROOT.TVector3(0,0,0)
+    taun_sv = ROOT.TVector3(taun_pis[0].X, taun_pis[0].Y, taun_pis[0].Z) if len(taun_pis) > 2 else ROOT.TVector3(0,0,0)
     branch_vals['taun_sv_x'][0] = taun_sv.X()
     branch_vals['taun_sv_y'][0] = taun_sv.Y()
     branch_vals['taun_sv_z'][0] = taun_sv.Z()
+
+    # for charged ips. if tau is a 1-prong pion decay than set to pi1 ip
+    # if tau is a lepton set to lepton ip
+    # if tau is a 3-prong decay then estimate the ip using the sv and the pseudo-track from summing the charged decay products
+    if len(taup_pis) == 1:
+        branch_vals['taup_charged_ipx'][0] = taup_ip.X()
+        branch_vals['taup_charged_ipy'][0] = taup_ip.Y()
+        branch_vals['taup_charged_ipz'][0] = taup_ip.Z()
+    elif len(taup_leptons) == 1:
+        branch_vals['taup_charged_ipx'][0] = taup_lep_ip.X()
+        branch_vals['taup_charged_ipy'][0] = taup_lep_ip.Y()
+        branch_vals['taup_charged_ipz'][0] = taup_lep_ip.Z()
+    elif len(taup_pis) > 1:
+        taup_charged_ip = get_pseudo_impact_parameter(taup_charged_sum.Vect(), taup_sv)
+        branch_vals['taup_charged_ipx'][0] = taup_charged_ip.X()
+        branch_vals['taup_charged_ipy'][0] = taup_charged_ip.Y()
+        branch_vals['taup_charged_ipz'][0] = taup_charged_ip.Z()
+
+    if len(taun_pis) == 1:
+        branch_vals['taun_charged_ipx'][0] = taun_ip.X()
+        branch_vals['taun_charged_ipy'][0] = taun_ip.Y()
+        branch_vals['taun_charged_ipz'][0] = taun_ip.Z()
+    elif len(taun_leptons) == 1:
+        branch_vals['taun_charged_ipx'][0] = taun_lep_ip.X()
+        branch_vals['taun_charged_ipy'][0] = taun_lep_ip.Y()
+        branch_vals['taun_charged_ipz'][0] = taun_lep_ip.Z()
+    elif len(taun_pis) > 1:
+        taun_charged_ip = get_pseudo_impact_parameter(taun_charged_sum.Vect().Unit(), taun_sv)
+        branch_vals['taun_charged_ipx'][0] = taun_charged_ip.X()
+        branch_vals['taun_charged_ipy'][0] = taun_charged_ip.Y()
+        branch_vals['taun_charged_ipz'][0] = taun_charged_ip.Z()
 
     # get smeared "reco" quantities
     # first we dR match reco particles to gen visible taus
@@ -662,54 +886,134 @@ for iev in range(reader.GetEntries()):
 
     # TODO: implement 3-prongs at some point - the below assumes only dm=0 and dm=1 are present
     if len(taup_cands) > 0:
-        branch_vals['reco_taup_npi'][0] = len(taup_cands[0][1])
-        branch_vals['reco_taup_npizero'][0] = len(taup_cands[0][2])
-        branch_vals['reco_taup_pi1_px'][0] = taup_cands[0][1][0].P4().Px()
-        branch_vals['reco_taup_pi1_py'][0] = taup_cands[0][1][0].P4().Py()
-        branch_vals['reco_taup_pi1_pz'][0] = taup_cands[0][1][0].P4().Pz()
-        branch_vals['reco_taup_pi1_e'][0] = taup_cands[0][1][0].P4().E()
 
-        reco_taup_point = get_3d_point_from_phi_d0_dz(taup_cands[0][1][0].Phi, taup_cands[0][1][0].D0, taup_cands[0][1][0].DZ)
-        # overwrite Xd, Yd, Zd with the new 3D point
-        taup_cands[0][1][0].Xd = reco_taup_point.X()
-        taup_cands[0][1][0].Yd = reco_taup_point.Y()
-        taup_cands[0][1][0].Zd = reco_taup_point.Z()
-        reco_taup_ip = get_impact_parameter(taup_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
+        if len(taup_cands[0][1]) > 0:
+            branch_vals['reco_taup_npi'][0] = len(taup_cands[0][1])
+            branch_vals['reco_taup_npizero'][0] = len(taup_cands[0][2])            
 
-        branch_vals['reco_taup_pi1_ipx'][0] = reco_taup_ip.X()
-        branch_vals['reco_taup_pi1_ipy'][0] = reco_taup_ip.Y()
-        branch_vals['reco_taup_pi1_ipz'][0] = reco_taup_ip.Z()
+            branch_vals['reco_taup_pi1_px'][0] = taup_cands[0][1][0].P4().Px()
+            branch_vals['reco_taup_pi1_py'][0] = taup_cands[0][1][0].P4().Py()
+            branch_vals['reco_taup_pi1_pz'][0] = taup_cands[0][1][0].P4().Pz()
+            branch_vals['reco_taup_pi1_e'][0] = taup_cands[0][1][0].P4().E()
+
+            reco_taup_point = get_3d_point_from_phi_d0_dz(taup_cands[0][1][0].Phi, taup_cands[0][1][0].D0, taup_cands[0][1][0].DZ)
+            # overwrite Xd, Yd, Zd with the new 3D point
+            taup_cands[0][1][0].Xd = reco_taup_point.X()
+            taup_cands[0][1][0].Yd = reco_taup_point.Y()
+            taup_cands[0][1][0].Zd = reco_taup_point.Z()
+            reco_taup_ip = get_impact_parameter(taup_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
+
+            branch_vals['reco_taup_pi1_ipx'][0] = reco_taup_ip.X()
+            branch_vals['reco_taup_pi1_ipy'][0] = reco_taup_ip.Y()
+            branch_vals['reco_taup_pi1_ipz'][0] = reco_taup_ip.Z()
+
+        if len(taup_cands[0][1]) > 1:
+            branch_vals['reco_taup_pi2_px'][0] = taup_cands[0][1][1].P4().Px()
+            branch_vals['reco_taup_pi2_py'][0] = taup_cands[0][1][1].P4().Py()
+            branch_vals['reco_taup_pi2_pz'][0] = taup_cands[0][1][1].P4().Pz()
+            branch_vals['reco_taup_pi2_e'][0] = taup_cands[0][1][1].P4().E()
+        if len(taup_cands[0][1]) > 2:
+            branch_vals['reco_taup_pi3_px'][0] = taup_cands[0][1][2].P4().Px()
+            branch_vals['reco_taup_pi3_py'][0] = taup_cands[0][1][2].P4().Py()
+            branch_vals['reco_taup_pi3_pz'][0] = taup_cands[0][1][2].P4().Pz()
+            branch_vals['reco_taup_pi3_e'][0] = taup_cands[0][1][2].P4().E()
+        if len(taup_cands[0]) > 3 and len(taup_cands[0][3]) > 0:
+            branch_vals['reco_taup_lep_px'][0] = taup_cands[0][3][0].P4().Px()
+            branch_vals['reco_taup_lep_py'][0] = taup_cands[0][3][0].P4().Py()
+            branch_vals['reco_taup_lep_pz'][0] = taup_cands[0][3][0].P4().Pz()
+            branch_vals['reco_taup_lep_e'][0] = taup_cands[0][3][0].P4().E()
+
+            # identify if the lepton was electron or muon based on PID
+            if abs(taup_cands[0][3][0].PID) == 11:
+                branch_vals['reco_taup_nele'][0] = 1
+            elif abs(taup_cands[0][3][0].PID) == 13:
+                branch_vals['reco_taup_nmu'][0] = 1
 
         if len(taup_cands[0][2]) > 0:
             branch_vals['reco_taup_pizero1_px'][0] = taup_cands[0][2][0].Px()
             branch_vals['reco_taup_pizero1_py'][0] = taup_cands[0][2][0].Py()
             branch_vals['reco_taup_pizero1_pz'][0] = taup_cands[0][2][0].Pz()
             branch_vals['reco_taup_pizero1_e'][0] = taup_cands[0][2][0].E()
+            
 
     if len(taun_cands) > 0:
-        branch_vals['reco_taun_npi'][0] = len(taun_cands[0][1])
-        branch_vals['reco_taun_npizero'][0] = len(taun_cands[0][2])
-        branch_vals['reco_taun_pi1_px'][0] = taun_cands[0][1][0].P4().Px()
-        branch_vals['reco_taun_pi1_py'][0] = taun_cands[0][1][0].P4().Py()
-        branch_vals['reco_taun_pi1_pz'][0] = taun_cands[0][1][0].P4().Pz()
-        branch_vals['reco_taun_pi1_e'][0] = taun_cands[0][1][0].P4().E()
 
-        reco_taun_point = get_3d_point_from_phi_d0_dz(taun_cands[0][1][0].Phi, taun_cands[0][1][0].D0, taun_cands[0][1][0].DZ)
-        # overwrite Xd, Yd, Zd with the new 3D point
-        taun_cands[0][1][0].Xd = reco_taun_point.X()
-        taun_cands[0][1][0].Yd = reco_taun_point.Y()
-        taun_cands[0][1][0].Zd = reco_taun_point.Z()
+        if len(taun_cands[0][1]) > 0:
+            branch_vals['reco_taun_npi'][0] = len(taun_cands[0][1])
+            branch_vals['reco_taun_npizero'][0] = len(taun_cands[0][2])
+            branch_vals['reco_taun_pi1_px'][0] = taun_cands[0][1][0].P4().Px()
+            branch_vals['reco_taun_pi1_py'][0] = taun_cands[0][1][0].P4().Py()
+            branch_vals['reco_taun_pi1_pz'][0] = taun_cands[0][1][0].P4().Pz()
+            branch_vals['reco_taun_pi1_e'][0] = taun_cands[0][1][0].P4().E()
 
-        reco_taun_ip = get_impact_parameter(taun_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
-        branch_vals['reco_taun_pi1_ipx'][0] = reco_taun_ip.X()
-        branch_vals['reco_taun_pi1_ipy'][0] = reco_taun_ip.Y()
-        branch_vals['reco_taun_pi1_ipz'][0] = reco_taun_ip.Z()
+            reco_taun_point = get_3d_point_from_phi_d0_dz(taun_cands[0][1][0].Phi, taun_cands[0][1][0].D0, taun_cands[0][1][0].DZ)
+            # overwrite Xd, Yd, Zd with the new 3D point
+            taun_cands[0][1][0].Xd = reco_taun_point.X()
+            taun_cands[0][1][0].Yd = reco_taun_point.Y()
+            taun_cands[0][1][0].Zd = reco_taun_point.Z()
+
+            reco_taun_ip = get_impact_parameter(taun_cands[0][1][0], pv_3vec=reco_pv_3vec, reco_track=True)
+            branch_vals['reco_taun_pi1_ipx'][0] = reco_taun_ip.X()
+            branch_vals['reco_taun_pi1_ipy'][0] = reco_taun_ip.Y()
+            branch_vals['reco_taun_pi1_ipz'][0] = reco_taun_ip.Z()
+
+        if len(taun_cands[0][1]) > 1:
+            branch_vals['reco_taun_pi2_px'][0] = taun_cands[0][1][1].P4().Px()
+            branch_vals['reco_taun_pi2_py'][0] = taun_cands[0][1][1].P4().Py()
+            branch_vals['reco_taun_pi2_pz'][0] = taun_cands[0][1][1].P4().Pz()
+            branch_vals['reco_taun_pi2_e'][0] = taun_cands[0][1][1].P4().E()
+        if len(taun_cands[0][1]) > 2:
+            branch_vals['reco_taun_pi3_px'][0] = taun_cands[0][1][2].P4().Px()
+            branch_vals['reco_taun_pi3_py'][0] = taun_cands[0][1][2].P4().Py()
+            branch_vals['reco_taun_pi3_pz'][0] = taun_cands[0][1][2].P4().Pz()
+            branch_vals['reco_taun_pi3_e'][0] = taun_cands[0][1][2].P4().E()
+        if len(taun_cands[0]) > 3 and len(taun_cands[0][3]) > 0:
+            branch_vals['reco_taun_lep_px'][0] = taun_cands[0][3][0].P4().Px()
+            branch_vals['reco_taun_lep_py'][0] = taun_cands[0][3][0].P4().Py()
+            branch_vals['reco_taun_lep_pz'][0] = taun_cands[0][3][0].P4().Pz()
+            branch_vals['reco_taun_lep_e'][0] = taun_cands[0][3][0].P4().E()
+
+            # identify if the lepton was electron or muon based on PID
+            if abs(taun_cands[0][3][0].PID) == 11:
+                branch_vals['reco_taun_nele'][0] = 1
+            elif abs(taun_cands[0][3][0].PID) == 13:
+                branch_vals['reco_taun_nmu'][0] = 1
 
         if len(taun_cands[0][2]) > 0:
             branch_vals['reco_taun_pizero1_px'][0] = taun_cands[0][2][0].Px()
             branch_vals['reco_taun_pizero1_py'][0] = taun_cands[0][2][0].Py()
             branch_vals['reco_taun_pizero1_pz'][0] = taun_cands[0][2][0].Pz()
             branch_vals['reco_taun_pizero1_e'][0] = taun_cands[0][2][0].E()
+
+
+    for tau in ['taup', 'taun']:
+        # for  1-prong + 1/2 pi0 decays it is hard to replicate the proper decay mode application 
+        # so it will be sampled using the number from here instead: https://cds.cern.ch/record/2727092 
+        #first check if gen decay mode is 1-prong + 1 pi0 
+        if branch_vals[f'reco_{tau}_npi'][0] == 1 and branch_vals[f'reco_{tau}_npizero'][0] == 1:
+            is_true_dm_0 = branch_vals[f'{tau}_npi'][0] == 1 and branch_vals[f'{tau}_npizero'][0] == 0
+            is_true_dm_1 = branch_vals[f'{tau}_npi'][0] == 1 and branch_vals[f'{tau}_npizero'][0] == 1
+            is_true_dm_2 = branch_vals[f'{tau}_npi'][0] == 1 and branch_vals[f'{tau}_npizero'][0] == 2
+            if is_true_dm_0:
+                reco_dm_1_frac = 0.058/(0.058 + 0.015)
+                reco_dm_2_frac = 0.015/(0.058 + 0.015)
+            elif is_true_dm_2:
+                reco_dm_1_frac = 0.182/(0.182+0.555)
+                reco_dm_2_frac = 0.555/(0.182+0.555)
+            elif is_true_dm_1:
+                reco_dm_1_frac = 0.677/(0.677+0.246)
+                reco_dm_2_frac = 0.246/(0.677+0.246)
+            else: 
+                # for rarer modes e.g 3-prong mis-IDs just 50-50 sample them 
+                reco_dm_1_frac = 0.5
+                reco_dm_2_frac = 0.5
+            rand = random.random()    
+            if rand < reco_dm_1_frac:
+                # assign as dm 1
+                branch_vals[f'reco_{tau}_npizero'][0] = 1
+            else:
+                # assign as dm 2
+                branch_vals[f'reco_{tau}_npizero'][0] = 2 
 
     #TODO: add SVs for other pions for 3-prongs, and leptons for leptonic modes 
 
