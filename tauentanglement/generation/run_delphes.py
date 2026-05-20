@@ -77,8 +77,8 @@ def get_impact_parameter(p, pv_3vec=ROOT.TVector3(0, 0, 0), reco_track=False):
 
     return impact_point_vec3
 
-def get_pseudo_impact_parameter(p_dir_vec3, sv_vec3, pv_3vec3=ROOT.TVector3(0, 0, 0)):
-    impact_point_vec3 = FindDMin_Point(sv_vec3, p_dir_vec3.Unit(), pv_3vec3)
+def get_pseudo_impact_parameter(p_dir_vec3, sv_vec3, pv_3vec=ROOT.TVector3(0, 0, 0)):
+    impact_point_vec3 = FindDMin_Point(sv_vec3, p_dir_vec3.Unit(), pv_3vec)
     return impact_point_vec3
 
 
@@ -883,8 +883,15 @@ for iev in range(reader.GetEntries()):
     if do_track_angular_smearing:
         reco_pv_3vec = smear_PV(ROOT.TVector3(0,0,0)) # smear the PV position (gen-level is always 0,0,0)
 
+        #TODO: add smearing for SV but for now just duplicate the gen ones
+        # if tau is not reconstructed as 3-prong then we set the SV to 0
+        reco_taup_sv = ROOT.TVector3(0,0,0)
+        reco_taun_sv = ROOT.TVector3(0,0,0)
+        if len(taup_cands) > 0 and len(taup_cands[0][1]) > 2:
+            reco_taup_sv = taup_sv.Clone() - reco_pv_3vec
+        if len(taun_cands) > 0 and len(taun_cands[0][1]) > 2:
+            reco_taun_sv = taun_sv.Clone() - reco_pv_3vec
 
-    # TODO: implement 3-prongs at some point - the below assumes only dm=0 and dm=1 are present
     if len(taup_cands) > 0:
 
         if len(taup_cands[0][1]) > 0:
@@ -929,11 +936,51 @@ for iev in range(reader.GetEntries()):
             elif abs(taup_cands[0][3][0].PID) == 13:
                 branch_vals['reco_taup_nmu'][0] = 1
 
+            reco_lep_ip = get_impact_parameter(taup_cands[0][3][0], pv_3vec=reco_pv_3vec, reco_track=True)
+            branch_vals['reco_taup_lep_ipx'][0] = reco_lep_ip.X()
+            branch_vals['reco_taup_lep_ipy'][0] = reco_lep_ip.Y()
+            branch_vals['reco_taup_lep_ipz'][0] = reco_lep_ip.Z()
+
         if len(taup_cands[0][2]) > 0:
             branch_vals['reco_taup_pizero1_px'][0] = taup_cands[0][2][0].Px()
             branch_vals['reco_taup_pizero1_py'][0] = taup_cands[0][2][0].Py()
             branch_vals['reco_taup_pizero1_pz'][0] = taup_cands[0][2][0].Pz()
             branch_vals['reco_taup_pizero1_e'][0] = taup_cands[0][2][0].E()
+
+        # setup the charged sum 4-vec and ip
+        # if lepton decay set this to the lepton
+        # if 1 prong hadronic decay set this to the pi
+        # if 3-prong set the 4-vect to the sum of the 3 charged pions and the ip to the pseudo-ip from the SV and the charged sum momentum
+        # store the reco SV for the 3-prongs as well
+        if len(taup_cands[0][1]) > 2:
+            charged_4vec = ROOT.TLorentzVector()
+            for i in range(3):
+                charged_4vec += taup_cands[0][1][i].P4()
+            branch_vals['reco_taup_charged_px'][0]  = charged_4vec.Px()
+            branch_vals['reco_taup_charged_py'][0]  = charged_4vec.Py()
+            branch_vals['reco_taup_charged_pz'][0]  = charged_4vec.Pz()
+            branch_vals['reco_taup_charged_e'][0]   = charged_4vec.E()
+            taup_charged_ip = get_pseudo_impact_parameter(charged_4vec.Vect().Unit(), reco_taup_sv, pv_3vec=reco_pv_3vec)
+            branch_vals['reco_taup_charged_ipx'][0] = taup_charged_ip.X()
+            branch_vals['reco_taup_charged_ipy'][0] = taup_charged_ip.Y()
+            branch_vals['reco_taup_charged_ipz'][0] = taup_charged_ip.Z()
+
+            branch_vals['reco_taup_sv_x'][0] = reco_taup_sv.X()
+            branch_vals['reco_taup_sv_y'][0] = reco_taup_sv.Y()
+            branch_vals['reco_taup_sv_z'][0] = reco_taup_sv.Z()
+        else: 
+            if len(taup_cands[0]) > 3 and len(taup_cands[0][3]) > 0:
+                charged_name = 'lep'
+            elif len(taup_cands[0][1]) == 1:
+                charged_name = 'pi1'
+
+            branch_vals['reco_taup_charged_px'][0]  = branch_vals[f'reco_taup_{charged_name}_px'][0]
+            branch_vals['reco_taup_charged_py'][0]  = branch_vals[f'reco_taup_{charged_name}_py'][0]
+            branch_vals['reco_taup_charged_pz'][0]  = branch_vals[f'reco_taup_{charged_name}_pz'][0]
+            branch_vals['reco_taup_charged_e'][0]   = branch_vals[f'reco_taup_{charged_name}_e'][0]
+            branch_vals['reco_taup_charged_ipx'][0] = branch_vals[f'reco_taup_{charged_name}_ipx'][0]
+            branch_vals['reco_taup_charged_ipy'][0] = branch_vals[f'reco_taup_{charged_name}_ipy'][0]
+            branch_vals['reco_taup_charged_ipz'][0] = branch_vals[f'reco_taup_{charged_name}_ipz'][0]
             
 
     if len(taun_cands) > 0:
@@ -973,6 +1020,11 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_lep_pz'][0] = taun_cands[0][3][0].P4().Pz()
             branch_vals['reco_taun_lep_e'][0] = taun_cands[0][3][0].P4().E()
 
+            reco_lep_ip = get_impact_parameter(taun_cands[0][3][0], pv_3vec=reco_pv_3vec, reco_track=True)
+            branch_vals['reco_taun_lep_ipx'][0] = reco_lep_ip.X()
+            branch_vals['reco_taun_lep_ipy'][0] = reco_lep_ip.Y()
+            branch_vals['reco_taun_lep_ipz'][0] = reco_lep_ip.Z()
+
             # identify if the lepton was electron or muon based on PID
             if abs(taun_cands[0][3][0].PID) == 11:
                 branch_vals['reco_taun_nele'][0] = 1
@@ -985,6 +1037,41 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_pizero1_pz'][0] = taun_cands[0][2][0].Pz()
             branch_vals['reco_taun_pizero1_e'][0] = taun_cands[0][2][0].E()
 
+        # setup the charged sum 4-vec and ip
+        # if lepton decay set this to the lepton
+        # if 1 prong hadronic decay set this to the pi
+        # if 3-prong set the 4-vect to the sum of the 3 charged pions and the ip to the pseudo-ip from the SV and the charged sum momentum
+        # store the reco SV for the 3-prongs as well
+        if len(taun_cands[0][1]) > 2:
+            charged_4vec = ROOT.TLorentzVector()
+            for i in range(3):
+                charged_4vec += taun_cands[0][1][i].P4()
+            branch_vals['reco_taun_charged_px'][0]  = charged_4vec.Px()
+            branch_vals['reco_taun_charged_py'][0]  = charged_4vec.Py()
+            branch_vals['reco_taun_charged_pz'][0]  = charged_4vec.Pz()
+            branch_vals['reco_taun_charged_e'][0]   = charged_4vec.E()
+            taun_charged_ip = get_pseudo_impact_parameter(charged_4vec.Vect().Unit(), reco_taun_sv, pv_3vec=reco_pv_3vec)
+            branch_vals['reco_taun_charged_ipx'][0] = taun_charged_ip.X()
+            branch_vals['reco_taun_charged_ipy'][0] = taun_charged_ip.Y()
+            branch_vals['reco_taun_charged_ipz'][0] = taun_charged_ip.Z()
+
+            branch_vals['reco_taun_sv_x'][0] = reco_taun_sv.X()
+            branch_vals['reco_taun_sv_y'][0] = reco_taun_sv.Y()
+            branch_vals['reco_taun_sv_z'][0] = reco_taun_sv.Z()
+        else: 
+            if len(taun_cands[0]) > 3 and len(taun_cands[0][3]) > 0:
+                charged_name = 'lep'
+            elif len(taun_cands[0][1]) == 1:
+                charged_name = 'pi1'
+
+            branch_vals['reco_taun_charged_px'][0]  = branch_vals[f'reco_taun_{charged_name}_px'][0]
+            branch_vals['reco_taun_charged_py'][0]  = branch_vals[f'reco_taun_{charged_name}_py'][0]
+            branch_vals['reco_taun_charged_pz'][0]  = branch_vals[f'reco_taun_{charged_name}_pz'][0]
+            branch_vals['reco_taun_charged_e'][0]   = branch_vals[f'reco_taun_{charged_name}_e'][0]
+            branch_vals['reco_taun_charged_ipx'][0] = branch_vals[f'reco_taun_{charged_name}_ipx'][0]
+            branch_vals['reco_taun_charged_ipy'][0] = branch_vals[f'reco_taun_{charged_name}_ipy'][0]
+            branch_vals['reco_taun_charged_ipz'][0] = branch_vals[f'reco_taun_{charged_name}_ipz'][0]
+            
 
     for tau in ['taup', 'taun']:
         # for  1-prong + 1/2 pi0 decays it is hard to replicate the proper decay mode application 
@@ -1007,7 +1094,7 @@ for iev in range(reader.GetEntries()):
                 # for rarer modes e.g 3-prong mis-IDs just 50-50 sample them 
                 reco_dm_1_frac = 0.5
                 reco_dm_2_frac = 0.5
-            rand = random.random()    
+            rand = np.random.rand()   
             if rand < reco_dm_1_frac:
                 # assign as dm 1
                 branch_vals[f'reco_{tau}_npizero'][0] = 1
