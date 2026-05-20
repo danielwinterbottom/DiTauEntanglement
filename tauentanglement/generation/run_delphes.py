@@ -7,7 +7,7 @@ import math
 import argparse
 from array import array
 import numpy as np
-from tauentanglement.utils.ReconstructTaus import FindDMin_Point
+from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ, FindDMin
 
 def TraceTauMother(part, particles, verbose=False):
     """
@@ -574,7 +574,6 @@ for b in branches:
         branch_vals['reco_' + b] = array('f',[0])
         tree.Branch('reco_' + b,  branch_vals['reco_' + b],  'reco_%s/F' % b)
 
-
 for iev in range(reader.GetEntries()):
 
     # initialize the branch values to zero
@@ -883,14 +882,8 @@ for iev in range(reader.GetEntries()):
     if do_track_angular_smearing:
         reco_pv_3vec = smear_PV(ROOT.TVector3(0,0,0)) # smear the PV position (gen-level is always 0,0,0)
 
-        #TODO: add smearing for SV but for now just duplicate the gen ones
-        # if tau is not reconstructed as 3-prong then we set the SV to 0
-        reco_taup_sv = ROOT.TVector3(0,0,0)
-        reco_taun_sv = ROOT.TVector3(0,0,0)
-        if len(taup_cands) > 0 and len(taup_cands[0][1]) > 2:
-            reco_taup_sv = taup_sv.Clone() - reco_pv_3vec
-        if len(taun_cands) > 0 and len(taun_cands[0][1]) > 2:
-            reco_taun_sv = taun_sv.Clone() - reco_pv_3vec
+    reco_taup_sv = ROOT.TVector3(0,0,0)
+    reco_taun_sv = ROOT.TVector3(0,0,0)
 
     if len(taup_cands) > 0:
 
@@ -924,6 +917,20 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taup_pi3_py'][0] = taup_cands[0][1][2].P4().Py()
             branch_vals['reco_taup_pi3_pz'][0] = taup_cands[0][1][2].P4().Pz()
             branch_vals['reco_taup_pi3_e'][0] = taup_cands[0][1][2].P4().E()
+
+            reco_directions = []
+            reco_points = []
+            for t in taup_cands[0][1][:3]: # use up to the first 3 tracks for the SV estimation
+                reco_directions.append(t.P4().Vect().Unit())
+                reco_points.append(ROOT.TVector3(t.Xd, t.Yd, t.Zd))
+            reco_taup_sv_lsq = FindVertexLSQ(reco_points[0], reco_directions[0], reco_points[1], reco_directions[1], reco_points[2], reco_directions[2])
+
+            reco_taup_sv = reco_taup_sv_lsq - reco_pv_3vec
+
+            branch_vals['reco_taup_sv_x'][0] = reco_taup_sv.X()
+            branch_vals['reco_taup_sv_y'][0] = reco_taup_sv.Y()
+            branch_vals['reco_taup_sv_z'][0] = reco_taup_sv.Z()
+
         if len(taup_cands[0]) > 3 and len(taup_cands[0][3]) > 0:
             branch_vals['reco_taup_lep_px'][0] = taup_cands[0][3][0].P4().Px()
             branch_vals['reco_taup_lep_py'][0] = taup_cands[0][3][0].P4().Py()
@@ -1014,6 +1021,20 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_pi3_py'][0] = taun_cands[0][1][2].P4().Py()
             branch_vals['reco_taun_pi3_pz'][0] = taun_cands[0][1][2].P4().Pz()
             branch_vals['reco_taun_pi3_e'][0] = taun_cands[0][1][2].P4().E()
+
+            reco_directions = []
+            reco_points = []
+            for t in taun_cands[0][1][:3]: # use up to the first 3 tracks for the SV estimation
+                reco_directions.append(t.P4().Vect().Unit())
+                reco_points.append(ROOT.TVector3(t.Xd, t.Yd, t.Zd))
+            reco_taun_sv_lsq = FindVertexLSQ(reco_points[0], reco_directions[0], reco_points[1], reco_directions[1], reco_points[2], reco_directions[2])
+
+            reco_taun_sv = reco_taun_sv_lsq - reco_pv_3vec
+
+            branch_vals['reco_taun_sv_x'][0] = reco_taun_sv.X()
+            branch_vals['reco_taun_sv_y'][0] = reco_taun_sv.Y()
+            branch_vals['reco_taun_sv_z'][0] = reco_taun_sv.Z()
+
         if len(taun_cands[0]) > 3 and len(taun_cands[0][3]) > 0:
             branch_vals['reco_taun_lep_px'][0] = taun_cands[0][3][0].P4().Px()
             branch_vals['reco_taun_lep_py'][0] = taun_cands[0][3][0].P4().Py()
@@ -1102,14 +1123,12 @@ for iev in range(reader.GetEntries()):
                 # assign as dm 2
                 branch_vals[f'reco_{tau}_npizero'][0] = 2 
 
-    #TODO: add SVs for other pions for 3-prongs, and leptons for leptonic modes 
-
     #store reco MET
     branch_vals['reco_met_px'][0] = MET.At(0).MET * math.cos(MET.At(0).Phi)
     branch_vals['reco_met_py'][0] = MET.At(0).MET * math.sin(MET.At(0).Phi)
 
     tree.Fill()
-  
+
 fout.Write()
 fout.Close()
     
