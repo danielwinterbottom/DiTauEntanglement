@@ -7,7 +7,7 @@ import math
 import argparse
 from array import array
 import numpy as np
-from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ, FindDMin
+from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ
 
 def TraceTauMother(part, particles, verbose=False):
     """
@@ -176,47 +176,6 @@ def CheckWithinSigCone(tau_cand):
         if tau_vis.DeltaR(c_p4) > Rsig:
             return False
     return True
-
-def GetTauCands_old(tracks, strips, incDM2=True, match_charge=None):
-    #apply pT and eta cuts to tracks
-    tracks_ = [t for t in tracks if t.PT > 0.5 and abs(t.Eta) < 2.5]
-
-    # first make all combination of 1 track and 0,1,2 strips
-    tau_cands = []
-    for t in tracks_:
-        tau_vis = t.P4()
-        tau_cands.append([tau_vis, [t], []]) # 1 track, 0 strips
-        #TODO: might need to add the additional delta_mass part to the min and max masses below
-        for s in strips:
-            mass_2body = (t.P4() + s[0]).M()
-            pT_2body = (t.P4() + s[0]).Pt()
-            mass_2body_min = 0.3
-            mass_2body_max = max(min(1.3 * math.sqrt(pT_2body/100), 4.2), 1.3)
-            if mass_2body > mass_2body_min and mass_2body < mass_2body_max:
-                tau_vis = t.P4() + s[0]
-                tau_cands.append([tau_vis, [t], [s[0]]]) # 1 track, 1 strip
-            if incDM2:
-                for s2 in strips:
-                    if s2 != s:
-                        mass_3body = (t.P4() + s[0] + s2[0]).M()
-                        pT_3body = (t.P4() + s[0] + s2[0]).Pt()
-                        mass_3body_min = 0.4
-                        mass_3body_max = max(min(1.2 * math.sqrt(pT_3body/100), 4.0), 1.2)
-                        if mass_3body > mass_3body_min and mass_3body < mass_3body_max:
-                            tau_vis = t.P4() + s[0] + s2[0]
-                            tau_cands.append([tau_vis, [t], [s[0], s2[0]]]) # 1 track, 2 strips
-
-    # filter any tau_cands not passing signal cone requirement
-    tau_cands = [c for c in tau_cands if CheckWithinSigCone(c)]
-
-    #if match_charge is specified, filter tau_cands to only those where the track has the specified charge
-    if match_charge is not None:
-        tau_cands = [c for c in tau_cands if c[1][0].Charge == match_charge]
-
-    #sort tau_cands by pT
-    tau_cands.sort(key=lambda x: x[0].Pt(), reverse=True)
-
-    return tau_cands
 
 def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
 
