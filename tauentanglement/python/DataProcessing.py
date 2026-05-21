@@ -198,28 +198,46 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
 
     df = tree.arrays(config['Features']['dataframe_variables'], library="pd")
 
-    # select only DM 0 and 1
-    df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
-    df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
+    ## select only DM 0 and 1
+    # removing this since we want to train on other decay modes as well
+    #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
+    #df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
 
     if use_reco:
-        # if reco features are available, also select events where the reco taus have 1 pi and <2 pi0s to be consistent with gen-level selection
-        df = df[(df['reco_taup_npi'] == 1) & (df['reco_taup_npizero'] < 2)]
-        df = df[(df['reco_taun_npi'] == 1) & (df['reco_taun_npizero'] < 2)]
+        # require at least 1 pi, elec or muon for each tau
+        df = df[(df['reco_taup_npi']+df['reco_taup_nmu']+df['reco_taup_nele'] > 0) & (df['reco_taun_npi']+df['reco_taun_nmu']+df['reco_taun_nele'] > 0)]
 
         # apply vis pT cut as well
         df = df[(df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)]
 
-    # now we add a DM float which is 0 or 1 depending on whether tau is pi or pipizero
+    # now we add some booleans to the dataframe with information about the type of the tau decay 
     df['taup_haspizero'] = (df['taup_npizero'] > 0).astype(float)
     df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
-    df = df.drop(columns=['taup_npi', 'taup_npizero', 'taun_npi', 'taun_npizero'])  # delete the pi and pi0 columns
+    df['taup_is3prong'] = (df['taup_npi'] > 1).astype(float)
+    df['taun_is3prong'] = (df['taun_npi'] > 1).astype(float)
+    df['taup_isleptonic'] = ((df['taup_nmu'] + df['taup_nele']) > 0).astype(float)
+    df['taun_isleptonic'] = ((df['taun_nmu'] + df['taun_nele']) > 0).astype(float)
+    df['taup_ismuon'] = (df['taup_nmu'] > 0).astype(float)
+    df['taun_ismuon'] = (df['taun_nmu'] > 0).astype(float)
+    df['taup_iselectron'] = (df['taup_nele'] > 0).astype(float)
+    df['taun_iselectron'] = (df['taun_nele'] > 0).astype(float)
+    df['taup_ishadronic'] = (df['taup_npi']> 0).astype(float)
+    df['taun_ishadronic'] = (df['taun_npi']> 0).astype(float)
 
     # do the same for reco if it exists
     if 'reco_taup_npizero' in df.columns:
         df['reco_taup_haspizero'] = (df['reco_taup_npizero'] > 0).astype(float)
         df['reco_taun_haspizero'] = (df['reco_taun_npizero'] > 0).astype(float)
-        df = df.drop(columns=['reco_taup_npi', 'reco_taup_npizero', 'reco_taun_npi', 'reco_taun_npizero'])  # delete the reco pi and pi0 columns
+        df['reco_taup_is3prong'] = (df['reco_taup_npi'] > 1).astype(float)
+        df['reco_taun_is3prong'] = (df['reco_taun_npi'] > 1).astype(float)
+        df['reco_taup_isleptonic'] = ((df['reco_taup_nmu'] + df['reco_taup_nele']) > 0).astype(float)
+        df['reco_taun_isleptonic'] = ((df['reco_taun_nmu'] + df['reco_taun_nele']) > 0).astype(float)
+        df['reco_taup_ismuon'] = (df['reco_taup_nmu'] > 0).astype(float)
+        df['reco_taun_ismuon'] = (df['reco_taun_nmu'] > 0).astype(float)
+        df['reco_taup_iselectron'] = (df['reco_taup_nele'] > 0).astype(float)
+        df['reco_taun_iselectron'] = (df['reco_taun_nele'] > 0).astype(float)
+        df['reco_taup_ishadronic'] = (df['reco_taup_npi']> 0).astype(float)
+        df['reco_taun_ishadronic'] = (df['reco_taun_npi']> 0).astype(float)
 
     if collider == 'LEP':
         # also apply a reco_mass cut to select events close to the Z pole with little boost

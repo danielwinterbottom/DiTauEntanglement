@@ -682,6 +682,57 @@ def FindDMin_Point(p1, d1, p2, return_points=False):
     else:
         return ip
 
+def FindVertexLSQ(p1, d1, p2, d2, p3, d3):
+    """
+    Global least-squares estimate of common vertex from 3 straight tracks.
+
+    Lines:
+        L1 = pi + ti di
+        L2 = p2 + t2 d2
+        L3 = p3 + t3 d3
+
+    Returns:
+        TVector3: fitted vertex
+    """
+
+    points = [p1, p2, p3]
+    dirs   = [d1.Unit(), d2.Unit(), d3.Unit()]
+    
+    # Unknowns are:
+    # [vx, vy, vz, t1, t2, t3]
+    #
+    # For each track:
+    #     v - t_i d_i = p_i
+    #
+    # This gives 9 equations and 6 unknowns.
+
+    M = np.zeros((9, 6))
+    y = np.zeros(9)
+
+    for i, (p, d) in enumerate(zip(points, dirs)):
+        row = 3 * i
+
+        # v terms
+        M[row + 0, 0] = 1.0
+        M[row + 1, 1] = 1.0
+        M[row + 2, 2] = 1.0
+
+        # -t_i d_i terms
+        M[row + 0, 3 + i] = -d.X()
+        M[row + 1, 3 + i] = -d.Y()
+        M[row + 2, 3 + i] = -d.Z()
+
+        # RHS is p_i
+        y[row + 0] = p.X()
+        y[row + 1] = p.Y()
+        y[row + 2] = p.Z()
+
+    sol, residuals, rank, svals = np.linalg.lstsq(M, y, rcond=None)
+
+    vx, vy, vz = sol[0], sol[1], sol[2]
+
+    return ROOT.TVector3(vx, vy, vz)
+
 def GetPointShifts(p1, d1, p2, d2, delta):
 
     # d2,p2 is the line that the shifts in the point are computed for
