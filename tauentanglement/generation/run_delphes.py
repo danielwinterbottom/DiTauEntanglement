@@ -288,6 +288,117 @@ def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
 
     return tau_cands
 
+def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
+
+    tau_cands = []
+
+    #apply pT and eta cuts to tracks
+    tracks_ = [] # non muon / electron tracks
+    muon_tracks = [] # tracks identified as electrons or muons
+    electron_tracks = []
+    for t in tracks:
+        if t.PT > 0.5 and abs(t.Eta) < 2.5:
+            if abs(t.PID) == 11: # remove tracks identified as electrons
+                electron_tracks.append(t)
+            elif abs(t.PID) == 13: # remove tracks identified as muons
+                muon_tracks.append(t)
+            elif abs(t.PID) not in [11, 13]: # remove tracks identified as electrons or muons
+                tracks_.append(t)
+
+    # all leptons become their own tau candidate
+    for p in electron_tracks+muon_tracks:
+        tau_vis = p.P4()
+        tau_cands.append([tau_vis, [], [], [p] ]) # 1 track, 0 strips
+
+    # first make all combination of 1 track and 0,1,2 strips
+    for t in tracks_:
+        tau_vis = t.P4()
+        tau_cands.append([tau_vis, [t], []]) # 1 track, 0 strips
+        #TODO: might need to add the additional delta_mass part to the min and max masses below
+        for s in strips:
+            mass_2body = (t.P4() + s[0]).M()
+            pT_2body = (t.P4() + s[0]).Pt()
+            mass_2body_min = 0.3
+            mass_2body_max = max(min(1.3 * math.sqrt(pT_2body/100), 4.2), 1.3)
+            if mass_2body > mass_2body_min and mass_2body < mass_2body_max:
+                tau_vis = t.P4() + s[0]
+                tau_cands.append([tau_vis, [t], [s[0]]]) # 1 track, 1 strip
+            if incDM2:
+                for s2 in strips:
+                    if s2 != s:
+                        mass_3body = (t.P4() + s[0] + s2[0]).M()
+                        pT_3body = (t.P4() + s[0] + s2[0]).Pt()
+                        mass_3body_min = 0.4
+                        mass_3body_max = max(min(1.2 * math.sqrt(pT_3body/100), 4.0), 1.2)
+                        if mass_3body > mass_3body_min and mass_3body < mass_3body_max:
+                            tau_vis = t.P4() + s[0] + s2[0]
+                            tau_cands.append([tau_vis, [t], [s[0], s2[0]]]) # 1 track, 2 strips
+    
+    # make all 2 track combinations
+    for i in range(len(tracks_)):
+        for j in range(i+1, len(tracks_)):
+            t1 = tracks_[i]
+            t2 = tracks_[j]
+            tau_vis = t1.P4() + t2.P4()
+            mass_2body = tau_vis.M()
+            mass_2body_max = 1.2
+            if mass_2body < mass_2body_max:
+                tau_cands.append([tau_vis, [t1, t2], []]) # 2 tracks, 0 strips
+
+
+    # make all combinations of 3 tracks and 0, 1 strips
+    # first find all combination of 3 tracks with total charge = +/- 1
+    for i in range(len(tracks_)):
+        for j in range(i+1, len(tracks_)):
+            for k in range(j+1, len(tracks_)):
+                t1 = tracks_[i]
+                t2 = tracks_[j]
+                t3 = tracks_[k]
+                if abs(t1.Charge + t2.Charge + t3.Charge) != 1: continue
+                tau_vis = t1.P4() + t2.P4() + t3.P4()
+                mass_3body_min =  0.8
+                mass_3body_max =  1.5
+                mass_3body = tau_vis.M()
+                if mass_3body > mass_3body_min and mass_3body < mass_3body_max:
+                    tau_cands.append([tau_vis, [t1, t2, t3], []]) # 3 tracks, 0 strips
+                # now find combination with 1 strip
+                for s in strips:
+                    mass_4body = (t1.P4() + t2.P4() + t3.P4() + s[0]).M()
+                    pT_4body = (t1.P4() + t2.P4() + t3.P4() + s[0]).Pt()
+                    mass_4body_min = 0.9
+                    mass_4body_max = 1.6
+                    if mass_4body > mass_4body_min and mass_4body < mass_4body_max:
+                        tau_vis = t1.P4() + t2.P4() + t3.P4() + s[0]
+                        tau_cands.append([tau_vis, [t1, t2, t3], [s[0]]]) # 3 tracks, 1 strip
+
+    # filter any tau_cands not passing signal cone requirement
+    tau_cands = [c for c in tau_cands if CheckWithinSigCone(c)]
+
+    #sort tau_cands by pT
+    tau_cands.sort(key=lambda x: x[0].Pt(), reverse=True)
+    # if a muon or electron candidate exists, put these at the front of the list (they will be used preferentially in the analysis)
+    tau_cands.sort(key=lambda x: len(x) > 3, reverse=True)
+
+    # if best tau has only 2 prongs then we remove the event
+    if len(tau_cands) > 0:
+        best_cand = tau_cands[0]
+        if len(best_cand[1]) == 2:
+            tau_cands = [] # if the best candidate has only 2 prongs, then reject all candidates
+
+    # if match_charge then require the best candidate to match the charge of the tau
+    if match_charge is not None and len(tau_cands) > 0:
+        best_cand = tau_cands[0]
+        charge = 0
+        for t in best_cand[1]:
+            charge += t.Charge
+        if len(best_cand) > 3: # add in the leptons if they exist
+            for l in best_cand[3]:
+                charge += l.Charge
+        if charge != match_charge:
+            tau_cands = [] # if the best candidate doesn't match the charge, then reject all candidates
+
+    return tau_cands
+
 class ResolutionGraph:
     def __init__(self, path, unit_conversion=1.0):
         pts = []
