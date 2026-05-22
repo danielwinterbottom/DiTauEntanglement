@@ -138,7 +138,6 @@ def main():
     predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
 
     if use_reco:
-      # TODO: need to change this to use full visible tau not just pi+pi0!! i.e use tauX_charged_ instead - but need to change on trained model first
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
                     taup_charged=reco_taup_charged, taup_pizero=reco_taup_pizero, taun_charged=reco_taun_charged, taun_pizero=reco_taun_pizero)
     else:
