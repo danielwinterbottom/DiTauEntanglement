@@ -140,10 +140,10 @@ def main():
     if use_reco:
       # TODO: need to change this to use full visible tau not just pi+pi0!! i.e use tauX_charged_ instead - but need to change on trained model first
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_pi=reco_taup_pi, taup_pizero=reco_taup_pizero, taun_pi=reco_taun_pi, taun_pizero=reco_taun_pizero)
+                    taup_charged=reco_taup_charged, taup_pizero=reco_taup_pizero, taun_charged=reco_taun_charged, taun_pizero=reco_taun_pizero)
     else:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_pi=true_taup_pi, taup_pizero=true_taup_pizero, taun_pi=true_taun_pi, taun_pizero=true_taun_pizero)
+                    taup_charged=true_taup_charged, taup_pizero=true_taup_pizero, taun_charged=true_taun_charged, taun_pizero=true_taun_pizero)
     predictions = convert_coordinates_pred(predictions, **conv_kwargs)
 
     if not args.useMLP:
@@ -168,8 +168,8 @@ def main():
     true_values = add_energies_pair(true_values)
    
     # get true taus by summing with pis and pizeros
-    true_taus = np.concatenate([true_values[:, 0:4] + true_taup_pi + true_taup_pizero,
-                                true_values[:, 4:8] + true_taun_pi + true_taun_pizero], axis=1)
+    true_taus = np.concatenate([true_values[:, 0:4] + true_taup_charged + true_taup_pizero,
+                                true_values[:, 4:8] + true_taun_charged + true_taun_pizero], axis=1)
     
     # now use predicted neutrino but add to visible products to get predicted taus
     if use_reco:
