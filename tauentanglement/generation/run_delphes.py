@@ -842,7 +842,7 @@ for iev in range(reader.GetEntries()):
     branch_vals['taun_charged_e'][0] = taun_charged_sum.E()
 
     # get SVs but only if 3-prongs 
-    taup_sv = ROOT.TVector3(taup_pis[0].X, taup_pis[0].Y, taup_pis[0].Z) if len(taup_pis) > 0 else ROOT.TVector3(0,0,0) #if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
+    taup_sv = ROOT.TVector3(taup_pis[0].X, taup_pis[0].Y, taup_pis[0].Z) if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
     branch_vals['taup_sv_x'][0] = taup_sv.X()
     branch_vals['taup_sv_y'][0] = taup_sv.Y()
     branch_vals['taup_sv_z'][0] = taup_sv.Z()
