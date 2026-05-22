@@ -75,7 +75,7 @@ def _get_vec(df, pref: str) -> np.ndarray:
 
 def _build_nrk_basis_from_visible_tau(
     df,
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     eps: float = 1e-12,
 ):
@@ -90,7 +90,7 @@ def _build_nrk_basis_from_visible_tau(
       n, r, k as (N,3) arrays
     """
 
-    v_vis = _get_vec(df, pi_prefix) + _get_vec(df, pi0_prefix)
+    v_vis = _get_vec(df, charged_prefix) + _get_vec(df, pi0_prefix)
 
     # --- k_hat ---
     k_norm = np.linalg.norm(v_vis, axis=1, keepdims=True)
@@ -131,7 +131,7 @@ def _build_nrk_basis_from_visible_tau(
 def ConvertToOrthonormalNRK(
     df,
     prefix_to_convert: str,
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     out_prefix = None,
     drop_xyz: bool = True,
@@ -141,7 +141,7 @@ def ConvertToOrthonormalNRK(
     if out_prefix is None:
         out_prefix = prefix_to_convert
 
-    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+    n, r, k = _build_nrk_basis_from_visible_tau(df, charged_prefix, pi0_prefix, eps=eps)
     v = _get_vec(df, prefix_to_convert)
 
     df[f"{out_prefix}n"] = np.sum(v * n, axis=1)
@@ -163,7 +163,7 @@ def ConvertToOrthonormalNRK(
 def ConvertFromOrthonormalNRK(
     df,
     prefix_to_convert: str,  # expects {prefix}n,{prefix}r,{prefix}k
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     out_prefix = None,  # writes {out}px,{out}py,{out}pz
     drop_nrk: bool = False,
@@ -172,7 +172,7 @@ def ConvertFromOrthonormalNRK(
     if out_prefix is None:
         out_prefix = prefix_to_convert
 
-    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+    n, r, k = _build_nrk_basis_from_visible_tau(df, charged_prefix, pi0_prefix, eps=eps)
 
     vn = df[f"{prefix_to_convert}n"].to_numpy(dtype=float)[:, None]
     vr = df[f"{prefix_to_convert}r"].to_numpy(dtype=float)[:, None]
@@ -201,44 +201,49 @@ def convert_coordinates_pred(arr, coordinates, output_features, taup_pi, taup_pi
 
 def ConvertFromOrthonormalNRK_Predictions(
     predictions,
-    taup_pi,
+    taup_charged,
     taup_pi0,
-    taun_pi,
+    taun_charged,
     taun_pi0,
     eps: float = 1e-12,
 ):
 
+    if 'reco_taup_charged_px' in taup_charged.columns:
+        charged_name = "charged"
+    else:
+        charged_name = "pi1"
+
     # create a dataframe with predictions and visible tau decay products
     column_names = ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']
-    taup_pi_columns = [f'reco_taup_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    taup_charged_columns = [f'reco_taup_{charged_name}_{comp}' for comp in ['E', 'px', 'py', 'pz']]
     taup_pi0_columns = [f'reco_taup_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    taun_pi_columns = [f'reco_taun_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    taun_charged_columns = [f'reco_taun_{charged_name}_{comp}' for comp in ['E', 'px', 'py', 'pz']]
     taun_pi0_columns = [f'reco_taun_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    visible_data = np.concatenate([taup_pi, taup_pi0, taun_pi, taun_pi0], axis=1)
-    visible_column_names = taup_pi_columns + taup_pi0_columns + taun_pi_columns + taun_pi0_columns
+    visible_data = np.concatenate([taup_charged, taup_pi0, taun_charged, taun_pi0], axis=1)
+    visible_column_names = taup_charged_columns + taup_pi0_columns + taun_charged_columns + taun_pi0_columns
     all_data = np.concatenate([predictions, visible_data], axis=1)
     column_names += visible_column_names
     df = pd.DataFrame(all_data, columns=column_names)
 
 
     # now call ConvertFromOrthonormalNRK on the dataframe, first for nubar tau+ neutrino
-    pi_prefix = 'reco_taup_pi1_'
+    charged_prefix = f'reco_taup_{charged_name}_'
     pi0_prefix = 'reco_taup_pizero1_'
     df = ConvertFromOrthonormalNRK(
         df,
         prefix_to_convert='taup_nu_',
-        pi_prefix=pi_prefix,
+        charged_prefix=charged_prefix,
         pi0_prefix=pi0_prefix,
         drop_nrk=True,
         eps=eps,
     )
     # then for nubar tau- neutrino
-    pi_prefix = 'reco_taun_pi1_'
+    charged_prefix = f'reco_taun_{charged_name}_'
     pi0_prefix = 'reco_taun_pizero1_'
     df = ConvertFromOrthonormalNRK(
         df,
         prefix_to_convert='taun_nu_',
-        pi_prefix=pi_prefix,
+        charged_prefix=charged_prefix,
         pi0_prefix=pi0_prefix,
         drop_nrk=True,
         eps=eps,

@@ -7,7 +7,7 @@ import uproot
 import numpy as np
 from tauentanglement.python.NN_Tools import load_model
 from tauentanglement.python.DataProcessing import get_test_dataset
-from tauentanglement.utils.coordinate_conversions import ConvertPredictionsToCartesian, ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
+from tauentanglement.utils.coordinate_conversions import convert_coordinates_pred
 from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
 from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars, add_energies_pair, add_energy, inv_mass
 
@@ -66,6 +66,26 @@ def main():
     true_taun_pi_ip = test_df[['taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz']].values
     true_taup_pi_ip = test_df[['taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz']].values
 
+    inc_new_vars = 'taup_charged_e' in test_df.columns
+
+    # check if charged component exists
+    if inc_new_vars:
+        true_taup_charged = test_df[['taup_charged_e', 'taup_charged_px', 'taup_charged_py', 'taup_charged_pz']].values
+        true_taun_charged = test_df[['taun_charged_e', 'taun_charged_px', 'taun_charged_py', 'taun_charged_pz']].values
+        true_taun_charged_ip = test_df[['taun_charged_ipx', 'taun_charged_ipy', 'taun_charged_ipz']].values
+        true_taup_charged_ip = test_df[['taup_charged_ipx', 'taup_charged_ipy', 'taup_charged_ipz']].values
+        true_taup_sv = test_df[['taup_sv_x', 'taup_sv_y', 'taup_sv_z']].values
+        true_taun_sv = test_df[['taun_sv_x', 'taun_sv_y', 'taun_sv_z']].values
+
+    else: # else use the pi four vectors as the charged component 
+        true_taup_charged = true_taup_pi
+        true_taun_charged = true_taun_pi
+        true_taun_charged_ip = true_taun_pi_ip
+        true_taup_charged_ip = true_taup_pi_ip
+        # set sv's to 0
+        true_taup_sv = np.zeros((len(test_df), 3))
+        true_taun_sv = np.zeros((len(test_df), 3))
+
     if use_reco:
         reco_taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
         reco_taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
@@ -75,6 +95,22 @@ def main():
         # get ips for reco pis as well
         reco_taun_pi_ip = test_df[['reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz']].values
         reco_taup_pi_ip = test_df[['reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz']].values
+
+        if inc_new_vars:
+            reco_taup_charged = test_df[['reco_taup_charged_e', 'reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz']].values
+            reco_taun_charged = test_df[['reco_taun_charged_e', 'reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz']].values
+            reco_taun_charged_ip = test_df[['reco_taun_charged_ipx', 'reco_taun_charged_ipy', 'reco_taun_charged_ipz']].values
+            reco_taup_charged_ip = test_df[['reco_taup_charged_ipx', 'reco_taup_charged_ipy', 'reco_taup_charged_ipz']].values
+            reco_taup_sv = test_df[['reco_taup_sv_x', 'reco_taup_sv_y', 'reco_taup_sv_z']].values if use_reco else None
+            reco_taun_sv = test_df[['reco_taun_sv_x', 'reco_taun_sv_y', 'reco_taun_sv_z']].values if use_reco else None
+        else: # else use the pi four vectors as the charged component (this is not ideal but we just want to see how much difference it makes to the results)
+            reco_taup_charged = reco_taup_pi
+            reco_taun_charged = reco_taun_pi
+            reco_taun_charged_ip = reco_taun_pi_ip
+            reco_taup_charged_ip = reco_taup_pi_ip
+            # set sv's to 0
+            reco_taup_sv = np.zeros((len(test_df), 3))
+            reco_taun_sv = np.zeros((len(test_df), 3))
 
     # move X_test and model to device
     X_test, _ = test_dataset[:]
@@ -102,6 +138,7 @@ def main():
     predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
 
     if use_reco:
+      # TODO: need to change this to use full visible tau not just pi+pi0!! i.e use tauX_charged_ instead - but need to change on trained model first
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
                     taup_pi=reco_taup_pi, taup_pizero=reco_taup_pizero, taun_pi=reco_taun_pi, taun_pizero=reco_taun_pizero)
     else:
@@ -136,34 +173,82 @@ def main():
     
     # now use predicted neutrino but add to visible products to get predicted taus
     if use_reco:
-        pred_taus = np.concatenate([predictions[:, 0:4] + reco_taup_pi + reco_taup_pizero,
-                                predictions[:, 4:8] + reco_taun_pi + reco_taun_pizero], axis=1)
+        pred_taus = np.concatenate([predictions[:, 0:4] + reco_taup_charged + reco_taup_pizero,
+                                predictions[:, 4:8] + reco_taun_charged + reco_taun_pizero], axis=1)
     else:
-        pred_taus = np.concatenate([predictions[:, 0:4] + true_taup_pi + true_taup_pizero,
-                                predictions[:, 4:8] + true_taun_pi + true_taun_pizero], axis=1)
+        pred_taus = np.concatenate([predictions[:, 0:4] + true_taup_charged + true_taup_pizero,
+                                predictions[:, 4:8] + true_taun_charged + true_taun_pizero], axis=1)
     
     # same for the MAP predictions
     pred_taus_map = None
     if predictions_map is not None:
         if use_reco:
-            pred_taus_map = np.concatenate([predictions_map[:, 0:4] + reco_taup_pi + reco_taup_pizero,
-                                        predictions_map[:, 4:8] + reco_taun_pi + reco_taun_pizero], axis=1)
+            pred_taus_map = np.concatenate([predictions_map[:, 0:4] + reco_taup_charged + reco_taup_pizero,
+                                        predictions_map[:, 4:8] + reco_taun_charged + reco_taun_pizero], axis=1)
         else:
-            pred_taus_map = np.concatenate([predictions_map[:, 0:4] + true_taup_pi + true_taup_pizero,
-                                        predictions_map[:, 4:8] + true_taun_pi + true_taun_pizero], axis=1)
+            pred_taus_map = np.concatenate([predictions_map[:, 0:4] + true_taup_charged + true_taup_pizero,
+                                        predictions_map[:, 4:8] + true_taun_charged + true_taun_pizero], axis=1)
   
   
     # build dataframe for results
     true_taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
     true_taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
+    if inc_new_vars:
+        true_taup_ishadronic = test_df['taup_ishadronic'].values.reshape(-1,1)
+        true_taun_ishadronic = test_df['taun_ishadronic'].values.reshape(-1,1)
+        true_taup_npizero = test_df['taup_npizero'].values.reshape(-1,1)
+        true_taun_npizero = test_df['taun_npizero'].values.reshape(-1,1)
+        true_taup_is3prong = test_df['taup_is3prong'].values.reshape(-1,1)
+        true_taun_is3prong = test_df['taun_is3prong'].values.reshape(-1,1)
+        true_taup_ismuon = test_df['taup_ismuon'].values.reshape(-1,1)
+        true_taun_ismuon = test_df['taun_ismuon'].values.reshape(-1,1)
+        true_taup_iselectron = test_df['taup_iselectron'].values.reshape(-1,1)
+        true_taun_iselectron = test_df['taun_iselectron'].values.reshape(-1,1)
+    else:
+        # set to zeros if not in dataset
+        true_taup_ishadronic = np.zeros((len(test_df), 1))
+        true_taun_ishadronic = np.zeros((len(test_df), 1))
+        true_taup_npizero = np.zeros((len(test_df), 1))
+        true_taun_npizero = np.zeros((len(test_df), 1))
+        true_taup_is3prong = np.zeros((len(test_df), 1))
+        true_taun_is3prong = np.zeros((len(test_df), 1))
+        true_taup_ismuon = np.zeros((len(test_df), 1))
+        true_taun_ismuon = np.zeros((len(test_df), 1))
+        true_taup_iselectron = np.zeros((len(test_df), 1))
+        true_taun_iselectron = np.zeros((len(test_df), 1))
+
 
     if use_reco:
         reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
         reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
-        
+        if inc_new_vars:
+            reco_taup_ishadronic = test_df['reco_taup_ishadronic'].values.reshape(-1,1) if use_reco else None
+            reco_taun_ishadronic = test_df['reco_taun_ishadronic'].values.reshape(-1,1) if use_reco else None
+            reco_taup_npizero = test_df['reco_taup_npizero'].values.reshape(-1,1) if use_reco else None
+            reco_taun_npizero = test_df['reco_taun_npizero'].values.reshape(-1,1) if use_reco else None
+            reco_taup_is3prong = test_df['reco_taup_is3prong'].values.reshape(-1,1) if use_reco else None
+            reco_taun_is3prong = test_df['reco_taun_is3prong'].values.reshape(-1,1) if use_reco else None
+            reco_taup_ismuon = test_df['reco_taup_ismuon'].values.reshape(-1,1) if use_reco else None
+            reco_taun_ismuon = test_df['reco_taun_ismuon'].values.reshape(-1,1) if use_reco else None
+            reco_taup_iselectron = test_df['reco_taup_iselectron'].values.reshape(-1,1) if use_reco else None
+            reco_taun_iselectron = test_df['reco_taun_iselectron'].values.reshape(-1,1) if use_reco else None
+        else:
+            reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
+            reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
+            reco_taup_ishadronic = np.zeros((len(test_df), 1))
+            reco_taun_ishadronic = np.zeros((len(test_df), 1))
+            reco_taup_npizero = np.zeros((len(test_df), 1))
+            reco_taun_npizero = np.zeros((len(test_df), 1))
+            reco_taup_is3prong = np.zeros((len(test_df), 1))
+            reco_taun_is3prong = np.zeros((len(test_df), 1))
+            reco_taup_ismuon = np.zeros((len(test_df), 1))
+            reco_taun_ismuon = np.zeros((len(test_df), 1))
+            reco_taup_iselectron = np.zeros((len(test_df), 1))
+            reco_taun_iselectron = np.zeros((len(test_df), 1))
+
     # collect true and predicted nus, true and predicted taus, and pi's into pandas dataframe, label the columns
-    results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero,
-                              true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero, true_taun_pi_ip, true_taup_pi_ip], axis=1),
+    results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero, true_taup_ishadronic, true_taun_ishadronic, true_taup_npizero, true_taun_npizero, true_taup_is3prong, true_taun_is3prong, true_taup_ismuon, true_taun_ismuon, true_taup_iselectron, true_taun_iselectron,
+                              true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero, true_taun_pi_ip, true_taup_pi_ip, true_taup_charged, true_taun_charged, true_taup_charged_ip, true_taun_charged_ip, true_taup_sv, true_taun_sv], axis=1),
                               columns=[
                                        'true_nubar_E', 'true_nubar_px', 'true_nubar_py', 'true_nubar_pz',
                                        'true_nu_E', 'true_nu_px', 'true_nu_py', 'true_nu_pz',
@@ -174,26 +259,48 @@ def main():
                                        'pred_tau_plus_E',  'pred_tau_plus_px',  'pred_tau_plus_py',  'pred_tau_plus_pz',
                                        'pred_tau_minus_E', 'pred_tau_minus_px', 'pred_tau_minus_py', 'pred_tau_minus_pz',
                                        'true_taun_haspizero', 'true_taup_haspizero',
+                                       'true_taup_ishadronic', 'true_taun_ishadronic',
+                                       'true_taup_npizero', 'true_taun_npizero',
+                                       'true_taup_is3prong', 'true_taun_is3prong',
+                                       'true_taup_ismuon', 'true_taun_ismuon',
+                                       'true_taup_iselectron', 'true_taun_iselectron',
                                        'true_taup_pi1_E', 'true_taup_pi1_px', 'true_taup_pi1_py', 'true_taup_pi1_pz',
                                        'true_taup_pizero1_E', 'true_taup_pizero1_px', 'true_taup_pizero1_py', 'true_taup_pizero1_pz',
                                        'true_taun_pi1_E', 'true_taun_pi1_px', 'true_taun_pi1_py', 'true_taun_pi1_pz',
                                        'true_taun_pizero1_E', 'true_taun_pizero1_px', 'true_taun_pizero1_py', 'true_taun_pizero1_pz',
                                        'true_taun_pi1_ipx', 'true_taun_pi1_ipy', 'true_taun_pi1_ipz',
-                                       'true_taup_pi1_ipx', 'true_taup_pi1_ipy', 'true_taup_pi1_ipz'
+                                       'true_taup_pi1_ipx', 'true_taup_pi1_ipy', 'true_taup_pi1_ipz',
+                                       'true_taup_charged_E', 'true_taup_charged_px', 'true_taup_charged_py', 'true_taup_charged_pz',
+                                       'true_taun_charged_E', 'true_taun_charged_px', 'true_taun_charged_py', 'true_taun_charged_pz',
+                                       'true_taup_charged_ipx', 'true_taup_charged_ipy', 'true_taup_charged_ipz',
+                                       'true_taun_charged_ipx', 'true_taun_charged_ipy', 'true_taun_charged_ipz',
+                                       'true_taup_sv_x', 'true_taup_sv_y', 'true_taup_sv_z',
+                                       'true_taun_sv_x', 'true_taun_sv_y', 'true_taun_sv_z'
                                        ])
     
     
     if use_reco:
-        results_df_extra = pd.DataFrame(data=np.concatenate([reco_taup_haspizero, reco_taun_haspizero,
-                                                            reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero, reco_taun_pi_ip, reco_taup_pi_ip], axis=1),
+        results_df_extra = pd.DataFrame(data=np.concatenate([reco_taup_haspizero, reco_taun_haspizero, reco_taup_ishadronic, reco_taun_ishadronic, reco_taup_npizero, reco_taun_npizero, reco_taup_is3prong, reco_taun_is3prong, reco_taup_ismuon, reco_taun_ismuon, reco_taup_iselectron, reco_taun_iselectron,
+                                                            reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero, reco_taun_pi_ip, reco_taup_pi_ip, reco_taup_charged, reco_taun_charged, reco_taup_charged_ip, reco_taun_charged_ip, reco_taup_sv, reco_taun_sv], axis=1),
                               columns=[
-                                        'reco_taup_haspizero', 'reco_taun_haspizero',
+                                        'reco_taup_haspizero', 'reco_taun_haspizero', 
+                                        'reco_taup_ishadronic', 'reco_taun_ishadronic',
+                                        'reco_taup_npizero', 'reco_taun_npizero',
+                                        'reco_taup_is3prong', 'reco_taun_is3prong',
+                                        'reco_taup_ismuon', 'reco_taun_ismuon',
+                                        'reco_taup_iselectron', 'reco_taun_iselectron',
                                         'reco_taup_pi1_E', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz',
                                         'reco_taup_pizero1_E', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz',
                                         'reco_taun_pi1_E', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz',
                                         'reco_taun_pizero1_E', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz',
                                         'reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz',
-                                        'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz'
+                                        'reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz',
+                                        'reco_taup_charged_E', 'reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz',
+                                        'reco_taun_charged_E', 'reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz',
+                                        'reco_taup_charged_ipx', 'reco_taup_charged_ipy', 'reco_taup_charged_ipz',
+                                        'reco_taun_charged_ipx', 'reco_taun_charged_ipy', 'reco_taun_charged_ipz',
+                                        'reco_taup_sv_x', 'reco_taup_sv_y', 'reco_taup_sv_z',
+                                        'reco_taun_sv_x', 'reco_taun_sv_y', 'reco_taun_sv_z'
                                        ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 

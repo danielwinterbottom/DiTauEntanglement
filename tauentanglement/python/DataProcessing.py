@@ -282,11 +282,17 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
 
         print ("Converting to orthonormal basis"+f" using prefix {prefix} for visible tau vectors" if use_reco else " using gen-level visible tau vectors")
 
+        # TODO: need to change this to use full visible tau not just pi+pi0!! i.e use tauX_charged_ instead
         # convert outputs
+        # check if charged exists on dataframe and use this if so, if not use pi1
+        if 'taup_charged_e' in df.columns:
+            charged_name = "charged"
+        else:            charged_name = "pi1"
+
         df = ConvertToOrthonormalNRK(
             df,
             prefix_to_convert='taup_nu_',
-            pi_prefix=f"{prefix}taup_pi1_",
+            charged_prefix=f"{prefix}taup_{charged_name}",
             pi0_prefix=f"{prefix}taup_pizero1_",
             out_prefix=None,
             drop_xyz=False,
@@ -295,7 +301,7 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
         df = ConvertToOrthonormalNRK(
             df,
             prefix_to_convert='taun_nu_',
-            pi_prefix=f"{prefix}taun_pi1_",
+            charged_prefix=f"{prefix}taun_{charged_name}",
             pi0_prefix=f"{prefix}taun_pizero1_",
             out_prefix=None,
             drop_xyz=False,

@@ -451,10 +451,10 @@ class TrackAngularSmearer:
             3: ResolutionGraph(base + "phi_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
         }
 
-        self.costheta_res = {
-            1: ResolutionGraph(base + "costheta_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
-            2: ResolutionGraph(base + "costheta_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
-            3: ResolutionGraph(base + "costheta_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        self.cottheta_res = {
+            1: ResolutionGraph(base + "cottheta_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
+            2: ResolutionGraph(base + "cottheta_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "cottheta_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
         }
 
         self.d0_res = {
@@ -486,9 +486,9 @@ class TrackAngularSmearer:
         eta_bin = self.get_eta_bin(eta)
         return self.phi_res[eta_bin].eval(pt)
 
-    def get_costheta_resolution(self, eta, pt):
+    def get_cottheta_resolution(self, eta, pt):
         eta_bin = self.get_eta_bin(eta)
-        return self.costheta_res[eta_bin].eval(pt)
+        return self.cottheta_res[eta_bin].eval(pt)
 
     def get_d0_resolution(self, eta, pt):
         eta_bin = self.get_eta_bin(eta)
@@ -500,18 +500,14 @@ class TrackAngularSmearer:
 
     def smear_eta_phi(self, eta, phi, pt):
         sigma_phi = self.get_phi_resolution(eta, pt)
-        sigma_costheta = self.get_costheta_resolution(eta, pt)
+        sigma_cottheta = self.get_cottheta_resolution(eta, pt)
 
         phi_smeared = phi + self.rng.normal(0.0, sigma_phi)
         phi_smeared = self.wrap_phi(phi_smeared)
 
-        costheta = np.tanh(eta)
-        costheta_smeared = costheta + self.rng.normal(0.0, sigma_costheta)
-
-        eps = 1e-9
-        costheta_smeared = np.clip(costheta_smeared, -1.0 + eps, 1.0 - eps)
-
-        eta_smeared = np.arctanh(costheta_smeared)
+        cottheta = np.sinh(eta)
+        cottheta_smeared = cottheta + self.rng.normal(0.0, sigma_cottheta)
+        eta_smeaered = np.arcsinh(cottheta_smeared)
 
         return eta_smeared, phi_smeared
 
