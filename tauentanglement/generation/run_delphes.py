@@ -507,7 +507,7 @@ class TrackAngularSmearer:
 
         cottheta = np.sinh(eta)
         cottheta_smeared = cottheta + self.rng.normal(0.0, sigma_cottheta)
-        eta_smeaered = np.arcsinh(cottheta_smeared)
+        eta_smeared = np.arcsinh(cottheta_smeared)
 
         return eta_smeared, phi_smeared
 
@@ -842,7 +842,7 @@ for iev in range(reader.GetEntries()):
     branch_vals['taun_charged_e'][0] = taun_charged_sum.E()
 
     # get SVs but only if 3-prongs 
-    taup_sv = ROOT.TVector3(taup_pis[0].X, taup_pis[0].Y, taup_pis[0].Z) if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
+    taup_sv = ROOT.TVector3(taup_pis[0].X, taup_pis[0].Y, taup_pis[0].Z) if len(taup_pis) > 0 else ROOT.TVector3(0,0,0) #if len(taup_pis) > 2 else ROOT.TVector3(0,0,0)
     branch_vals['taup_sv_x'][0] = taup_sv.X()
     branch_vals['taup_sv_y'][0] = taup_sv.Y()
     branch_vals['taup_sv_z'][0] = taup_sv.Z()
@@ -902,6 +902,7 @@ for iev in range(reader.GetEntries()):
             t.Phi = new_p4.Phi()
             t.D0 = new_d0
             t.DZ = new_dz
+            t.CtgTheta = np.sinh(t.Eta) # recalculate CtgTheta based on new Eta
         for t in taun_reco_track_matches:
             new_p4 = smearer.smear_tlorentzvector_angles(t.P4())
             new_d0, new_dz = smearer.smear_d0_dz(t.D0, t.DZ, t.Eta, t.PT)
@@ -910,7 +911,7 @@ for iev in range(reader.GetEntries()):
             t.Phi = new_p4.Phi()
             t.D0 = new_d0
             t.DZ = new_dz
-
+            t.CtgTheta = np.sinh(t.Eta) # recalculate CtgTheta based on new Eta
     taup_strips = RecoStrips(taup_reco_photon_matches)
     # sort by pT of the strip
     taup_strips.sort(key=lambda x: x[0].Pt(), reverse=True)
