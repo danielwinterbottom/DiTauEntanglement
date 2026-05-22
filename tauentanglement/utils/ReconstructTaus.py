@@ -5,7 +5,6 @@ from iminuit import Minuit
 import gc
 import random
 import copy
-from scipy.optimize import least_squares
 
 import numpy as np
 
