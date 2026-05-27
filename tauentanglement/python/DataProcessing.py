@@ -317,6 +317,26 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
     print('Columns in the saved dataframe:', df.columns.tolist())
     return df
 
+def convert_semileptonic_df(df):
+    # restructure semileptonic dataframe to give the leptonic tau as "tau1" and the hadronic one as "tau2"
+    # instead of taup and taun 
+    # check if taup is leptonic and taun is hadronic and if so relabel taup->tau1 and taun->tau2
+
+    df_lep_tau1 = df[((df['taup_isleptonic'] == 1) & (df['taun_ishadronic'] == 1))].copy()
+    df_lep_tau1 = df_lep_tau1.rename(columns=lambda x: x.replace('taup_', 'tau1_').replace('taun_', 'tau2_'))
+
+    # check if taup is hadronic and taun is leptonic and if so relabel taun->tau1 and taup->tau2
+    df_lep_tau2 = df[((df['taup_ishadronic'] == 1) & (df['taun_isleptonic'] == 1))].copy()
+    df_lep_tau2 = df_lep_tau2.rename(columns=lambda x: x.replace('taun_', 'tau1_').replace('taup_', 'tau2_'))
+
+    # concatenate the two dataframes
+    df_out = pd.concat([df_lep_tau1, df_lep_tau2], ignore_index=True)
+    # shuffle the dataframe
+    df_out = df_out.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    return df_out    
+    
+
 def get_train_val_test_datasets(keys, config, shuffle=True):
 
     leptonic_mode = config.get('leptonic_mode', -1)  # default to -1 if not specified i.e no selection based on whether tau is leptonic is applied
@@ -347,13 +367,24 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         if leptonic_mode == 0:
             # select cases where both taus are hadronic
             df = df[(df['taup_nmu'] == 0) & (df['taup_nele'] == 0) & (df['taun_nmu'] == 0) & (df['taun_nele'] == 0)]
+
+            #apply reco cuts as well
+            df = df[(df['reco_taup_nmu'] == 0) & (df['reco_taup_nele'] == 0) & (df['reco_taun_nmu'] == 0) & (df['reco_taun_nele'] == 0)]
         elif leptonic_mode == 1:
         # select cases where one tau is leptonic and one is hadronic
             df = df[((df['taup_nmu'] + df['taup_nele']) > 0) & ((df['taun_nmu'] + df['taun_nele']) == 0) |
                     ((df['taup_nmu'] + df['taup_nele']) == 0) & ((df['taun_nmu'] + df['taun_nele']) > 0)]
+
+            # apply reco cuts as well
+            df = df[((df['reco_taup_nmu'] + df['reco_taup_nele']) > 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) == 0) |
+                    ((df['reco_taup_nmu'] + df['reco_taup_nele']) == 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) > 0)]
+            
         elif leptonic_mode == 2:
             # select cases where both taus are leptonic
             df = df[(df['taup_nmu'] + df['taup_nele'] > 0) & (df['taun_nmu'] + df['taun_nele'] > 0)]
+
+            # apply reco cuts as well
+            df = df[(df['reco_taup_nmu'] + df['reco_taup_nele'] > 0) & (df['reco_taun_nmu'] + df['reco_taun_nele'] > 0)]
 
         train_size = int(config['train_fraction'] * len(df))
         val_size = int(config['val_fraction'] * len(df))
