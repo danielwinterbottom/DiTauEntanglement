@@ -22,6 +22,7 @@ if __name__ == "__main__":
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     data_config = config['Data']
+    
     nn_config = config['SetupNN']
 
     # make output directory called outputs_{model_name}, with plots subdirectory

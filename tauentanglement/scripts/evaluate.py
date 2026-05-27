@@ -135,7 +135,7 @@ def main():
         del pred_chunks
 
     # destandardize predictions so that they are in physical units
-    predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+    predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()    
 
     if use_reco:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
@@ -143,6 +143,11 @@ def main():
     else:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
                     taup_charged=true_taup_charged, taup_pizero=true_taup_pizero, taun_charged=true_taun_charged, taun_pizero=true_taun_pizero)
+
+    # get the gen values of the neutrinos in x,y,z coordinates
+    true_values = convert_coordinates_pred(test_df[output_features].values, **conv_kwargs)
+    true_values = add_energies_pair(true_values)
+
     predictions = convert_coordinates_pred(predictions, **conv_kwargs)
 
     if not args.useMLP:
@@ -162,10 +167,6 @@ def main():
     predictions     = add_energies_pair(predictions)
     predictions_map = add_energies_pair(samples_map) if samples_map is not None else None
 
-    # also get the gen values
-    true_values = convert_coordinates_pred(test_df[output_features].values, **conv_kwargs)
-    true_values = add_energies_pair(true_values)
-   
     # get true taus by summing with pis and pizeros
     true_taus = np.concatenate([true_values[:, 0:4] + true_taup_charged + true_taup_pizero,
                                 true_values[:, 4:8] + true_taun_charged + true_taun_pizero], axis=1)
@@ -204,11 +205,11 @@ def main():
         true_taup_iselectron = test_df['taup_iselectron'].values.reshape(-1,1)
         true_taun_iselectron = test_df['taun_iselectron'].values.reshape(-1,1)
     else:
-        # set to zeros if not in dataset
-        true_taup_ishadronic = np.zeros((len(test_df), 1))
-        true_taun_ishadronic = np.zeros((len(test_df), 1))
-        true_taup_npizero = np.zeros((len(test_df), 1))
-        true_taun_npizero = np.zeros((len(test_df), 1))
+        # set defaults such that this will still work with old setup based on dm 0 and 1 only
+        true_taup_ishadronic = np.ones((len(test_df), 1))
+        true_taun_ishadronic = np.ones((len(test_df), 1))
+        true_taup_npizero = true_taup_haspizero
+        true_taun_npizero = true_taun_haspizero
         true_taup_is3prong = np.zeros((len(test_df), 1))
         true_taun_is3prong = np.zeros((len(test_df), 1))
         true_taup_ismuon = np.zeros((len(test_df), 1))
@@ -303,6 +304,7 @@ def main():
                                        ])
         results_df = pd.concat([results_df, results_df_extra], axis=1)
 
+
     if predictions_map is not None:
         results_df_extra = pd.DataFrame(
             data=np.concatenate([predictions_map, pred_taus_map], axis=1),
@@ -342,10 +344,10 @@ def main():
     # TODO: could also do splitting based on reco dm category - both give us different but useful information
     dm_masks = {
         'all':    results_df,
-        'dm_0_0': results_df[(results_df['true_taup_haspizero'] == 0) & (results_df['true_taun_haspizero'] == 0)],
-        'dm_0_1': results_df[((results_df['true_taup_haspizero'] == 0) & (results_df['true_taun_haspizero'] == 1)) |
-                              ((results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 0))],
-        'dm_1_1': results_df[(results_df['true_taup_haspizero'] == 1) & (results_df['true_taun_haspizero'] == 1)],
+        'dm_0_0': results_df[(results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 0) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
+        'dm_0_1': results_df[(((results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 1)) |
+                              ((results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 0))) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
+        'dm_1_1': results_df[(results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 1) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
     }
     spin_plot_dir = f"{output_plots_dir}/spin_density/{data_config['test_output_name']}"
     for dm_category, results_df_dm in dm_masks.items():

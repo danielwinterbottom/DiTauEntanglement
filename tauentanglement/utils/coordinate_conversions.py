@@ -208,10 +208,7 @@ def ConvertFromOrthonormalNRK_Predictions(
     eps: float = 1e-12,
 ):
 
-    if 'reco_taup_charged_px' in taup_charged.columns:
-        charged_name = "charged"
-    else:
-        charged_name = "pi1"
+    charged_name = "charged"
 
     # create a dataframe with predictions and visible tau decay products
     column_names = ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']

@@ -202,6 +202,7 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
     # removing this since we want to train on other decay modes as well
     #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
     #df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
+    # use only hadronic taus for now (plan to do seperate training for leptonic taus in the future)
 
     if use_reco:
         # require at least 1 pi, elec or muon for each tau
@@ -318,6 +319,8 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
 
 def get_train_val_test_datasets(keys, config, shuffle=True):
 
+    leptonic_mode = config.get('leptonic_mode', -1)  # default to -1 if not specified i.e no selection based on whether tau is leptonic is applied
+
     # check if key is not a list, if not add it to a list
     if not isinstance(keys, list):
         keys = [keys]
@@ -341,6 +344,17 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         # add a column to identify the dataset
         df['dataset'] = k
 
+        if leptonic_mode == 0:
+            # select cases where both taus are hadronic
+            df = df[(df['taup_nmu'] == 0) & (df['taup_nele'] == 0) & (df['taun_nmu'] == 0) & (df['taun_nele'] == 0)]
+        elif leptonic_mode == 1:
+        # select cases where one tau is leptonic and one is hadronic
+            df = df[((df['taup_nmu'] + df['taup_nele']) > 0) & ((df['taun_nmu'] + df['taun_nele']) == 0) |
+                    ((df['taup_nmu'] + df['taup_nele']) == 0) & ((df['taun_nmu'] + df['taun_nele']) > 0)]
+        elif leptonic_mode == 2:
+            # select cases where both taus are leptonic
+            df = df[(df['taup_nmu'] + df['taup_nele'] > 0) & (df['taun_nmu'] + df['taun_nele'] > 0)]
+
         train_size = int(config['train_fraction'] * len(df))
         val_size = int(config['val_fraction'] * len(df))
 
@@ -359,9 +373,13 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
             test_df_ = df.iloc[train_size + val_size:train_size + val_size + test_size]
         del df
 
-        val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe.parquet'))
-        test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe.parquet'))
-        train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe.parquet'))
+        extra_name = ''
+        if leptonic_mode>=0:
+            extra_name = f"_leptonic_mode_{leptonic_mode}"
+
+        val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet'))
+        test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet'))
+        train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet'))
         print(f">> Train, validation and test dataframes for {k} saved.")
         print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
 
