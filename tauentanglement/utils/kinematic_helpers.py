@@ -92,7 +92,7 @@ def polarimetric_vector_tau(
     pi1_b = boost(pi1[mask1], -boost_vec[mask1])
     tau_s[mask1] = spatial(pi1_b, unit=True)
 
-    mask2 = (tau_npi == 1) & (tau_npizero == 1)
+    mask2 = (tau_npi == 1) & (tau_npizero >= 1)
 
     q = pi1[mask2] - piz1[mask2]
     P = tau[mask2]
