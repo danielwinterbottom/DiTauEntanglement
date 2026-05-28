@@ -28,7 +28,7 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   test_dataset: 'prepared_LHC_data/ppToHToTauTau_AllDM_CPEven_May22/test_dataframe__leptonic_mode_0.parquet'
@@ -114,9 +114,9 @@ Data:
     output_features: {'standard': ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz'],
                       'polar':['taup_nu_p_pt', 'taup_nu_p_eta', 'taup_nu_p_phi','taun_nu_p_pt', 'taun_nu_p_eta', 'taun_nu_p_phi'],
                       'onorm': ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']}
-  available_files: { # TODO: fix naming of validation/evaluation
+  available_files: {
                     'ppToHToTauTau_AllDM_CPEven_May22': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22/reco_events.root',
                     'ppToHToTauTau_AllDM_CPOdd_May22': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22/reco_events.root',
-                    'ppToHToTauTau_AllDM_CPEven_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22_ext1/reco_events.root',
+                    #'ppToHToTauTau_AllDM_CPEven_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22_ext1/reco_events.root',
                     'ppToHToTauTau_AllDM_CPOdd_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22_ext1/reco_events.root',
                     }
