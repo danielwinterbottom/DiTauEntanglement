@@ -289,6 +289,8 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
             charged_name = "charged"
         else:            charged_name = "pi1"
 
+        print(f"Using {charged_name} as the charged component for the onorm basis")
+
         df = ConvertToOrthonormalNRK(
             df,
             prefix_to_convert='taup_nu_',
