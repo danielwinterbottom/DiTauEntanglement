@@ -378,6 +378,9 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
             # apply reco cuts as well
             df = df[((df['reco_taup_nmu'] + df['reco_taup_nele']) > 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) == 0) |
                     ((df['reco_taup_nmu'] + df['reco_taup_nele']) == 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) > 0)]
+
+            # restructure the dataframe so that the leptonic tau is always tau1 and the hadronic tau is always tau2    
+            df = convert_semileptonic_df(df)
             
         elif leptonic_mode == 2:
             # select cases where both taus are leptonic
