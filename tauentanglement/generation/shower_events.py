@@ -604,14 +604,15 @@ while not stopGenerating:
             branch_vals['%(tau_name)s_npizero' % vars()][0]  = len(pi0s)
             branch_vals['%(tau_name)s_nmu' % vars()][0]  = len(mus)
 
-            if len(pis) == 0 and len(mus) == 0:
-                print('Warning: no pions or muons found for tau %i' % part.id())
-                print('daughter pdgids:')
-                print(daughter_pdgids)
-                # print the mothers of this tau
-                print('mothers:')
-                for m in part.motherList():
-                    print(pythia.event[m].id())
+            # below is comments to as we now use electrons as well which aren't checked for
+            #if len(pis) == 0 and len(mus) == 0: 
+            #    print('Warning: no pions or muons found for tau %i' % part.id())
+            #    print('daughter pdgids:')
+            #    print(daughter_pdgids)
+            #    # print the mothers of this tau
+            #    print('mothers:')
+            #    for m in part.motherList():
+            #        print(pythia.event[m].id())
 
             # store tau vertex as the pv
             branch_vals['pv_x'][0] = part.xProd()
