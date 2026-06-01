@@ -31,9 +31,6 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
                                 num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'],
                                 hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
                                 batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
-    else:
-        model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
-                    hidden_size=hp['hidden_size'], activation=nn.LeakyReLU(0.05))
     return model
 
 
@@ -61,9 +58,6 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
                                 num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
                                 hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
                                 batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
-    else:    
-        model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
-                    hidden_size=hp['hidden_size'], activation=nn.LeakyReLU(0.05))
 
     if verbose:
         # print(model)
