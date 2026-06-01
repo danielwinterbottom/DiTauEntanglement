@@ -1,7 +1,7 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May29
+  model_name: model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
   n_epochs: 100
@@ -28,11 +28,12 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1', 'ppToHToTauTau_AllDM_CPEven_May22_ext2', 'ppToHToTauTau_AllDM_CPOdd_May22_ext2','ppToHToTauTau_AllDM_CPEven_May22_ext3', 'ppToHToTauTau_AllDM_CPOdd_May22_ext3', 'ppToHToTauTau_DM0and1_CPEven_May22','ppToHToTauTau_DM0and1_CPOdd_May22', 'ppToHToTauTau_DM0and1_CPEven_May22_ext1', 'ppToHToTauTau_DM0and1_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
-  test_dataset: 'prepared_LHC_data/ppToHToTauTau_AllDM_CPEven_May22/test_dataframe__leptonic_mode_0.parquet'
-  test_output_name: 'output_results_CPEven'
+  #test_dataset: 'prepared_LHC_data/ppToHToTauTau_AllDM_CPOdd_May22/test_dataframe__leptonic_mode_0.parquet'
+  test_dataset: 'prepared_LHC_data/ppToHToTauTau_DM0and1_CPOdd_May22/test_dataframe__leptonic_mode_0.parquet'
+  test_output_name: 'output_results_CPOdd_DM0and1'
   leptonic_mode: 0 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
@@ -119,6 +120,12 @@ Data:
                     'ppToHToTauTau_AllDM_CPOdd_May22': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22/reco_events.root',
                     'ppToHToTauTau_AllDM_CPEven_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22_ext1/reco_events.root',
                     'ppToHToTauTau_AllDM_CPOdd_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22_ext1/reco_events.root',
+                    'ppToHToTauTau_AllDM_CPEven_May22_ext2': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22_ext2/reco_events.root',
+                    'ppToHToTauTau_AllDM_CPOdd_May22_ext2': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22_ext2/reco_events.root',
+                    'ppToHToTauTau_AllDM_CPEven_May22_ext3': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPEven_May22_ext3/reco_events.root',
+                    'ppToHToTauTau_AllDM_CPOdd_May22_ext3': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_CPOdd_May22_ext3/reco_events.root',
                     'ppToHToTauTau_DM0and1_CPEven_May22': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven_May22/reco_events.root',
                     'ppToHToTauTau_DM0and1_CPOdd_May22': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd_May22/reco_events.root',
+                    'ppToHToTauTau_DM0and1_CPEven_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPEven_May22_ext1/reco_events.root',
+                    'ppToHToTauTau_DM0and1_CPOdd_May22_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_DM0and1_CPOdd_May22_ext1/reco_events.root',
                     }

@@ -342,6 +342,8 @@ def convert_semileptonic_df(df):
 def get_train_val_test_datasets(keys, config, shuffle=True):
 
     leptonic_mode = config.get('leptonic_mode', -1)  # default to -1 if not specified i.e no selection based on whether tau is leptonic is applied
+    one_prong_only = config.get('one_prong_only', False)  # option to select only one prong decays for training
+    match_n_prongs = config.get('match_n_prongs', False)  # option to select only one prong decays for training
 
     # check if key is not a list, if not add it to a list
     if not isinstance(keys, list):
@@ -366,12 +368,23 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         # add a column to identify the dataset
         df['dataset'] = k
 
+        if match_n_prongs:
+            # only select events where number of pions and number of elecron and muons match the gen-values
+            df = df[(df['taup_npi'] == df['reco_taup_npi']) & (df['taun_npi'] == df['reco_taun_npi'])]
+            df = df[(df['taup_nmu'] == df['reco_taup_nmu']) & (df['taun_nmu'] == df['reco_taun_nmu'])]
+            df = df[(df['taup_nele'] == df['reco_taup_nele']) & (df['taun_nele'] == df['reco_taun_nele'])]
+
         if leptonic_mode == 0:
             # select cases where both taus are hadronic
             df = df[(df['taup_nmu'] == 0) & (df['taup_nele'] == 0) & (df['taun_nmu'] == 0) & (df['taun_nele'] == 0)]
 
             #apply reco cuts as well
             df = df[(df['reco_taup_nmu'] == 0) & (df['reco_taup_nele'] == 0) & (df['reco_taun_nmu'] == 0) & (df['reco_taun_nele'] == 0)]
+
+            if one_prong_only: # only train on 1-prong events (require both truth and reco level be 1-prong)
+                df = df[(df['taup_npi'] == 1) & (df['taun_npi'] == 1)]
+                df = df[(df['reco_taup_npi'] == 1) & (df['reco_taun_npi'] == 1)]
+                
         elif leptonic_mode == 1:
         # select cases where one tau is leptonic and one is hadronic
             df = df[((df['taup_nmu'] + df['taup_nele']) > 0) & ((df['taun_nmu'] + df['taun_nele']) == 0) |
@@ -418,6 +431,18 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet'))
         print(f">> Train, validation and test dataframes for {k} saved.")
         print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
+
+        # after saving we can delet the test_df as we dont use it during the training
+        del test_df_
+        # to save memory usage we also drop anything that isn't an input out output feature from the dataframes
+        #print size of dataframe in GB before dropping columns
+        print(f">> Size of train dataframe before dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
+        print(f">> Size of val dataframe before dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
+        train_df_ = train_df_[input_features + output_features]
+        val_df_ = val_df_[input_features + output_features] 
+        # print size of dataframe in GB after dropping columns
+        print(f">> Size of train dataframe after dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
+        print(f">> Size of val dataframe after dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")   
 
         if train_df is None:
             train_df = train_df_
