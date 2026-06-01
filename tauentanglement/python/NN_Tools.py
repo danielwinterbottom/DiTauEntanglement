@@ -4,14 +4,26 @@ import pandas as pd
 import os
 import torch
 from torch.utils.data import DataLoader
-from tauentanglement.python.NN_Models import ConditionalFlow, MLP
+from tauentanglement.python.NN_Models import ConditionalFlow, ConditionalFlowTransformer, MLP
 from tauentanglement.python.Plotting import plot_loss
 import torch.nn as nn
 import torch.optim as optim
 
 
-def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False):
-    if not useMLP:
+def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False):
+    if useMLP:
+        model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
+                    hidden_size=hp['hidden_size'], activation=nn.GELU())
+    elif useTransformer:
+        model = ConditionalFlowTransformer(input_dim=len(output_features),
+                                           context_dim=hp['context_dim'],
+                                           d_model=hp['d_model'], nhead=hp['nhead'],
+                                           num_transformer_layers=hp['num_transformer_layers'],
+                                           dropout=hp.get('dropout', 0.0),
+                                           num_layers=hp['num_layers'], num_bins=hp['num_bins'],
+                                           tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
+                                           num_blocks=hp['num_blocks'])
+    else:
         model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
                                 context_dim=hp['condition_net_output_size'],
                                 cond_hidden_dim=hp['condition_net_hidden_size'],
@@ -25,11 +37,23 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
     return model
 
 
-def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False):
+def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False, useTransformer=False):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
-    if not useMLP:
+    if useMLP:
+        model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
+                    hidden_size=hp['hidden_size'], activation=nn.GELU())
+    elif useTransformer:
+        model = ConditionalFlowTransformer(input_dim=len(output_features),
+                                           context_dim=hp['context_dim'],
+                                           d_model=hp['d_model'], nhead=hp['nhead'],
+                                           num_transformer_layers=hp['num_transformer_layers'],
+                                           dropout=hp.get('dropout', 0.0),
+                                           num_layers=hp['num_layers'], num_bins=hp['num_bins'],
+                                           tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
+                                           num_blocks=hp['num_blocks'])
+    else:
         model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
                                 context_dim=hp['condition_net_output_size'],
                                 cond_hidden_dim=hp['condition_net_hidden_size'],
@@ -142,6 +166,8 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
                 predictions = model(X)
                 loss = mlp_loss_fn(predictions, y)
             loss.backward()
+            # Lucas experimented here
+            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             lr = scheduler.get_last_lr()
