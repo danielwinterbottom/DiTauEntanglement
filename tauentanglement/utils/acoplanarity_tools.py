@@ -108,51 +108,6 @@ def compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp):
     angle = ak.where(needs_shift, ak.where(angle < np.pi, angle + np.pi, angle - np.pi), angle)
     return angle
 
-
-def get_ditau_polarimetric_gen(df):
-    """Compute the R and P vectors in the gen case (polarimetric vector and full tau)"""
-    # Build tau plus from decay products
-    pi_p     = ak.zip({"px": df["true_taup_pi1_px"], "py": df["true_taup_pi1_py"], "pz": df["true_taup_pi1_pz"], "E": df["true_taup_pi1_E"]}, with_name="Momentum4D")
-    # nu_p     = ak.zip({"px": df["true_taup_nu_px"], "py": df["true_taup_nu_py"], "pz": df["true_taup_nu_pz"], "E": np.sqrt(df["true_taup_nu_px"]**2 + df["true_taup_nu_py"]**2 + df["true_taup_nu_pz"]**2)}, with_name="Momentum4D")
-    pizero_p = ak.zip({"px": df["true_taup_pizero1_px"], "py": df["true_taup_pizero1_py"], "pz": df["true_taup_pizero1_pz"], "E": df["true_taup_pizero1_E"]}, with_name="Momentum4D")
-    true_taup_is_dm1or2 = df["true_taup_haspizero"].values == 1
-    # tau_p = ak.where(true_taup_is_dm1or2, pi_p + nu_p + pizero_p, pi_p + nu_p) # if want to build from nu
-    tau_p = ak.zip({"px": df["true_tau_plus_px"], "py": df["true_tau_plus_py"], "pz": df["true_tau_plus_pz"], "E": df["true_tau_plus_E"]}, with_name="Momentum4D")
-
-    # Build tau minus from decay products
-    pi_n     = ak.zip({"px": df["true_taun_pi1_px"], "py": df["true_taun_pi1_py"], "pz": df["true_taun_pi1_pz"], "E": df["true_taun_pi1_E"]}, with_name="Momentum4D")
-    # nu_n     = ak.zip({"px": df["true_taun_nu_px"], "py": df["true_taun_nu_py"], "pz": df["true_taun_nu_pz"], "E": np.sqrt(df["true_taun_nu_px"]**2 + df["true_taun_nu_py"]**2 + df["true_taun_nu_pz"]**2)}, with_name="Momentum4D")
-    pizero_n = ak.zip({"px": df["true_taun_pizero1_px"], "py": df["true_taun_pizero1_py"], "pz": df["true_taun_pizero1_pz"], "E": df["true_taun_pizero1_E"]}, with_name="Momentum4D")
-    true_taun_is_dm1or2 = df["true_taun_haspizero"].values == 1
-    # tau_n = ak.where(true_taun_is_dm1or2, pi_n + nu_n + pizero_n, pi_n + nu_n) # if want to build from nu
-    tau_n = ak.zip({"px": df["true_tau_minus_px"], "py": df["true_tau_minus_py"], "pz": df["true_tau_minus_pz"], "E": df["true_tau_minus_E"]}, with_name="Momentum4D")
-
-
-    # Boost to Higgs rest frame
-    higgs_bv = boost_vec(tau_p + tau_n)
-
-    H_tau_p = boost4(tau_p, higgs_bv)
-    H_tau_n = boost4(tau_n, higgs_bv)
-    H_pi_p  = boost4(pi_p, higgs_bv)
-    H_pi_n  = boost4(pi_n, higgs_bv)
-    H_piz_p = boost4(pizero_p, higgs_bv)
-    H_piz_n = boost4(pizero_n, higgs_bv)
-
-    # Compute polarimetric vectors in the respective tau rest frames
-    bv_taup = boost_vec(H_tau_p)
-    bv_taun = boost_vec(H_tau_n)
-
-    taup_s = ak.where(true_taup_is_dm1or2,
-        polarimetric_vec_dm1(H_pi_p, H_piz_p, H_tau_p, bv_taup),
-        polarimetric_vec_dm0(H_pi_p, bv_taup),
-    )
-    taun_s = ak.where(true_taun_is_dm1or2,
-        polarimetric_vec_dm1(H_pi_n, H_piz_n, H_tau_n, bv_taun),
-        polarimetric_vec_dm0(H_pi_n, bv_taun),
-    )
-
-    return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
-
 def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True, dm_prefix='reco'):
     """
     tau_prefix: sets whether reco or true tau is used ("true" or "map_pred")
