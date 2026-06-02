@@ -12,9 +12,6 @@ from tauentanglement.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
     get_R_P_vectors_all,
     compute_aco_classic,
-    get_ditau_polarimetric_gen,
-    get_ditau_polarimetric_reco,
-    get_ditau_polarimetric_A1A1,
     get_ditau_polarimetric
 )
 
@@ -46,7 +43,7 @@ def compute_phicp_all(df, option, dm_prefix='reco', use_map=True):
     # Compute phiCP for all events in the df (splitting of methods by DM done automatically, vectorised)
     df = df.copy()
     if option == 'gen':
-        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix='true', reco_pions=False, dm_prefix=dm_prefix)
+        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True, dm_prefix=dm_prefix)
         phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoNu':
         tau_prefix = 'map_pred' if use_map else 'pred'
@@ -59,19 +56,17 @@ def compute_phicp_all(df, option, dm_prefix='reco', use_map=True):
     df['phiCP'] = np.array(phiCP)
     return df
 
-
-def compute_phicp_A1A1(df, option, use_map=True):
-    # Compute phiCP for all events in the df (splitting of methods by DM done automatically, vectorised)
-    df = df.copy()
-    if option == 'gen':
-        R1, P1, R2, P2 = get_ditau_polarimetric_A1A1(df, neutrino='true')
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
-    elif option == 'recoNu':
-        R1, P1, R2, P2 = get_ditau_polarimetric_A1A1(df, neutrino='map_pred')
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
-    df['phiCP'] = np.array(phiCP)
+def add_DM(df, dm_prefix='reco'):
+    for tau in ['taup', 'taun']:
+        tau_is_dm0 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm1 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm2 = ((df[f"{dm_prefix}_{tau}_npizero"].values == 1) | (df[f"{dm_prefix}_{tau}_npizero"].values == 2)) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm10 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1)
+        df[f'{tau}_DM'] = np.where(tau_is_dm0, 0,
+                             np.where(tau_is_dm1, 1,
+                                      np.where(tau_is_dm2, 2,
+                                               np.where(tau_is_dm10, 10, -1))))
     return df
-
 
 def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False):
     bin_width = bin_edges[1] - bin_edges[0]
@@ -118,32 +113,26 @@ def main():
     if not do_DM10:
         use_map = not args.useMLP
         dm_pfx = 'true' if args.GENfilter else 'reco'
+        even_df = add_DM(even_df, dm_prefix=dm_pfx)
+        odd_df = add_DM(odd_df, dm_prefix=dm_pfx)
         even_df = compute_phicp_all(even_df, args.option, dm_prefix=dm_pfx, use_map=use_map)
         odd_df  = compute_phicp_all(odd_df,  args.option, dm_prefix=dm_pfx, use_map=use_map)
         if mix_df is not None:
+            mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
             mix_df = compute_phicp_all(mix_df, args.option, dm_prefix=dm_pfx, use_map=use_map)
 
 
-        for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2]]: # [npi+/-, npi0]
+        for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2], [10,10], [0,10], [1,10], [2,10]]: # [DM1, DM2]
 
+            if args.option == 'recoRun3' and (dm_taup == 10 or dm_taun == 10):
+                print(f"Skipping DM10 for option {args.option} since it requires a different phiCP calculation.")
+                continue
 
-            single_prong_mask = lambda df, p=dm_pfx: (df[f'{p}_taup_is3prong'] == 0) & (df[f'{p}_taun_is3prong'] == 0)
-            if dm_taup != dm_taun:
-                dm_mask = lambda df, p=dm_taup, n=dm_taun, dm_pfx=dm_pfx: ((df[f'{dm_pfx}_taup_npizero'] == p) & (df[f'{dm_pfx}_taun_npizero'] == n)) | ((df[f'{dm_pfx}_taun_npizero'] == n) & (df[f'{dm_pfx}_taup_npizero'] == p))
-            else:
-                dm_mask = lambda df, p=dm_taup, n=dm_taun, dm_pfx=dm_pfx: (df[f'{dm_pfx}_taup_npizero'] == p) & (df[f'{dm_pfx}_taun_npizero'] == n)
+            dm_mask = lambda df, p=dm_taup, n=dm_taun: ((df['taup_DM'] == p) & (df['taun_DM'] == n)) | ((df['taun_DM'] == n) & (df['taup_DM'] == p))
             even = even_df[dm_mask(even_df)]
-            even = even[single_prong_mask(even)]
             odd  = odd_df[dm_mask(odd_df)]
-            odd  = odd[single_prong_mask(odd)]
-
-            # kin_mask = lambda df: (df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)
-            # even = even[kin_mask(even)]
-            # odd = odd[kin_mask(odd)]
 
             print(f"DM{dm_taup}-DM{dm_taun}: {len(even)} CP even, {len(odd)} CP odd events")
-            print(even['phiCP'].describe())
-            print(odd['phiCP'].describe())
 
             fig, ax = plt.subplots(figsize=(8, 6))
             bin_edges = np.linspace(0, 2 * np.pi, 21)
@@ -163,7 +152,7 @@ def main():
             ax.legend()
             ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
                     verticalalignment='top', fontweight='bold')
-            out = f"{args.output_dir}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
+            out = f"{args.output_dir}/{args.option}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
             plt.savefig(out)
             plt.close()
             print(f"Saved {out}")
@@ -175,37 +164,6 @@ def main():
                 odd_counts=odd_counts,
                 bin_edges=bin_edges,
             )
-
-    if do_DM10:
-
-        dm_pfx = 'true_' if args.GENfilter else 'reco_'
-        three_prong_mask = lambda df, p=dm_pfx: (df[f'{p}taup_is3prong'] == 1) & (df[f'{p}taun_is3prong'] == 1)
-        dm_mask = lambda df, p=dm_pfx: (df[f'{p}taup_npizero'] == 0) & (df[f'{p}taun_npizero'] == 0)
-        even = even_df[dm_mask(even_df)]
-        even = even[three_prong_mask(even)]
-        odd  = odd_df[dm_mask(odd_df)]
-        odd  = odd[three_prong_mask(odd)]
-        even = compute_phicp_A1A1(even, args.option)
-        odd = compute_phicp_A1A1(odd, args.option)
-
-        fig, ax = plt.subplots(figsize=(8, 6))
-        bin_edges = np.linspace(0, 2 * np.pi, 21)
-        hide = args.hide_errors
-        even_counts = plot_phicp_histogram(ax, even, bin_edges, 'phiCP', 'CP-even', 'red',   hide)
-        odd_counts  = plot_phicp_histogram(ax, odd,  bin_edges, 'phiCP', 'CP-odd',  'blue',  hide)
-        avg = 0.5 * (even_counts + odd_counts)
-        asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
-        ax.set_xlabel(r'$\phi_{CP}$')
-        ax.set_title(f'DM10 - DM10 - {options[args.option]["label"]}')
-        ax.set_xlim(0, 2 * np.pi)
-        ax.set_ylim(0, 0.28)
-        ax.legend()
-        ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
-                verticalalignment='top', fontweight='bold')
-        out = f"{args.output_dir}/DM10DM10_{options[args.option]['tag']}.pdf"
-        plt.savefig(out)
-        plt.close()
-        print(f"Saved {out}")
 
 if __name__ == '__main__':
     main()
