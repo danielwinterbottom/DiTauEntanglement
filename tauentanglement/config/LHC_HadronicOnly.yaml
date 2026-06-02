@@ -4,7 +4,7 @@ SetupNN:
   model_name: model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 0 #100
+  n_epochs: 100
   hyperparams:  { # for NuFlow
               'batch_size': 8192,
               'num_layers': 6,

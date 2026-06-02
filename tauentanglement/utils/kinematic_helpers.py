@@ -33,9 +33,31 @@ def add_energy(pvec3):
     return np.column_stack((np.sqrt((pvec3**2).sum(axis=1)), pvec3))
 
 
-def add_energies_pair(arr6):
-    """Convert (N,6) [nubar_px,py,pz, nu_px,py,pz] to (N,8) with E=|p| prepended to each triplet."""
-    return np.column_stack((add_energy(arr6[:, 0:3]), add_energy(arr6[:, 3:6])))
+def add_energies_pair(arr):
+    """
+    Depending on shape of input:
+    Convert (N,6) [nu1_px,nu1_py,nu1_pz, nu2_px,nu2_py,nu2_pz] to (N,8) with E=|p| prepended to each triplet.
+    Convert (N,7) [nu1_m,nu1_px,nu1_py,nu1_pz, nu2_px,nu2_py,nu2_pz] to (N,8) with E1=sqrt(p1^2+m1^2) and E2=|p2| prepended to each triplet.
+    Convert (N,8) [nu1_m,nu1_px,nu1_py,nu1_pz, nu2_m,nu2_px,nu2_py,nu2_pz] to (N,8) with E1=sqrt(p1^2+m1^2) and E2=sqrt(p2^2+m2^2) prepended to each triplet.
+    """
+    if arr.shape[1] == 6:
+        return np.column_stack((add_energy(arr[:, 0:3]), add_energy(arr[:, 3:6])))
+    elif arr.shape[1] == 7:
+        mass1 = arr[:, 0]
+        obj1_nomass = add_energy(arr[:, 1:4])
+        obj1 = np.column_stack((np.sqrt(obj1_nomass[:, 0]**2 + mass1**2), obj1_nomass[:, 1:]))
+        obj2 = add_energy(arr[:, 4:7])
+        return np.column_stack((obj1, obj2))
+    elif arr.shape[1] == 8:
+        mass1 = arr[:, 0]
+        mass2 = arr[:, 4]
+        obj1_nomass = add_energy(arr[:, 1:4])
+        obj1 = np.column_stack((np.sqrt(obj1_nomass[:, 0]**2 + mass1**2), obj1_nomass[:, 1:]))
+        obj2_nomass = add_energy(arr[:, 5:8])
+        obj2 = np.column_stack((np.sqrt(obj2_nomass[:, 0]**2 + mass2**2), obj2_nomass[:, 1:] ))
+        return np.column_stack((obj1, obj2))
+    else:
+        raise ValueError(f"Unexpected input shape {arr.shape}, expected (N,6), (N,7) or (N,8)")
 
 
 def inv_mass(taus, offset=0):

@@ -56,38 +56,45 @@ def main():
     print(">> Successfully loaded model")
     model.eval()
 
+    if 'taup_nu_px' in test_df.columns:
+        tau1_prefix = 'taup'
+        tau2_prefix = 'taun'
+    else:
+        tau1_prefix = 'tau1'
+        tau2_prefix = 'tau2'
+
     # get tau pi and pizero four vectors from test_df
-    true_taun_pi = test_df[['taun_pi1_e', 'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz']].values
-    true_taup_pi  = test_df[['taup_pi1_e', 'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz']].values
-    true_taun_pizero  = test_df[['taun_pizero1_e', 'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz']].values
-    true_taup_pizero = test_df[['taup_pizero1_e', 'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz']].values
+    true_taun_pi = test_df[[f'{tau2_prefix}_pi1_e', f'{tau2_prefix}_pi1_px', f'{tau2_prefix}_pi1_py', f'{tau2_prefix}_pi1_pz']].values
+    true_taup_pi  = test_df[[f'{tau1_prefix}_pi1_e', f'{tau1_prefix}_pi1_px', f'{tau1_prefix}_pi1_py', f'{tau1_prefix}_pi1_pz']].values
+    true_taun_pizero  = test_df[[f'{tau2_prefix}_pizero1_e', f'{tau2_prefix}_pizero1_px', f'{tau2_prefix}_pizero1_py', f'{tau2_prefix}_pizero1_pz']].values
+    true_taup_pizero = test_df[[f'{tau1_prefix}_pizero1_e', f'{tau1_prefix}_pizero1_px', f'{tau1_prefix}_pizero1_py', f'{tau1_prefix}_pizero1_pz']].values
 
     # gets ips as well
-    true_taun_pi_ip = test_df[['taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz']].values
-    true_taup_pi_ip = test_df[['taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz']].values
+    true_taun_pi_ip = test_df[[f'{tau2_prefix}_pi1_ipx', f'{tau2_prefix}_pi1_ipy', f'{tau2_prefix}_pi1_ipz']].values
+    true_taup_pi_ip = test_df[[f'{tau1_prefix}_pi1_ipx', f'{tau1_prefix}_pi1_ipy', f'{tau1_prefix}_pi1_ipz']].values
 
     # pi2/pi3 for 3-prong taus
     if 'taup_pi2_e' in test_df.columns:
-        true_taup_pi2 = test_df[['taup_pi2_e', 'taup_pi2_px', 'taup_pi2_py', 'taup_pi2_pz']].values
-        true_taun_pi2 = test_df[['taun_pi2_e', 'taun_pi2_px', 'taun_pi2_py', 'taun_pi2_pz']].values
-        true_taup_pi3 = test_df[['taup_pi3_e', 'taup_pi3_px', 'taup_pi3_py', 'taup_pi3_pz']].values
-        true_taun_pi3 = test_df[['taun_pi3_e', 'taun_pi3_px', 'taun_pi3_py', 'taun_pi3_pz']].values
+        true_taup_pi2 = test_df[[f'{tau1_prefix}_pi2_e', f'{tau1_prefix}_pi2_px', f'{tau1_prefix}_pi2_py', f'{tau1_prefix}_pi2_pz']].values
+        true_taun_pi2 = test_df[[f'{tau2_prefix}_pi2_e', f'{tau2_prefix}_pi2_px', f'{tau2_prefix}_pi2_py', f'{tau2_prefix}_pi2_pz']].values
+        true_taup_pi3 = test_df[[f'{tau1_prefix}_pi3_e', f'{tau1_prefix}_pi3_px', f'{tau1_prefix}_pi3_py', f'{tau1_prefix}_pi3_pz']].values
+        true_taun_pi3 = test_df[[f'{tau2_prefix}_pi3_e', f'{tau2_prefix}_pi3_px', f'{tau2_prefix}_pi3_py', f'{tau2_prefix}_pi3_pz']].values
     else:
         true_taup_pi2 = np.zeros((len(test_df), 4))
         true_taun_pi2 = np.zeros((len(test_df), 4))
         true_taup_pi3 = np.zeros((len(test_df), 4))
         true_taun_pi3 = np.zeros((len(test_df), 4))
 
-    inc_new_vars = 'taup_charged_e' in test_df.columns
+    inc_new_vars = 'taup_charged_e' in test_df.columns or 'tau1_charged_e' in test_df.columns
 
     # check if charged component exists
     if inc_new_vars:
-        true_taup_charged = test_df[['taup_charged_e', 'taup_charged_px', 'taup_charged_py', 'taup_charged_pz']].values
-        true_taun_charged = test_df[['taun_charged_e', 'taun_charged_px', 'taun_charged_py', 'taun_charged_pz']].values
-        true_taun_charged_ip = test_df[['taun_charged_ipx', 'taun_charged_ipy', 'taun_charged_ipz']].values
-        true_taup_charged_ip = test_df[['taup_charged_ipx', 'taup_charged_ipy', 'taup_charged_ipz']].values
-        true_taup_sv = test_df[['taup_sv_x', 'taup_sv_y', 'taup_sv_z']].values
-        true_taun_sv = test_df[['taun_sv_x', 'taun_sv_y', 'taun_sv_z']].values
+        true_taup_charged = test_df[[f'{tau1_prefix}_charged_e', f'{tau1_prefix}_charged_px', f'{tau1_prefix}_charged_py', f'{tau1_prefix}_charged_pz']].values
+        true_taun_charged = test_df[[f'{tau2_prefix}_charged_e', f'{tau2_prefix}_charged_px', f'{tau2_prefix}_charged_py', f'{tau2_prefix}_charged_pz']].values
+        true_taun_charged_ip = test_df[[f'{tau2_prefix}_charged_ipx', f'{tau2_prefix}_charged_ipy', f'{tau2_prefix}_charged_ipz']].values
+        true_taup_charged_ip = test_df[[f'{tau1_prefix}_charged_ipx', f'{tau1_prefix}_charged_ipy', f'{tau1_prefix}_charged_ipz']].values
+        true_taup_sv = test_df[[f'{tau1_prefix}_sv_x', f'{tau1_prefix}_sv_y', f'{tau1_prefix}_sv_z']].values
+        true_taun_sv = test_df[[f'{tau2_prefix}_sv_x', f'{tau2_prefix}_sv_y', f'{tau2_prefix}_sv_z']].values
 
     else: # else use the pi four vectors as the charged component 
         true_taup_charged = true_taup_pi
@@ -99,20 +106,20 @@ def main():
         true_taun_sv = np.zeros((len(test_df), 3))
 
     if use_reco:
-        reco_taun_pi = test_df[['reco_taun_pi1_e', 'reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz']].values
-        reco_taup_pi  = test_df[['reco_taup_pi1_e', 'reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz']].values
-        reco_taun_pizero  = test_df[['reco_taun_pizero1_e', 'reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values
-        reco_taup_pizero = test_df[['reco_taup_pizero1_e', 'reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values
+        reco_taun_pi = test_df[[f'reco_{tau2_prefix}_pi1_e', f'reco_{tau2_prefix}_pi1_px', f'reco_{tau2_prefix}_pi1_py', f'reco_{tau2_prefix}_pi1_pz']].values
+        reco_taup_pi  = test_df[[f'reco_{tau1_prefix}_pi1_e', f'reco_{tau1_prefix}_pi1_px', f'reco_{tau1_prefix}_pi1_py', f'reco_{tau1_prefix}_pi1_pz']].values
+        reco_taun_pizero  = test_df[[f'reco_{tau2_prefix}_pizero1_e', f'reco_{tau2_prefix}_pizero1_px', f'reco_{tau2_prefix}_pizero1_py', f'reco_{tau2_prefix}_pizero1_pz']].values
+        reco_taup_pizero = test_df[[f'reco_{tau1_prefix}_pizero1_e', f'reco_{tau1_prefix}_pizero1_px', f'reco_{tau1_prefix}_pizero1_py', f'reco_{tau1_prefix}_pizero1_pz']].values
 
         # get ips for reco pis as well
-        reco_taun_pi_ip = test_df[['reco_taun_pi1_ipx', 'reco_taun_pi1_ipy', 'reco_taun_pi1_ipz']].values
-        reco_taup_pi_ip = test_df[['reco_taup_pi1_ipx', 'reco_taup_pi1_ipy', 'reco_taup_pi1_ipz']].values
+        reco_taun_pi_ip = test_df[[f'reco_{tau2_prefix}_pi1_ipx', f'reco_{tau2_prefix}_pi1_ipy', f'reco_{tau2_prefix}_pi1_ipz']].values
+        reco_taup_pi_ip = test_df[[f'reco_{tau1_prefix}_pi1_ipx', f'reco_{tau1_prefix}_pi1_ipy', f'reco_{tau1_prefix}_pi1_ipz']].values
 
         if 'reco_taup_pi2_e' in test_df.columns:
-            reco_taup_pi2 = test_df[['reco_taup_pi2_e', 'reco_taup_pi2_px', 'reco_taup_pi2_py', 'reco_taup_pi2_pz']].values
-            reco_taun_pi2 = test_df[['reco_taun_pi2_e', 'reco_taun_pi2_px', 'reco_taun_pi2_py', 'reco_taun_pi2_pz']].values
-            reco_taup_pi3 = test_df[['reco_taup_pi3_e', 'reco_taup_pi3_px', 'reco_taup_pi3_py', 'reco_taup_pi3_pz']].values
-            reco_taun_pi3 = test_df[['reco_taun_pi3_e', 'reco_taun_pi3_px', 'reco_taun_pi3_py', 'reco_taun_pi3_pz']].values
+            reco_taup_pi2 = test_df[[f'reco_{tau1_prefix}_pi2_e', f'reco_{tau1_prefix}_pi2_px', f'reco_{tau1_prefix}_pi2_py', f'reco_{tau1_prefix}_pi2_pz']].values
+            reco_taun_pi2 = test_df[[f'reco_{tau2_prefix}_pi2_e', f'reco_{tau2_prefix}_pi2_px', f'reco_{tau2_prefix}_pi2_py', f'reco_{tau2_prefix}_pi2_pz']].values
+            reco_taup_pi3 = test_df[[f'reco_{tau1_prefix}_pi3_e', f'reco_{tau1_prefix}_pi3_px', f'reco_{tau1_prefix}_pi3_py', f'reco_{tau1_prefix}_pi3_pz']].values
+            reco_taun_pi3 = test_df[[f'reco_{tau2_prefix}_pi3_e', f'reco_{tau2_prefix}_pi3_px', f'reco_{tau2_prefix}_pi3_py', f'reco_{tau2_prefix}_pi3_pz']].values
         else:
             reco_taup_pi2 = np.zeros((len(test_df), 4))
             reco_taun_pi2 = np.zeros((len(test_df), 4))
@@ -120,12 +127,12 @@ def main():
             reco_taun_pi3 = np.zeros((len(test_df), 4))
 
         if inc_new_vars:
-            reco_taup_charged = test_df[['reco_taup_charged_e', 'reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz']].values
-            reco_taun_charged = test_df[['reco_taun_charged_e', 'reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz']].values
-            reco_taun_charged_ip = test_df[['reco_taun_charged_ipx', 'reco_taun_charged_ipy', 'reco_taun_charged_ipz']].values
-            reco_taup_charged_ip = test_df[['reco_taup_charged_ipx', 'reco_taup_charged_ipy', 'reco_taup_charged_ipz']].values
-            reco_taup_sv = test_df[['reco_taup_sv_x', 'reco_taup_sv_y', 'reco_taup_sv_z']].values if use_reco else None
-            reco_taun_sv = test_df[['reco_taun_sv_x', 'reco_taun_sv_y', 'reco_taun_sv_z']].values if use_reco else None
+            reco_taup_charged = test_df[[f'reco_{tau1_prefix}_charged_e', f'reco_{tau1_prefix}_charged_px', f'reco_{tau1_prefix}_charged_py', f'reco_{tau1_prefix}_charged_pz']].values
+            reco_taun_charged = test_df[[f'reco_{tau2_prefix}_charged_e', f'reco_{tau2_prefix}_charged_px', f'reco_{tau2_prefix}_charged_py', f'reco_{tau2_prefix}_charged_pz']].values
+            reco_taun_charged_ip = test_df[[f'reco_{tau2_prefix}_charged_ipx', f'reco_{tau2_prefix}_charged_ipy', f'reco_{tau2_prefix}_charged_ipz']].values
+            reco_taup_charged_ip = test_df[[f'reco_{tau1_prefix}_charged_ipx', f'reco_{tau1_prefix}_charged_ipy', f'reco_{tau1_prefix}_charged_ipz']].values
+            reco_taup_sv = test_df[[f'reco_{tau1_prefix}_sv_x', f'reco_{tau1_prefix}_sv_y', f'reco_{tau1_prefix}_sv_z']].values if use_reco else None
+            reco_taun_sv = test_df[[f'reco_{tau2_prefix}_sv_x', f'reco_{tau2_prefix}_sv_y', f'reco_{tau2_prefix}_sv_z']].values if use_reco else None
         else: # else use the pi four vectors as the charged component (this is not ideal but we just want to see how much difference it makes to the results)
             reco_taup_charged = reco_taup_pi
             reco_taun_charged = reco_taun_pi
@@ -158,16 +165,28 @@ def main():
         del pred_chunks
 
     # destandardize predictions so that they are in physical units
-    predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy()    
+    predictions = test_dataset.destandardize_outputs(predictions_norm).cpu().numpy() 
+
+    # identify is this is hadronic only, semileptonic, or leptonic based on number of columns in predictions
+    leptonic_mode = 0
+    if predictions.shape[1] == 6:
+        leptonic_mode = 0
+    elif predictions.shape[1] == 7:
+        leptonic_mode = 1
+    elif predictions.shape[1] == 8:
+        leptonic_mode = 2
+
+    print(f"Leptonic mode identified as {leptonic_mode} based on number of output features in predictions")   
 
     if use_reco:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_charged=reco_taup_charged, taup_pizero=reco_taup_pizero, taun_charged=reco_taun_charged, taun_pizero=reco_taun_pizero)
+                    tau1_charged=reco_taup_charged, tau1_pi0=reco_taup_pizero, tau2_charged=reco_taun_charged, tau2_pi0=reco_taun_pizero, leptonic_mode=leptonic_mode)
     else:
       conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
-                    taup_charged=true_taup_charged, taup_pizero=true_taup_pizero, taun_charged=true_taun_charged, taun_pizero=true_taun_pizero)
+                    tau1_charged=true_taup_charged, tau1_pi0=true_taup_pizero, tau2_charged=true_taun_charged, tau2_pi0=true_taun_pizero, leptonic_mode=leptonic_mode)
 
     # get the gen values of the neutrinos in x,y,z coordinates
+
     true_values = convert_coordinates_pred(test_df[output_features].values, **conv_kwargs)
     true_values = add_energies_pair(true_values)
 
@@ -214,19 +233,19 @@ def main():
   
   
     # build dataframe for results
-    true_taup_haspizero = test_df['taup_haspizero'].values.reshape(-1,1)
-    true_taun_haspizero = test_df['taun_haspizero'].values.reshape(-1,1)
+    true_taup_haspizero = test_df[f'{tau1_prefix}_haspizero'].values.reshape(-1,1)
+    true_taun_haspizero = test_df[f'{tau2_prefix}_haspizero'].values.reshape(-1,1)
     if inc_new_vars:
-        true_taup_ishadronic = test_df['taup_ishadronic'].values.reshape(-1,1)
-        true_taun_ishadronic = test_df['taun_ishadronic'].values.reshape(-1,1)
-        true_taup_npizero = test_df['taup_npizero'].values.reshape(-1,1)
-        true_taun_npizero = test_df['taun_npizero'].values.reshape(-1,1)
-        true_taup_is3prong = test_df['taup_is3prong'].values.reshape(-1,1)
-        true_taun_is3prong = test_df['taun_is3prong'].values.reshape(-1,1)
-        true_taup_ismuon = test_df['taup_ismuon'].values.reshape(-1,1)
-        true_taun_ismuon = test_df['taun_ismuon'].values.reshape(-1,1)
-        true_taup_iselectron = test_df['taup_iselectron'].values.reshape(-1,1)
-        true_taun_iselectron = test_df['taun_iselectron'].values.reshape(-1,1)
+        true_taup_ishadronic = test_df[f'{tau1_prefix}_ishadronic'].values.reshape(-1,1)
+        true_taun_ishadronic = test_df[f'{tau2_prefix}_ishadronic'].values.reshape(-1,1)
+        true_taup_npizero = test_df[f'{tau1_prefix}_npizero'].values.reshape(-1,1)
+        true_taun_npizero = test_df[f'{tau2_prefix}_npizero'].values.reshape(-1,1)
+        true_taup_is3prong = test_df[f'{tau1_prefix}_is3prong'].values.reshape(-1,1)
+        true_taun_is3prong = test_df[f'{tau2_prefix}_is3prong'].values.reshape(-1,1)
+        true_taup_ismuon = test_df[f'{tau1_prefix}_ismuon'].values.reshape(-1,1)
+        true_taun_ismuon = test_df[f'{tau2_prefix}_ismuon'].values.reshape(-1,1)
+        true_taup_iselectron = test_df[f'{tau1_prefix}_iselectron'].values.reshape(-1,1)
+        true_taun_iselectron = test_df[f'{tau2_prefix}_iselectron'].values.reshape(-1,1)
     else:
         # set defaults such that this will still work with old setup based on dm 0 and 1 only
         true_taup_ishadronic = np.ones((len(test_df), 1))
@@ -242,22 +261,22 @@ def main():
 
 
     if use_reco:
-        reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
-        reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
+        reco_taup_haspizero = test_df[f'reco_{tau1_prefix}_haspizero'].values.reshape(-1,1) if use_reco else None
+        reco_taun_haspizero = test_df[f'reco_{tau2_prefix}_haspizero'].values.reshape(-1,1) if use_reco else None
         if inc_new_vars:
-            reco_taup_ishadronic = test_df['reco_taup_ishadronic'].values.reshape(-1,1) if use_reco else None
-            reco_taun_ishadronic = test_df['reco_taun_ishadronic'].values.reshape(-1,1) if use_reco else None
-            reco_taup_npizero = test_df['reco_taup_npizero'].values.reshape(-1,1) if use_reco else None
-            reco_taun_npizero = test_df['reco_taun_npizero'].values.reshape(-1,1) if use_reco else None
-            reco_taup_is3prong = test_df['reco_taup_is3prong'].values.reshape(-1,1) if use_reco else None
-            reco_taun_is3prong = test_df['reco_taun_is3prong'].values.reshape(-1,1) if use_reco else None
-            reco_taup_ismuon = test_df['reco_taup_ismuon'].values.reshape(-1,1) if use_reco else None
-            reco_taun_ismuon = test_df['reco_taun_ismuon'].values.reshape(-1,1) if use_reco else None
-            reco_taup_iselectron = test_df['reco_taup_iselectron'].values.reshape(-1,1) if use_reco else None
-            reco_taun_iselectron = test_df['reco_taun_iselectron'].values.reshape(-1,1) if use_reco else None
+            reco_taup_ishadronic = test_df[f'reco_{tau1_prefix}_ishadronic'].values.reshape(-1,1) if use_reco else None
+            reco_taun_ishadronic = test_df[f'reco_{tau2_prefix}_ishadronic'].values.reshape(-1,1) if use_reco else None
+            reco_taup_npizero = test_df[f'reco_{tau1_prefix}_npizero'].values.reshape(-1,1) if use_reco else None
+            reco_taun_npizero = test_df[f'reco_{tau2_prefix}_npizero'].values.reshape(-1,1) if use_reco else None
+            reco_taup_is3prong = test_df[f'reco_{tau1_prefix}_is3prong'].values.reshape(-1,1) if use_reco else None
+            reco_taun_is3prong = test_df[f'reco_{tau2_prefix}_is3prong'].values.reshape(-1,1) if use_reco else None
+            reco_taup_ismuon = test_df[f'reco_{tau1_prefix}_ismuon'].values.reshape(-1,1) if use_reco else None
+            reco_taun_ismuon = test_df[f'reco_{tau2_prefix}_ismuon'].values.reshape(-1,1) if use_reco else None
+            reco_taup_iselectron = test_df[f'reco_{tau1_prefix}_iselectron'].values.reshape(-1,1) if use_reco else None
+            reco_taun_iselectron = test_df[f'reco_{tau2_prefix}_iselectron'].values.reshape(-1,1) if use_reco else None
         else:
-            reco_taup_haspizero = test_df['reco_taup_haspizero'].values.reshape(-1,1) if use_reco else None
-            reco_taun_haspizero = test_df['reco_taun_haspizero'].values.reshape(-1,1) if use_reco else None
+            reco_taup_haspizero = test_df[f'reco_{tau1_prefix}_haspizero'].values.reshape(-1,1) if use_reco else None
+            reco_taun_haspizero = test_df[f'reco_{tau2_prefix}_haspizero'].values.reshape(-1,1) if use_reco else None
             reco_taup_ishadronic = np.zeros((len(test_df), 1))
             reco_taun_ishadronic = np.zeros((len(test_df), 1))
             reco_taup_npizero = np.zeros((len(test_df), 1))
@@ -368,58 +387,59 @@ def main():
             (pred_taus_map[:,0]+pred_taus_map[:,4])**2 - (pred_taus_map[:,1]+pred_taus_map[:,5])**2
             - (pred_taus_map[:,2]+pred_taus_map[:,6])**2 - (pred_taus_map[:,3]+pred_taus_map[:,7])**2, 0))
 
-    # spin variables
-    print("Computing spin variables...")
-    results_df = compute_spin_vars(results_df, tau_pred_prefix='true_', tau_vis_prefix='true_') 
-    results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_',  tau_vis_prefix='reco_' if use_reco else 'true_')
-    # get spin vars for MAP prediction if present
-    if predictions_map is not None:
-        results_df = compute_spin_vars(results_df, tau_pred_prefix='map_pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
-
-    # loop over dm categories and compute spin density matrix variables for each
-    # TODO: could also do splitting based on reco dm category - both give us different but useful information
-    dm_masks = {
-        'all':    results_df,
-        'dm_0_0': results_df[(results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 0) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
-        'dm_0_1': results_df[(((results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 1)) |
-                              ((results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 0))) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
-        'dm_1_1': results_df[(results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 1) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
-    }
-    spin_plot_dir = f"{output_plots_dir}/spin_density/{data_config['test_output_name']}"
-    for dm_category, results_df_dm in dm_masks.items():
-        true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_')
-        pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
+    if leptonic_mode == 0:
+        # spin variables - not implemented yet for leptonic modes 
+        print("Computing spin variables...")
+        results_df = compute_spin_vars(results_df, tau_pred_prefix='true_', tau_vis_prefix='true_') 
+        results_df = compute_spin_vars(results_df, tau_pred_prefix='pred_',  tau_vis_prefix='reco_' if use_reco else 'true_')
+        # get spin vars for MAP prediction if present
         if predictions_map is not None:
-            map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='map_pred_')
+            results_df = compute_spin_vars(results_df, tau_pred_prefix='map_pred_', tau_vis_prefix='reco_' if use_reco else 'true_')
 
-        print('\n===== DM CATEGORY:', dm_category, '=====')
-        print(f'Number of events in this category: {len(results_df_dm)}')
-        print('\n True spin density matrix variables:')
-        print(true_Bplus)
-        print(true_Bminus)
-        print(true_C)
-        print(true_con, true_m12)
-        print()
+        # loop over dm categories and compute spin density matrix variables for each
+        # TODO: could also do splitting based on reco dm category - both give us different but useful information
+        dm_masks = {
+            'all':    results_df,
+            'dm_0_0': results_df[(results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 0) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
+            'dm_0_1': results_df[(((results_df['true_taup_npizero'] == 0) & (results_df['true_taun_npizero'] == 1)) |
+                                  ((results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 0))) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
+            'dm_1_1': results_df[(results_df['true_taup_npizero'] == 1) & (results_df['true_taun_npizero'] == 1) & (results_df['true_taup_ishadronic'] == 1) & (results_df['true_taun_ishadronic'] == 1) & (results_df['true_taup_is3prong'] == 0) & (results_df['true_taun_is3prong'] == 0)],
+        }
+        spin_plot_dir = f"{output_plots_dir}/spin_density/{data_config['test_output_name']}"
+        for dm_category, results_df_dm in dm_masks.items():
+            true_Bplus, true_Bminus, true_C, true_con, true_m12 = compute_spin_density_vars(results_df_dm, prefix='true_')
+            pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12 = compute_spin_density_vars(results_df_dm, prefix='pred_')
+            if predictions_map is not None:
+                map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12 = compute_spin_density_vars(results_df_dm, prefix='map_pred_')
 
-        print('\n Sampled predicted spin density matrix variables:')
-        print(pred_Bplus)
-        print(pred_Bminus)
-        print(pred_C)
-        print(pred_con, pred_m12)
-        
-        if predictions_map is not None:
-            print('\n MAP estimate spin density matrix variables:')
-            print(map_pred_Bplus)
-            print(map_pred_Bminus)
-            print(map_pred_C)
-            print(map_pred_con, map_pred_m12)
+            print('\n===== DM CATEGORY:', dm_category, '=====')
+            print(f'Number of events in this category: {len(results_df_dm)}')
+            print('\n True spin density matrix variables:')
+            print(true_Bplus)
+            print(true_Bminus)
+            print(true_C)
+            print(true_con, true_m12)
+            print()
 
-        # collect results for plotting
-        plot_results = {'True': (true_Bplus, true_Bminus, true_C, true_con, true_m12)}
-        plot_results['Sampled'] = (pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12)
-        if predictions_map is not None:
-            plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)
-        plot_spin_density_matrix(plot_results, dm_category, outdir=spin_plot_dir)
+            print('\n Sampled predicted spin density matrix variables:')
+            print(pred_Bplus)
+            print(pred_Bminus)
+            print(pred_C)
+            print(pred_con, pred_m12)
+
+            if predictions_map is not None:
+                print('\n MAP estimate spin density matrix variables:')
+                print(map_pred_Bplus)
+                print(map_pred_Bminus)
+                print(map_pred_C)
+                print(map_pred_con, map_pred_m12)
+
+            # collect results for plotting
+            plot_results = {'True': (true_Bplus, true_Bminus, true_C, true_con, true_m12)}
+            plot_results['Sampled'] = (pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12)
+            if predictions_map is not None:
+                plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)
+            plot_spin_density_matrix(plot_results, dm_category, outdir=spin_plot_dir)
 
     # write the results dataframe to a parquet file
     results_df.to_parquet(f"{output_dir}/{data_config['test_output_name']}.parquet")

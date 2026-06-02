@@ -326,10 +326,16 @@ def convert_semileptonic_df(df):
 
     df_lep_tau1 = df[((df['taup_isleptonic'] == 1) & (df['taun_ishadronic'] == 1))].copy()
     df_lep_tau1 = df_lep_tau1.rename(columns=lambda x: x.replace('taup_', 'tau1_').replace('taun_', 'tau2_'))
+    # store the charge of the leptonic tau in a separate column 
+    df_lep_tau1['tau1_charge'] = np.ones(len(df_lep_tau1))
+    df_lep_tau1['tau2_charge'] = -1*np.ones(len(df_lep_tau1))
 
     # check if taup is hadronic and taun is leptonic and if so relabel taun->tau1 and taup->tau2
     df_lep_tau2 = df[((df['taup_ishadronic'] == 1) & (df['taun_isleptonic'] == 1))].copy()
     df_lep_tau2 = df_lep_tau2.rename(columns=lambda x: x.replace('taun_', 'tau1_').replace('taup_', 'tau2_'))
+    # store the charge of the taus in a separate column
+    df_lep_tau2['tau2_charge'] = -1*np.ones(len(df_lep_tau2))
+    df_lep_tau2['tau1_charge'] = np.ones(len(df_lep_tau2))
 
     # concatenate the two dataframes
     df_out = pd.concat([df_lep_tau1, df_lep_tau2], ignore_index=True)
