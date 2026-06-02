@@ -21,6 +21,9 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+jobs/
+ppTo*/
+prepared_*/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -181,3 +184,4 @@ cython_debug/
 *.err
 *.log
 *.sub
+*.out

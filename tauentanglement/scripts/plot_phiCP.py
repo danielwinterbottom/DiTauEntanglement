@@ -12,8 +12,7 @@ from tauentanglement.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
     get_R_P_vectors_all,
     compute_aco_classic,
-    get_ditau_polarimetric_gen,
-    get_ditau_polarimetric_reco,
+    get_ditau_polarimetric
 )
 
 plt.style.use(hep.style.CMS)
@@ -21,8 +20,8 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May27/output_results_CPEven.parquet',
-'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May27/output_results_CPOdd.parquet',
+'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPEven.parquet',
+'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPOdd.parquet',
 'mix': None
 },
     'gen': {
@@ -44,18 +43,30 @@ def compute_phicp_all(df, option, use_map=True):
     # Compute phiCP for all events in the df (splitting of methods by DM done automatically, vectorised)
     df = df.copy()
     if option == 'gen':
-        R1, P1, R2, P2 = get_ditau_polarimetric_gen(df)
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
+        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True)
+        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoNu':
-        R1, P1, R2, P2 = get_ditau_polarimetric_reco(df, useMAP=use_map)
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
+        tau_prefix = 'map_pred' if use_map else 'pred'
+        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix=tau_prefix, reco_pions=True)
+        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoRun3':
-        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='reco_taup')
-        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='reco_taun')
+        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup')
+        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='taun')
         phiCP = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
     df['phiCP'] = np.array(phiCP)
     return df
 
+def add_DM(df, dm_prefix='reco'):
+    for tau in ['taup', 'taun']:
+        tau_is_dm0 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm1 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm2 = ((df[f"{dm_prefix}_{tau}_npizero"].values == 1) | (df[f"{dm_prefix}_{tau}_npizero"].values == 2)) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0)
+        tau_is_dm10 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1)
+        df[f'{tau}_DM'] = np.where(tau_is_dm0, 0,
+                             np.where(tau_is_dm1, 1,
+                                      np.where(tau_is_dm2, 2,
+                                               np.where(tau_is_dm10, 10, -1))))
+    return df
 
 def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False):
     bin_width = bin_edges[1] - bin_edges[0]
@@ -90,6 +101,7 @@ def main():
                         help="Hide Poisson error bands on the bins (shown by default).")
 
     args = parser.parse_args()
+    do_DM10= False
 
     if args.output_dir != '.':
         os.makedirs(args.output_dir, exist_ok=True)
@@ -97,33 +109,29 @@ def main():
     os.makedirs(f"{args.output_dir}/{args.option}", exist_ok=True)
 
     even_df, odd_df, mix_df = load_data()
+
     use_map = not args.useMLP
+    dm_pfx = 'true' if args.GENfilter else 'reco'
+    even_df = add_DM(even_df, dm_prefix=dm_pfx)
+    odd_df = add_DM(odd_df, dm_prefix=dm_pfx)
     even_df = compute_phicp_all(even_df, args.option, use_map=use_map)
     odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map)
     if mix_df is not None:
+        mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
         mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map)
 
 
-    for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2]]: # [npi+/-, npi0]
+    for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2], [10,10], [0,10], [1,10], [2,10]]: # [DM tau plus, DM tau minus]
 
-        pfx = 'true_' if args.GENfilter else 'reco_'
-        single_prong_mask = lambda df, p=pfx: (df[f'{p}taup_is3prong'] == 0) & (df[f'{p}taun_is3prong'] == 0)
-        if dm_taup != dm_taun:
-            dm_mask = lambda df, p=dm_taup, n=dm_taun, pfx=pfx: ((df[f'{pfx}taup_npizero'] == p) & (df[f'{pfx}taun_npizero'] == n)) | ((df[f'{pfx}taun_npizero'] == n) & (df[f'{pfx}taup_npizero'] == p))
-        else:
-            dm_mask = lambda df, p=dm_taup, n=dm_taun, pfx=pfx: (df[f'{pfx}taup_npizero'] == p) & (df[f'{pfx}taun_npizero'] == n)
+        if args.option == 'recoRun3' and (dm_taup == 10 and dm_taun == 10):
+            print(f"Skipping DM10 for option {args.option} since it requires a different phiCP calculation.")
+            continue
+
+        dm_mask = lambda df, p=dm_taup, n=dm_taun: ((df['taup_DM'] == p) & (df['taun_DM'] == n)) | ((df['taun_DM'] == n) & (df['taup_DM'] == p))
         even = even_df[dm_mask(even_df)]
-        even = even[single_prong_mask(even)]
         odd  = odd_df[dm_mask(odd_df)]
-        odd  = odd[single_prong_mask(odd)]
-
-        # kin_mask = lambda df: (df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)
-        # even = even[kin_mask(even)]
-        # odd = odd[kin_mask(odd)]
 
         print(f"DM{dm_taup}-DM{dm_taun}: {len(even)} CP even, {len(odd)} CP odd events")
-        print(even['phiCP'].describe())
-        print(odd['phiCP'].describe())
 
         fig, ax = plt.subplots(figsize=(8, 6))
         bin_edges = np.linspace(0, 2 * np.pi, 21)
@@ -143,7 +151,7 @@ def main():
         ax.legend()
         ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
                 verticalalignment='top', fontweight='bold')
-        out = f"{args.output_dir}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
+        out = f"{args.output_dir}/{args.option}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
         plt.savefig(out)
         plt.close()
         print(f"Saved {out}")
