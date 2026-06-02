@@ -832,6 +832,17 @@ for iev in range(reader.GetEntries()):
         branch_vals['taup_pi3_pz'][0] = taup_pis[2].P4().Pz()
         branch_vals['taup_pi3_e'][0] = taup_pis[2].P4().E()
 
+    if len(taun_pis) > 1:
+        branch_vals['taun_pi2_px'][0] = taun_pis[1].P4().Px()
+        branch_vals['taun_pi2_py'][0] = taun_pis[1].P4().Py()
+        branch_vals['taun_pi2_pz'][0] = taun_pis[1].P4().Pz()
+        branch_vals['taun_pi2_e'][0] = taun_pis[1].P4().E()
+    if len(taun_pis) > 2:
+        branch_vals['taun_pi3_px'][0] = taun_pis[2].P4().Px()
+        branch_vals['taun_pi3_py'][0] = taun_pis[2].P4().Py()
+        branch_vals['taun_pi3_pz'][0] = taun_pis[2].P4().Pz()
+        branch_vals['taun_pi3_e'][0] = taun_pis[2].P4().E()
+
     branch_vals['taup_charged_px'][0] = taup_charged_sum.Px()
     branch_vals['taup_charged_py'][0] = taup_charged_sum.Py()
     branch_vals['taup_charged_pz'][0] = taup_charged_sum.Pz()

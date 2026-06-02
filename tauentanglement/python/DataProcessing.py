@@ -344,6 +344,8 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
     leptonic_mode = config.get('leptonic_mode', -1)  # default to -1 if not specified i.e no selection based on whether tau is leptonic is applied
     one_prong_only = config.get('one_prong_only', False)  # option to select only one prong decays for training
     match_n_prongs = config.get('match_n_prongs', False)  # option to select only one prong decays for training
+    inc_three_prongs = config.get('inc_three_prongs', False)  # option to select only events with at least 1 3-prong tau
+
 
     # check if key is not a list, if not add it to a list
     if not isinstance(keys, list):
@@ -384,6 +386,10 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
             if one_prong_only: # only train on 1-prong events (require both truth and reco level be 1-prong)
                 df = df[(df['taup_npi'] == 1) & (df['taun_npi'] == 1)]
                 df = df[(df['reco_taup_npi'] == 1) & (df['reco_taun_npi'] == 1)]
+
+            if inc_three_prongs: # only train on events with at least 1 3-prong tau
+                df = df[(df['taup_npi'] > 1) | (df['taun_npi'] > 1)]
+                df = df[(df['reco_taup_npi'] > 1) | (df['reco_taun_npi'] > 1)]
                 
         elif leptonic_mode == 1:
         # select cases where one tau is leptonic and one is hadronic
@@ -425,6 +431,8 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
         extra_name = ''
         if leptonic_mode>=0:
             extra_name = f"_leptonic_mode_{leptonic_mode}"
+        if inc_three_prongs:
+            extra_name += "_inc_three_prongs"
 
         val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet'))
         test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet'))
