@@ -22,7 +22,7 @@ def polarimetric_vec_dm0(H_pi, boost_vec_tau):
     return spatial(boost4(H_pi, boost_vec_tau)).unit()
 
 def polarimetric_vec_dm1(H_pi, H_pizero, H_tau, boost_vec_tau):
-    """Compute the DM1 (rho) polarimetric vector in the tau rest frame."""
+    """Compute the DM1/2 (rho/a11pr) polarimetric vector in the tau rest frame."""
     q = H_pi - H_pizero
     P = H_tau
     N = H_tau - H_pi - H_pizero
@@ -45,7 +45,6 @@ def polarimetric_vec_dm10(tau_rf, os_pi, ss1_pi, ss2_pi, taucharge, boost_vec_ta
 
     pv_ak = ak.zip({"x": pv.x, "y": pv.y, "z": pv.z}, with_name="Vector3D")
     return pv_ak.unit()
-
 
 def get_R_P_vectors_all(df, tau_prefix='tau'):
     """Compute R and P vectors for all events, selecting IP (DM0) or pizero (DM1) for R."""
@@ -148,6 +147,75 @@ def get_ditau_polarimetric_gen(df):
         polarimetric_vec_dm0(H_pi_p, bv_taup),
     )
     taun_s = ak.where(true_taun_is_dm1or2,
+        polarimetric_vec_dm1(H_pi_n, H_piz_n, H_tau_n, bv_taun),
+        polarimetric_vec_dm0(H_pi_n, bv_taun),
+    )
+
+    return taup_s, spatial(H_tau_p).unit(), taun_s, spatial(H_tau_n).unit()
+
+def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True, dm_prefix='reco'):
+    """
+    tau_prefix: sets whether reco or true tau is used ("true" or "map_pred")
+    reco_pions: sets whether to use reco pions or true pions (some storage issues in gen)
+    dm_prefix: sets whether the reco or true number of pions is used to classify DMs
+    """
+
+    # Get R and P (polarimetric vector edition)
+    if tau_prefix == 'reco':
+        tau_prefix = tau_prefix
+
+    if reco_pions:
+        print(">> Using reconstructed pions for polarimetric vector calculation.")
+        pion_prefix = 'reco'
+    else:
+        print('>> Using true pions for polarimetric vector calculation.')
+        pion_prefix = 'true'
+
+    # Tau plus decay mode
+    taup_is_dm0 = (df[f"{dm_prefix}_taup_npizero"].values == 0) & (df[f'{dm_prefix}_taup_is3prong'] == 0)
+    taup_is_dm1or2 = ((df[f"{dm_prefix}_taup_npizero"].values == 1) | (df[f"{dm_prefix}_taup_npizero"].values == 2)) & (df[f'{dm_prefix}_taup_is3prong'] == 0)
+    taup_is_dm10 = (df[f"{dm_prefix}_taup_npizero"].values == 0) & (df[f'{dm_prefix}_taup_is3prong'] == 1)
+
+    # Tau plus decay products
+    pi_p     = ak.zip({"px": df[f"{pion_prefix}_taup_pi1_px"], "py": df[f"{pion_prefix}_taup_pi1_py"], "pz": df[f"{pion_prefix}_taup_pi1_pz"], "E": df[f"{pion_prefix}_taup_pi1_E"]}, with_name="Momentum4D")
+    pizero_p = ak.zip({"px": df[f"{pion_prefix}_taup_pizero1_px"], "py": df[f"{pion_prefix}_taup_pizero1_py"], "pz": df[f"{pion_prefix}_taup_pizero1_pz"], "E": df[f"{pion_prefix}_taup_pizero1_E"]}, with_name="Momentum4D")
+
+    # Tau plus
+    tau_p = ak.zip({"px": df[f"{tau_prefix}_tau_plus_px"], "py": df[f"{tau_prefix}_tau_plus_py"], "pz": df[f"{tau_prefix}_tau_plus_pz"], "E": df[f"{tau_prefix}_tau_plus_E"]}, with_name="Momentum4D")
+
+    # Tau minus decay mode
+    taun_is_dm0 = (df[f"{dm_prefix}_taun_npizero"].values == 0) & (df[f'{dm_prefix}_taun_is3prong'] == 0)
+    taun_is_dm1or2 = ((df[f"{dm_prefix}_taun_npizero"].values == 1) | (df[f"{dm_prefix}_taun_npizero"].values == 2)) & (df[f'{dm_prefix}_taun_is3prong'] == 0)
+    taun_is_dm10 = (df[f"{dm_prefix}_taun_npizero"].values == 0) & (df[f'{dm_prefix}_taun_is3prong'] == 1)
+
+    # Tau minus decay products
+    pi_n     = ak.zip({"px": df[f"{pion_prefix}_taun_pi1_px"], "py": df[f"{pion_prefix}_taun_pi1_py"], "pz": df[f"{pion_prefix}_taun_pi1_pz"], "E": df[f"{pion_prefix}_taun_pi1_E"]}, with_name="Momentum4D")
+    pizero_n = ak.zip({"px": df[f"{pion_prefix}_taun_pizero1_px"], "py": df[f"{pion_prefix}_taun_pizero1_py"], "pz": df[f"{pion_prefix}_taun_pizero1_pz"], "E": df[f"{pion_prefix}_taun_pizero1_E"]}, with_name="Momentum4D")
+
+    # Tau minus
+    tau_n = ak.zip({"px": df[f"{tau_prefix}_tau_minus_px"], "py": df[f"{tau_prefix}_tau_minus_py"], "pz": df[f"{tau_prefix}_tau_minus_pz"], "E": df[f"{tau_prefix}_tau_minus_E"]}, with_name="Momentum4D")
+
+    # Higgs rest frame boost vectors
+    higgs_bv = boost_vec(tau_p + tau_n)
+
+    # Boost the decay products to the Higgs rest frame
+    H_tau_p = boost4(tau_p, higgs_bv)
+    H_tau_n = boost4(tau_n, higgs_bv)
+    H_pi_p  = boost4(pi_p, higgs_bv)
+    H_pi_n  = boost4(pi_n, higgs_bv)
+    H_piz_p = boost4(pizero_p, higgs_bv)
+    H_piz_n = boost4(pizero_n, higgs_bv)
+
+    # Boost the taus to the Higgs rest frame
+    bv_taup = boost_vec(H_tau_p)
+    bv_taun = boost_vec(H_tau_n)
+
+    # Get the polarimetric vectors
+    taup_s = ak.where(taup_is_dm1or2,
+        polarimetric_vec_dm1(H_pi_p, H_piz_p, H_tau_p, bv_taup),
+        polarimetric_vec_dm0(H_pi_p, bv_taup),
+    )
+    taun_s = ak.where(taun_is_dm1or2,
         polarimetric_vec_dm1(H_pi_n, H_piz_n, H_tau_n, bv_taun),
         polarimetric_vec_dm0(H_pi_n, bv_taun),
     )
