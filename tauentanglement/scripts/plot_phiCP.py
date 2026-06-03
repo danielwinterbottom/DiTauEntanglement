@@ -12,6 +12,7 @@ from tauentanglement.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
     get_R_P_vectors_all,
     compute_aco_classic,
+    compute_aco_classic_a1a1,
     get_ditau_polarimetric
 )
 
@@ -52,7 +53,9 @@ def compute_phicp_all(df, option, use_map=True):
     elif option == 'recoRun3':
         R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup')
         R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='taun')
-        phiCP = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
+        phiCPmain = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
+        phiCPa1a1 = compute_aco_classic_a1a1(df)
+        phiCP = np.where((df['taup_DM'] == 10) & (df['taun_DM'] == 10), phiCPa1a1, phiCPmain)
     df['phiCP'] = np.array(phiCP)
     return df
 
@@ -122,10 +125,6 @@ def main():
 
 
     for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2], [10,10], [0,10], [1,10], [2,10]]: # [DM tau plus, DM tau minus]
-
-        if args.option == 'recoRun3' and (dm_taup == 10 and dm_taun == 10):
-            print(f"Skipping DM10 for option {args.option} since it requires a different phiCP calculation.")
-            continue
 
         dm_mask = lambda df, p=dm_taup, n=dm_taun: ((df['taup_DM'] == p) & (df['taun_DM'] == n)) | ((df['taun_DM'] == n) & (df['taup_DM'] == p))
         even = even_df[dm_mask(even_df)]
