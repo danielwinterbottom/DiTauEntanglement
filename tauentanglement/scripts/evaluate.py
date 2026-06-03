@@ -74,7 +74,7 @@ def main():
     true_taup_pi_ip = test_df[[f'{tau1_prefix}_pi1_ipx', f'{tau1_prefix}_pi1_ipy', f'{tau1_prefix}_pi1_ipz']].values
 
     # pi2/pi3 for 3-prong taus
-    if 'taup_pi2_e' in test_df.columns:
+    if 'taup_pi2_e' in test_df.columns or 'tau1_pi2_e' in test_df.columns:
         true_taup_pi2 = test_df[[f'{tau1_prefix}_pi2_e', f'{tau1_prefix}_pi2_px', f'{tau1_prefix}_pi2_py', f'{tau1_prefix}_pi2_pz']].values
         true_taun_pi2 = test_df[[f'{tau2_prefix}_pi2_e', f'{tau2_prefix}_pi2_px', f'{tau2_prefix}_pi2_py', f'{tau2_prefix}_pi2_pz']].values
         true_taup_pi3 = test_df[[f'{tau1_prefix}_pi3_e', f'{tau1_prefix}_pi3_px', f'{tau1_prefix}_pi3_py', f'{tau1_prefix}_pi3_pz']].values
@@ -115,7 +115,7 @@ def main():
         reco_taun_pi_ip = test_df[[f'reco_{tau2_prefix}_pi1_ipx', f'reco_{tau2_prefix}_pi1_ipy', f'reco_{tau2_prefix}_pi1_ipz']].values
         reco_taup_pi_ip = test_df[[f'reco_{tau1_prefix}_pi1_ipx', f'reco_{tau1_prefix}_pi1_ipy', f'reco_{tau1_prefix}_pi1_ipz']].values
 
-        if 'reco_taup_pi2_e' in test_df.columns:
+        if 'reco_taup_pi2_e' in test_df.columns or 'reco_tau1_pi2_e' in test_df.columns:
             reco_taup_pi2 = test_df[[f'reco_{tau1_prefix}_pi2_e', f'reco_{tau1_prefix}_pi2_px', f'reco_{tau1_prefix}_pi2_py', f'reco_{tau1_prefix}_pi2_pz']].values
             reco_taun_pi2 = test_df[[f'reco_{tau2_prefix}_pi2_e', f'reco_{tau2_prefix}_pi2_px', f'reco_{tau2_prefix}_pi2_py', f'reco_{tau2_prefix}_pi2_pz']].values
             reco_taup_pi3 = test_df[[f'reco_{tau1_prefix}_pi3_e', f'reco_{tau1_prefix}_pi3_px', f'reco_{tau1_prefix}_pi3_py', f'reco_{tau1_prefix}_pi3_pz']].values
