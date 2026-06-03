@@ -1,6 +1,10 @@
+import warnings
 import awkward as ak
 import vector
 import numpy as np
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in divide")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="divide by zero encountered in divide")
+warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in multiply")
 vector.register_awkward()
 from tauentanglement.utils.PolarimetricA1 import PolarimetricA1_vectorised
 
@@ -17,6 +21,17 @@ def boost_vec(v):
 def boost4(v, bv):
     r = v.boost(-bv)
     return ak.zip({"px": r.x, "py": r.y, "pz": r.z, "E": r.t}, with_name="Momentum4D")
+
+def invMass(t1, t2):
+    s = t1 + t2
+    return np.sqrt(np.maximum(s.dot(s), 0.0))
+
+def _quadratic(a, b, c):
+    """Numerically stable quadratic formula returning both roots (smaller, larger)."""
+    D = b**2 - 4.0 * a * c
+    masked_D = ak.where(D < 0, 0.0, D)
+    q = ak.where(D < 0, -0.5 * b, -0.5 * (b + np.copysign(np.sqrt(masked_D), b)))
+    return c / q, q / a
 
 def polarimetric_vec_dm0(H_pi, boost_vec_tau):
     return spatial(boost4(H_pi, boost_vec_tau)).unit()
@@ -53,8 +68,8 @@ def polarimetric_vec_dm1(H_pi, H_pizero, H_tau, boost_vec_tau):
 def polarimetric_vec_dm10(tau_rf, os_pi_rf, ss1_pi_rf, ss2_pi_rf, taucharge):
     """Compute the DM10 (a1) polarimetric vector in the tau rest frame."""
     pv = PolarimetricA1_vectorised(tau_rf, os_pi_rf, ss1_pi_rf, ss2_pi_rf, taucharge).PVC()
-
-    pv_ak = ak.zip({"x": pv.x, "y": pv.y, "z": pv.z}, with_name="Vector3D")
+    # note the sign reversal here by convention
+    pv_ak = ak.zip({"x": -pv.x, "y": -pv.y, "z": -pv.z}, with_name="Vector3D")
     return pv_ak.unit()
 
 def rotate_to_GJMax(visible_tau, tau):
@@ -125,6 +140,53 @@ def estimate_PV_tau_momentum_magnitude(df, tau_prefix):
     pvec = polarimetric_vec_dm10(tau_rf, piOS_rf, piSS1_rf, piSS2_rf, charge)
 
     return tau, pvec
+
+def tauMomentumSolutions(tauDir, a1LV):
+    tauMass = 1.77682
+    a1P2 = a1LV.px**2 + a1LV.py**2 + a1LV.pz**2
+    a1M2 = a1LV.dot(a1LV)
+    cosThetaGJ = np.clip(spatial(a1LV).unit().dot(tauDir), -1.0, 1.0)
+    sin2ThetaGJ = 1.0 - cosThetaGJ**2
+
+    a = 4.0 * (a1M2 + a1P2 * sin2ThetaGJ)
+    b = -4.0 * (a1M2 + tauMass**2) * np.sqrt(a1P2) * cosThetaGJ
+    c = 4.0 * tauMass**2 * (a1M2 + a1P2) - (a1M2 + tauMass**2)**2
+
+    tauMomentumSmall, tauMomentumLarge = _quadratic(a, b, c)
+    tauMomentumMean = (tauMomentumSmall + tauMomentumLarge) / 2.0
+
+    def makeTauLV(p):
+        return ak.zip({
+            "px": p * tauDir.x,
+            "py": p * tauDir.y,
+            "pz": p * tauDir.z,
+            "E":  np.sqrt(p**2 + tauMass**2),
+        }, with_name="Momentum4D")
+
+    return makeTauLV(tauMomentumSmall), makeTauLV(tauMomentumLarge), makeTauLV(tauMomentumMean)
+
+
+def tauPairMomentumSolutions(tau1Dir, a1LV1, tau2Dir, a1LV2):
+    Hmass = 125.10
+
+    tau1Solutions = tauMomentumSolutions(tau1Dir, a1LV1)
+    tau2Solutions = tauMomentumSolutions(tau2Dir, a1LV2)
+
+    d00 = np.abs(invMass(tau1Solutions[0], tau2Solutions[0]) - Hmass)
+    d01 = np.abs(invMass(tau1Solutions[0], tau2Solutions[1]) - Hmass)
+    d10 = np.abs(invMass(tau1Solutions[1], tau2Solutions[0]) - Hmass)
+    d11 = np.abs(invMass(tau1Solutions[1], tau2Solutions[1]) - Hmass)
+
+    bestTau2ForSmall1 = ak.where(d00 < d01, tau2Solutions[0], tau2Solutions[1])
+    bestDSmall1 = ak.where(d00 < d01, d00, d01)
+    bestTau2ForLarge1 = ak.where(d10 < d11, tau2Solutions[0], tau2Solutions[1])
+    bestDLarge1 = ak.where(d10 < d11, d10, d11)
+
+    tau1PairConstraintLV = ak.where(bestDSmall1 < bestDLarge1, tau1Solutions[0], tau1Solutions[1])
+    tau2PairConstraintLV = ak.where(bestDSmall1 < bestDLarge1, bestTau2ForSmall1, bestTau2ForLarge1)
+
+    return tau1PairConstraintLV, tau2PairConstraintLV
+
 
 def get_R_P_vectors_all(df, tau_prefix='tau'):
     """Compute R and P vectors for all events, selecting IP (DM0) or pizero (DM1) for R."""
@@ -215,6 +277,48 @@ def compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp):
     needs_shift = (leg1_is_dp | leg2_is_dp) & (meson_sign < 0)
     angle = ak.where(needs_shift, ak.where(angle < np.pi, angle + np.pi, angle - np.pi), angle)
     return angle
+
+def compute_aco_classic_a1a1(df):
+    # Tau plus
+    piOS_p = ak.zip({"px": df[f"reco_taup_pi1_px"], "py": df[f"reco_taup_pi1_py"], "pz": df[f"reco_taup_pi1_pz"], "E": df[f"reco_taup_pi1_E"]}, with_name="Momentum4D")
+    piSS1_p = ak.zip({"px": df[f"reco_taup_pi2_px"], "py": df[f"reco_taup_pi2_py"], "pz": df[f"reco_taup_pi2_pz"], "E": df[f"reco_taup_pi2_E"]}, with_name="Momentum4D")
+    piSS2_p = ak.zip({"px": df[f"reco_taup_pi3_px"], "py": df[f"reco_taup_pi3_py"], "pz": df[f"reco_taup_pi3_pz"], "E": df[f"reco_taup_pi3_E"]}, with_name="Momentum4D")
+    vis_tau_p = piOS_p + piSS1_p + piSS2_p
+    dir_tau_p =  ak.zip({"x": df[f"reco_taup_sv_x"], "y": df[f"reco_taup_sv_y"], "z": df[f"reco_taup_sv_z"] }, with_name="Vector3D").unit()
+
+    # Tau plus
+    piOS_n = ak.zip({"px": df[f"reco_taun_pi1_px"], "py": df[f"reco_taun_pi1_py"], "pz": df[f"reco_taun_pi1_pz"], "E": df[f"reco_taun_pi1_E"]}, with_name="Momentum4D")
+    piSS1_n = ak.zip({"px": df[f"reco_taun_pi2_px"], "py": df[f"reco_taun_pi2_py"], "pz": df[f"reco_taun_pi2_pz"], "E": df[f"reco_taun_pi2_E"]}, with_name="Momentum4D")
+    piSS2_n = ak.zip({"px": df[f"reco_taun_pi3_px"], "py": df[f"reco_taun_pi3_py"], "pz": df[f"reco_taun_pi3_pz"], "E": df[f"reco_taun_pi3_E"]}, with_name="Momentum4D")
+    vis_tau_n = piOS_n + piSS1_n + piSS2_n
+    dir_tau_n =  ak.zip({"x": df[f"reco_taun_sv_x"], "y": df[f"reco_taun_sv_y"], "z": df[f"reco_taun_sv_z"] }, with_name="Vector3D").unit()
+
+    # work out the tau momenta using pair mass constraint
+    tau_p, tau_n = tauPairMomentumSolutions(dir_tau_p, vis_tau_p, dir_tau_n, vis_tau_n)
+
+    # boost to this frame
+    higgs_bv = boost_vec(tau_p + tau_n)
+
+    # Boost the decay products to the Higgs rest frame
+    tau_p_rf = boost4(tau_p, higgs_bv)
+    tau_n_rf = boost4(tau_n, higgs_bv)
+    piOS_p_rf  = boost4(piOS_p, higgs_bv)
+    piSS1_p_rf  = boost4(piSS1_p, higgs_bv)
+    piSS2_p_rf = boost4(piSS2_p, higgs_bv)
+    piOS_n_rf  = boost4(piOS_n, higgs_bv)
+    piSS1_n_rf  = boost4(piSS1_n, higgs_bv)
+    piSS2_n_rf = boost4(piSS2_n, higgs_bv)
+
+    # Get the polarimetric vectors
+    taup_s = polarimetric_vec_dm10(tau_p_rf, piOS_p_rf, piSS1_p_rf, piSS2_p_rf, +1)
+    taun_s = polarimetric_vec_dm10(tau_n_rf, piOS_n_rf, piSS1_n_rf, piSS2_n_rf, -1)
+
+    # Get phiCP
+    phicp = compute_aco_polarimetric(taup_s, spatial(tau_p_rf).unit(), taun_s, spatial(tau_n_rf).unit())
+
+    return phicp
+
+
 
 def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
     """
