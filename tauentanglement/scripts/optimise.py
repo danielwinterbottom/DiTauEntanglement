@@ -71,16 +71,16 @@ if __name__ == "__main__":
         hp = {
             'batch_size': trial.suggest_categorical('batch_size', powers_of_two(13, 15)),
             'num_layers': trial.suggest_int('num_layers', 2, 10),
-            'num_bins': trial.suggest_int('num_bins', 8, 20, step=2),
+            'num_bins': trial.suggest_int('num_bins', 8, 24, step=4),
             'tail_bound': trial.suggest_float('tail_bound', 3.0, 5.0, step=1.0),
             'hidden_size': trial.suggest_categorical('hidden_size', powers_of_two(6, 9)),
             'num_blocks': trial.suggest_int('num_blocks', 1, 4),
-            'lr': trial.suggest_float('lr', 1e-5, 1e-2, log=True),
+            'lr': trial.suggest_categorical('lr', [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]),
             'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
             'condition_net_hidden_size': trial.suggest_categorical('condition_net_hidden_size', powers_of_two(6, 9)),
             'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 0, 4),
-            'condition_net_output_size': trial.suggest_categorical('condition_net_output_size', powers_of_two(3, 8)),
-            'num_epochs': n_epochs_opt,
+            'condition_net_output_size': trial.suggest_categorical('condition_net_output_size', powers_of_two(5, 8)),
+            'num_epochs': 1,
         }
 
         model, optimizer, train_loader, val_loader, scheduler, es = setup_model_and_training(
@@ -95,7 +95,8 @@ if __name__ == "__main__":
             model, optimizer, train_loader, val_loader,
             num_epochs=n_epochs_opt, device=device, verbose=False,
             output_plots_dir=None, save_every_N=None, scheduler=scheduler,
-            recompute_train_loss=False, early_stopper=es, useMLP=args.useMLP
+            recompute_train_loss=False, early_stopper=es, useMLP=args.useMLP,
+            optuna_trial=trial
         )
 
         best_trial_loss_path = os.path.join(output_dir, "best_trial_loss.txt")
@@ -115,8 +116,9 @@ if __name__ == "__main__":
     study = optuna.create_study(
         study_name=nn_config['model_name'] + "_HyperparamOPTIMISATION",
         direction="minimize",
-        storage=f"sqlite:///{db_path}",
-        load_if_exists=True
+        storage=f"sqlite:///{db_path}?timeout=10000",
+        load_if_exists=True,
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=20)
     )
     study.optimize(objective, n_trials=args.n_trials, callbacks=[live_plot_callback])
 
