@@ -228,7 +228,7 @@ def main():
                 model, X_test,
                 test_dataset=test_dataset,
                 num_draws=nn_config.get('map_num_draws', 100),
-                chunk_size=1000 if device.type == 'cpu' else 10000,
+                chunk_size= nn_config.get('chunk_size', 1000 if device.type == 'cpu' else 10000),
                 method=map_method,
             )
             samples_map = convert_coordinates_pred(samples_map, **conv_kwargs)
