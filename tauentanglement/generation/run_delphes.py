@@ -39,10 +39,10 @@ def TraceTauMother(part, particles, verbose=False):
             print("Other mothers found:")
             for idx in mother_indices[1:]:
                 other_mother = particles.At(idx)
-                if not other_mother.PID in mother_ids_to_exclude:
-                    if verbose:
-                        print('id = %i, status = %i, pT = %.4f, eta = %.4f, phi = %.4f' %
-                              (other_mother.PID, other_mother.Status, other_mother.PT, other_mother.Eta, other_mother.Phi))
+                #if not other_mother.PID in mother_ids_to_exclude:
+                if verbose:
+                    print('id = %i, status = %i, pT = %.4f, eta = %.4f, phi = %.4f' %
+                          (other_mother.PID, other_mother.Status, other_mother.PT, other_mother.Eta, other_mother.Phi))
 
     return mother_id, mother_pdgid
 
