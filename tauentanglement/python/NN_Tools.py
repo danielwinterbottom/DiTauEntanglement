@@ -140,7 +140,7 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
 
 
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
-    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False):
+    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None):
     model.to(device)
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
@@ -205,6 +205,12 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
+
+        if optuna_trial is not None and epoch == 20:
+            import optuna
+            optuna_trial.report(val_loss, epoch)
+            if optuna_trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
 
         # save model if its loss is better than the previous best
         if val_loss < best_val_loss and output_plots_dir:
