@@ -366,9 +366,27 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
     train_df = None
     val_df = None
 
+    extra_name = ''
+    if leptonic_mode>=0:
+        extra_name = f"_leptonic_mode_{leptonic_mode}"
+    if inc_three_prongs:
+        extra_name += "_inc_three_prongs"
+
     for k in keys:
 
-        if not load_existing:
+        # dataset names
+        train_df_path = os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet')
+        val_df_path = os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet')
+        test_df_path = os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet')
+
+        if load_existing and os.path.exists(train_df_path) and os.path.exists(val_df_path) and os.path.exists(test_df_path):
+
+            print(">> WARNING: Loading pre-existing train and test dataframes from disk instead of creating new ones. Make sure this is intentional to avoid accidentally using wrong data for training/testing!")
+            val_df_ = pd.read_parquet(val_df_path)
+            train_df_ = pd.read_parquet(train_df_path)
+            test_df_ = pd.read_parquet(test_df_path)
+
+        else:
             if config['coordinates'] == 'standard':
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_dataframe.parquet'))
             elif config['coordinates'] == 'polar':
@@ -436,31 +454,14 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
                 test_df_ = df.iloc[train_size + val_size:train_size + val_size + test_size]
             del df
 
-            extra_name = ''
-            if leptonic_mode>=0:
-                extra_name = f"_leptonic_mode_{leptonic_mode}"
-            if inc_three_prongs:
-                extra_name += "_inc_three_prongs"
-
-            val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet'))
-            test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet'))
-            train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet'))
+            val_df_.to_parquet(val_df_path)
+            test_df_.to_parquet(test_df_path)
+            train_df_.to_parquet(train_df_path)
             print(f">> Train, validation and test dataframes for {k} saved.")
             print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
 
             # after saving we can delet the test_df as we dont use it during the training
             del test_df_
-
-        else:
-            extra_name = ''
-            if leptonic_mode>=0:
-                extra_name = f"_leptonic_mode_{leptonic_mode}"
-            if inc_three_prongs:
-                extra_name += "_inc_three_prongs"
-
-            print(">> WARNING: Loading pre-existing train and test dataframes from disk instead of creating new ones. Make sure this is intentional to avoid accidentally using wrong data for training/testing!")
-            val_df_ = pd.read_parquet(os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet'))
-            train_df_ = pd.read_parquet(os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet'))
 
         # to save memory usage we also drop anything that isn't an input out output feature from the dataframes
         #print size of dataframe in GB before dropping columns
