@@ -345,7 +345,7 @@ def convert_semileptonic_df(df):
     return df_out    
     
 
-def get_train_val_test_datasets(keys, config, shuffle=True):
+def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False):
 
     leptonic_mode = config.get('leptonic_mode', -1)  # default to -1 if not specified i.e no selection based on whether tau is leptonic is applied
     one_prong_only = config.get('one_prong_only', False)  # option to select only one prong decays for training
@@ -366,88 +366,103 @@ def get_train_val_test_datasets(keys, config, shuffle=True):
     train_df = None
     val_df = None
 
+    extra_name = ''
+    if leptonic_mode>=0:
+        extra_name = f"_leptonic_mode_{leptonic_mode}"
+    if inc_three_prongs:
+        extra_name += "_inc_three_prongs"
+
     for k in keys:
-        if config['coordinates'] == 'standard':
-            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_dataframe.parquet'))
-        elif config['coordinates'] == 'polar':
-            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
-        elif config['coordinates'] == 'onorm':
-            df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
-        # add a column to identify the dataset
-        df['dataset'] = k
 
-        if match_n_prongs:
-            # only select events where number of pions and number of elecron and muons match the gen-values
-            df = df[(df['taup_npi'] == df['reco_taup_npi']) & (df['taun_npi'] == df['reco_taun_npi'])]
-            df = df[(df['taup_nmu'] == df['reco_taup_nmu']) & (df['taun_nmu'] == df['reco_taun_nmu'])]
-            df = df[(df['taup_nele'] == df['reco_taup_nele']) & (df['taun_nele'] == df['reco_taun_nele'])]
+        # dataset names
+        train_df_path = os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet')
+        val_df_path = os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet')
+        test_df_path = os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet')
 
-        if leptonic_mode == 0:
-            # select cases where both taus are hadronic
-            df = df[(df['taup_nmu'] == 0) & (df['taup_nele'] == 0) & (df['taun_nmu'] == 0) & (df['taun_nele'] == 0)]
+        if load_existing and os.path.exists(train_df_path) and os.path.exists(val_df_path) and os.path.exists(test_df_path):
 
-            #apply reco cuts as well
-            df = df[(df['reco_taup_nmu'] == 0) & (df['reco_taup_nele'] == 0) & (df['reco_taun_nmu'] == 0) & (df['reco_taun_nele'] == 0)]
+            print(">> WARNING: Loading pre-existing train and test dataframes from disk instead of creating new ones. Make sure this is intentional to avoid accidentally using wrong data for training/testing!")
+            val_df_ = pd.read_parquet(val_df_path)
+            train_df_ = pd.read_parquet(train_df_path)
+            test_df_ = pd.read_parquet(test_df_path)
 
-            if one_prong_only: # only train on 1-prong events (require both truth and reco level be 1-prong)
-                df = df[(df['taup_npi'] == 1) & (df['taun_npi'] == 1)]
-                df = df[(df['reco_taup_npi'] == 1) & (df['reco_taun_npi'] == 1)]
-
-            if inc_three_prongs: # only train on events with at least 1 3-prong tau
-                df = df[(df['taup_npi'] > 1) | (df['taun_npi'] > 1)]
-                df = df[(df['reco_taup_npi'] > 1) | (df['reco_taun_npi'] > 1)]
-                
-        elif leptonic_mode == 1:
-        # select cases where one tau is leptonic and one is hadronic
-            df = df[((df['taup_nmu'] + df['taup_nele']) > 0) & ((df['taun_nmu'] + df['taun_nele']) == 0) |
-                    ((df['taup_nmu'] + df['taup_nele']) == 0) & ((df['taun_nmu'] + df['taun_nele']) > 0)]
-
-            # apply reco cuts as well
-            df = df[((df['reco_taup_nmu'] + df['reco_taup_nele']) > 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) == 0) |
-                    ((df['reco_taup_nmu'] + df['reco_taup_nele']) == 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) > 0)]
-
-            # restructure the dataframe so that the leptonic tau is always tau1 and the hadronic tau is always tau2    
-            df = convert_semileptonic_df(df)
-            
-        elif leptonic_mode == 2:
-            # select cases where both taus are leptonic
-            df = df[(df['taup_nmu'] + df['taup_nele'] > 0) & (df['taun_nmu'] + df['taun_nele'] > 0)]
-
-            # apply reco cuts as well
-            df = df[(df['reco_taup_nmu'] + df['reco_taup_nele'] > 0) & (df['reco_taun_nmu'] + df['reco_taun_nele'] > 0)]
-
-        train_size = int(config['train_fraction'] * len(df))
-        val_size = int(config['val_fraction'] * len(df))
-
-        # check if test_fraction is defined, if not use the rest of the data for testing
-        if 'test_fraction' in config:
-            test_size = int(config['test_fraction'] * len(df))
         else:
-            test_size = len(df) - train_size - val_size
+            if config['coordinates'] == 'standard':
+                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_dataframe.parquet'))
+            elif config['coordinates'] == 'polar':
+                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
+            elif config['coordinates'] == 'onorm':
+                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
+            # add a column to identify the dataset
+            df['dataset'] = k
 
-        train_df_ = df.iloc[:train_size]
-        val_df_ = df.iloc[train_size:train_size + val_size]
+            if match_n_prongs:
+                # only select events where number of pions and number of elecron and muons match the gen-values
+                df = df[(df['taup_npi'] == df['reco_taup_npi']) & (df['taun_npi'] == df['reco_taun_npi'])]
+                df = df[(df['taup_nmu'] == df['reco_taup_nmu']) & (df['taun_nmu'] == df['reco_taun_nmu'])]
+                df = df[(df['taup_nele'] == df['reco_taup_nele']) & (df['taun_nele'] == df['reco_taun_nele'])]
 
-        if config['full_dataframe_testing']:
-            test_df_ = df.copy()
-        else:
-            test_df_ = df.iloc[train_size + val_size:train_size + val_size + test_size]
-        del df
+            if leptonic_mode == 0:
+                # select cases where both taus are hadronic
+                df = df[(df['taup_nmu'] == 0) & (df['taup_nele'] == 0) & (df['taun_nmu'] == 0) & (df['taun_nele'] == 0)]
 
-        extra_name = ''
-        if leptonic_mode>=0:
-            extra_name = f"_leptonic_mode_{leptonic_mode}"
-        if inc_three_prongs:
-            extra_name += "_inc_three_prongs"
+                #apply reco cuts as well
+                df = df[(df['reco_taup_nmu'] == 0) & (df['reco_taup_nele'] == 0) & (df['reco_taun_nmu'] == 0) & (df['reco_taun_nele'] == 0)]
 
-        val_df_.to_parquet(os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet'))
-        test_df_.to_parquet(os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet'))
-        train_df_.to_parquet(os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet'))
-        print(f">> Train, validation and test dataframes for {k} saved.")
-        print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
+                if one_prong_only: # only train on 1-prong events (require both truth and reco level be 1-prong)
+                    df = df[(df['taup_npi'] == 1) & (df['taun_npi'] == 1)]
+                    df = df[(df['reco_taup_npi'] == 1) & (df['reco_taun_npi'] == 1)]
 
-        # after saving we can delet the test_df as we dont use it during the training
-        del test_df_
+                if inc_three_prongs: # only train on events with at least 1 3-prong tau
+                    df = df[(df['taup_npi'] > 1) | (df['taun_npi'] > 1)]
+                    df = df[(df['reco_taup_npi'] > 1) | (df['reco_taun_npi'] > 1)]
+
+            elif leptonic_mode == 1:
+            # select cases where one tau is leptonic and one is hadronic
+                df = df[((df['taup_nmu'] + df['taup_nele']) > 0) & ((df['taun_nmu'] + df['taun_nele']) == 0) |
+                        ((df['taup_nmu'] + df['taup_nele']) == 0) & ((df['taun_nmu'] + df['taun_nele']) > 0)]
+
+                # apply reco cuts as well
+                df = df[((df['reco_taup_nmu'] + df['reco_taup_nele']) > 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) == 0) |
+                        ((df['reco_taup_nmu'] + df['reco_taup_nele']) == 0) & ((df['reco_taun_nmu'] + df['reco_taun_nele']) > 0)]
+
+                # restructure the dataframe so that the leptonic tau is always tau1 and the hadronic tau is always tau2
+                df = convert_semileptonic_df(df)
+
+            elif leptonic_mode == 2:
+                # select cases where both taus are leptonic
+                df = df[(df['taup_nmu'] + df['taup_nele'] > 0) & (df['taun_nmu'] + df['taun_nele'] > 0)]
+
+                # apply reco cuts as well
+                df = df[(df['reco_taup_nmu'] + df['reco_taup_nele'] > 0) & (df['reco_taun_nmu'] + df['reco_taun_nele'] > 0)]
+
+            train_size = int(config['train_fraction'] * len(df))
+            val_size = int(config['val_fraction'] * len(df))
+
+            # check if test_fraction is defined, if not use the rest of the data for testing
+            if 'test_fraction' in config:
+                test_size = int(config['test_fraction'] * len(df))
+            else:
+                test_size = len(df) - train_size - val_size
+
+            train_df_ = df.iloc[:train_size]
+            val_df_ = df.iloc[train_size:train_size + val_size]
+
+            if config['full_dataframe_testing']:
+                test_df_ = df.copy()
+            else:
+                test_df_ = df.iloc[train_size + val_size:train_size + val_size + test_size]
+            del df
+
+            val_df_.to_parquet(val_df_path)
+            test_df_.to_parquet(test_df_path)
+            train_df_.to_parquet(train_df_path)
+            print(f">> Train, validation and test dataframes for {k} saved.")
+            print(f">> Train dataframe size: {len(train_df_)}, Validation dataframe size: {len(val_df_)}, Test dataframe size: {len(test_df_)}")
+
+            # after saving we can delet the test_df as we dont use it during the training
+            del test_df_
+
         # to save memory usage we also drop anything that isn't an input out output feature from the dataframes
         #print size of dataframe in GB before dropping columns
         print(f">> Size of train dataframe before dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")

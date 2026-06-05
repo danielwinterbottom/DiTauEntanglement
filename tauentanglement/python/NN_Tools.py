@@ -140,7 +140,7 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
 
 
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
-    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False):
+    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None):
     model.to(device)
     best_val_loss = float("inf")
     history = {"train_loss": [], "val_loss": []}
@@ -177,10 +177,13 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
 
         model.eval()
         if recompute_train_loss:
-            # recompute train loss for better estimate
+            # recompute train loss for better estimate, capped to same number of batches as validation
+            n_batches = len(test_dataloader)
             sum_train_loss = 0
             with torch.no_grad():
-                for X_train, y_train in train_dataloader:
+                for i, (X_train, y_train) in enumerate(train_dataloader):
+                    if i >= n_batches:
+                        break
                     X_train, y_train = X_train.to(device), y_train.to(device)
                     if not useMLP:
                         train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
@@ -188,7 +191,7 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
                         predictions = model(X_train)
                         train_loss = mlp_loss_fn(predictions, y_train)
                     sum_train_loss += train_loss.item()
-            train_loss = sum_train_loss / len(train_dataloader)
+            train_loss = sum_train_loss / n_batches
 
         history["train_loss"].append(train_loss)
 
@@ -205,6 +208,12 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
+
+        if optuna_trial is not None and epoch == 20:
+            import optuna
+            optuna_trial.report(val_loss, epoch)
+            if optuna_trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
 
         # save model if its loss is better than the previous best
         if val_loss < best_val_loss and output_plots_dir:

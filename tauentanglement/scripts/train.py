@@ -8,21 +8,20 @@ import os
 import numpy as np
 import shutil
 
-# TODO: Transfer hyperparam optimisation code here and make work with new def
-
 
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
+    argparser.add_argument('--loadDS', help='whether to load existing train/val datasets or recreate', action='store_true')
+
     args = argparser.parse_args()
 
     config_file = args.config
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     data_config = config['Data']
-    
     nn_config = config['SetupNN']
 
     # make output directory called outputs_{model_name}, with plots subdirectory
@@ -39,7 +38,7 @@ if __name__ == "__main__":
     ## Get train and validation datasets
 
     datasets = data_config['datasets']
-    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config)
+    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config, load_existing=args.loadDS)
 
     # store the means and stds used for normalization
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
@@ -65,5 +64,3 @@ if __name__ == "__main__":
 
     model_name = nn_config['model_name']
     torch.save(model.state_dict(), f'{output_dir}/{model_name}.pth')
-
-

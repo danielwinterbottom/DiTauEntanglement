@@ -5,6 +5,7 @@ def create_job(
     job_name: str,
     python_arguments: str = "",
     use_gpu: bool = False,
+    use_fast_gpu: bool = False,
     runtime_seconds: int = 3600,
 ):
     jobs_dir = "jobs"
@@ -32,6 +33,15 @@ def create_job(
 
     if use_gpu:
         lines.append("request_gpus = 1")
+        if use_fast_gpu:
+            raise ValueError("Use only --fast_gpu option instead")
+
+    if use_fast_gpu:
+        lines.append("request_gpus = 1")
+        lines.append(
+            'requirements = (GPUs_DeviceName == "NVIDIA RTX A6000") || '
+            '(GPUs_DeviceName == "Tesla V100-PCIE-32GB")'
+        )
 
     lines.append(f"+MaxRuntime = {runtime_seconds}")
     lines.append("queue")
@@ -52,6 +62,7 @@ if __name__ == "__main__":
     argparser.add_argument('--job_name', '-n', help='name of the job', type=str, required=True)
     argparser.add_argument('--runtime', help='maximum runtime of the job in seconds', type=int, required=True) 
     argparser.add_argument('--gpu', help='whether to request a gpu', action='store_true')
+    argparser.add_argument('--fast_gpu', help='whether to request a fast gpu (A6000 or V100)', action='store_true')
     args = argparser.parse_args()
 
     # parse command to get python script and its arguments
@@ -75,6 +86,7 @@ if __name__ == "__main__":
         python_arguments=python_args,
         job_name=args.job_name,
         use_gpu=args.gpu,
+        use_fast_gpu=args.fast_gpu,
         runtime_seconds=args.runtime,
     )
     print(f"Created submission file: {submission_file} and shell file: {sh_file}")
