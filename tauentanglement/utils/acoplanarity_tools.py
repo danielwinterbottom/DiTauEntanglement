@@ -339,6 +339,7 @@ def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
     taup_is_dm0 = df["taup_DM"].values == 0
     taup_is_dm1or2 = df["taup_DM"].isin([1, 2]).values
     taup_is_dm10 = df["taup_DM"].values == 10
+    taup_is_dm11 = df["taup_DM"].values == 11
 
     # Tau plus decay products
     piOS_p = ak.zip({"px": df[f"{pion_prefix}_taup_pi1_px"], "py": df[f"{pion_prefix}_taup_pi1_py"], "pz": df[f"{pion_prefix}_taup_pi1_pz"], "E": df[f"{pion_prefix}_taup_pi1_E"]}, with_name="Momentum4D")  # only actually OS in 3 prong case
@@ -355,6 +356,7 @@ def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
     taun_is_dm0 = df["taun_DM"].values == 0
     taun_is_dm1or2 = df["taun_DM"].isin([1, 2]).values
     taun_is_dm10 = df["taun_DM"].values == 10
+    taun_is_dm11 = df["taun_DM"].values == 11
 
     # Tau minus decay products
 
@@ -397,14 +399,14 @@ def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
 
     taup_s = ak.where(taup_is_dm0, polarimetric_vec_dm0(piOS_p_rf, bv_taup),
                         ak.where(taup_is_dm1or2, polarimetric_vec_dm1(piOS_p_rf, pizero_p_rf, tau_p_rf, bv_taup),
-                                 ak.where(taup_is_dm10, polarimetric_vec_dm10(tau_p_rf, piOS_p_rf, piSS1_p_rf, piSS2_p_rf, +1),
+                                 ak.where(taup_is_dm10 | taup_is_dm11, polarimetric_vec_dm10(tau_p_rf, piOS_p_rf, piSS1_p_rf, piSS2_p_rf, +1),
                                     ak.where(taup_is_leptonic, polarimetric_vec_leptonic(lep_p_rf, bv_taup),
                                           default))))
 
 
     taun_s = ak.where(taun_is_dm0, polarimetric_vec_dm0(piOS_n_rf, bv_taun),
                         ak.where(taun_is_dm1or2, polarimetric_vec_dm1(piOS_n_rf, pizero_n_rf, tau_n_rf, bv_taun),
-                                 ak.where(taun_is_dm10, polarimetric_vec_dm10(tau_n_rf, piOS_n_rf, piSS1_n_rf, piSS2_n_rf, -1),
+                                 ak.where(taun_is_dm10 | taun_is_dm11, polarimetric_vec_dm10(tau_n_rf, piOS_n_rf, piSS1_n_rf, piSS2_n_rf, -1),
                                     ak.where(taun_is_leptonic, polarimetric_vec_leptonic(lep_n_rf, bv_taun),
                                           default))))
 

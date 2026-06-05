@@ -21,10 +21,14 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPEven.parquet',
-'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPOdd.parquet',
-'sl_even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPEven.parquet',
-'sl_odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPOdd.parquet',
+'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2/test_output_results_CPEven.parquet',
+'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2/test_output_results_CPOdd.parquet',
+#'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPEven.parquet',
+#'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPOdd.parquet',
+#'sl_even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPEven_new.parquet',
+#'sl_odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPOdd_new.parquet',
+'sl_even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/test_output_results_CPEven.parquet',
+'sl_odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/test_output_results_CPOdd.parquet',
 'mix': None
 },
     'gen': {
@@ -71,11 +75,13 @@ def add_DM(df, dm_prefix='reco'):
         tau_is_dm1 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0) & (~tau_is_lep)
         tau_is_dm2 = ((df[f"{dm_prefix}_{tau}_npizero"].values == 1) | (df[f"{dm_prefix}_{tau}_npizero"].values == 2)) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0) & (~tau_is_lep)
         tau_is_dm10 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1) & (~tau_is_lep)
+        tau_is_dm11 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1) & (~tau_is_lep)
         df[f'{tau}_DM'] = np.where(tau_is_dm0, 0,
                              np.where(tau_is_dm1, 1,
                                       np.where(tau_is_dm2, 2,
                                                np.where(tau_is_dm10, 10, 
-                                                    np.where(tau_is_lep, 100, -1)))))
+                                                    np.where(tau_is_dm11, 11,
+                                                        np.where(tau_is_lep, 100, -1))))))
     return df
 
 def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False):
@@ -92,11 +98,31 @@ def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_error
     return counts
 
 
-def load_data(prefix=''):
+def load_data(prefix='',extra_pt_cut=-1):
     cfg = options['files']
     read = pd.read_parquet
     mix_df = read(cfg['mix']) if cfg.get('mix') is not None else None
-    return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df
+    even_df = read(cfg[f'{prefix}even'])
+    odd_df = read(cfg[f'{prefix}odd'])
+    # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
+    if extra_pt_cut > 0:
+        def compute_vis_pt(df, prefix):
+            taup_px = df[f'reco_taup_charged_px'] + df[f'reco_taup_pizero1_px']
+            taun_px = df[f'reco_taun_charged_px'] + df[f'reco_taun_pizero1_px']
+            taup_py = df[f'reco_taup_charged_py'] + df[f'reco_taup_pizero1_py']
+            taun_py = df[f'reco_taun_charged_py'] + df[f'reco_taun_pizero1_py']
+            taup_pt = np.sqrt(taup_px**2 + taup_py**2)
+            taun_pt = np.sqrt(taun_px**2 + taun_py**2)
+            return np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
+        even_df['vis_pt'] = compute_vis_pt(even_df, prefix)
+        odd_df['vis_pt'] = compute_vis_pt(odd_df, prefix)
+        even_df = even_df[even_df['vis_pt'] > extra_pt_cut]
+        odd_df = odd_df[odd_df['vis_pt'] > extra_pt_cut]
+        if mix_df is not None:
+            mix_df['vis_pt'] = compute_vis_pt(mix_df, prefix)
+            mix_df = mix_df[mix_df['vis_pt'] > extra_pt_cut]
+    return even_df, odd_df, mix_df
+    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df
 
 
 def main():
@@ -161,12 +187,26 @@ def main():
             plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
+
+        significance = 0 
+        for i in range(len(even_counts)):
+            b_est = (odd_counts[i] + even_counts[i])*0.5*4
+            #temp = odd_counts[i] - even_counts[i] + (even_counts[i]+b_est)*np.log((even_counts[i]+b_est)/(odd_counts[i]+b_est)) if even_counts[i] > 0 and odd_counts[i] > 0 else 0
+            temp = (odd_counts[i] - even_counts[i])**2
+            significance += temp
+        #significance = np.sqrt(2 * significance)
+        significance = np.sqrt(significance)
+
+        
+
         ax.set_xlabel(r'$\phi_{CP}$')
         ax.set_title(f'DM{dm_taup} - DM{dm_taun} - {options[args.option]["label"]}')
         ax.set_xlim(0, 2 * np.pi)
         ax.set_ylim(0, 0.28)
         ax.legend()
         ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
+                verticalalignment='top', fontweight='bold')
+        ax.text(0.05, 0.85, f'Asymmetry (quadrature): {significance:.4f}', transform=ax.transAxes,
                 verticalalignment='top', fontweight='bold')
         out = f"{args.output_dir}/{args.option}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
         plt.savefig(out)
