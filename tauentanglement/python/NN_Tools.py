@@ -4,7 +4,7 @@ import pandas as pd
 import os
 import torch
 from torch.utils.data import DataLoader
-from tauentanglement.python.NN_Models import ConditionalFlow, ConditionalFlowTransformer, MLP
+from tauentanglement.python.NN_Models import ConditionalFlow, MLP
 from tauentanglement.python.Plotting import plot_loss
 import torch.nn as nn
 import torch.optim as optim
@@ -15,14 +15,16 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
     elif useTransformer:
-        model = ConditionalFlowTransformer(input_dim=len(output_features),
-                                           context_dim=hp['context_dim'],
-                                           d_model=hp['d_model'], nhead=hp['nhead'],
-                                           num_transformer_layers=hp['num_transformer_layers'],
-                                           dropout=hp.get('dropout', 0.0),
-                                           num_layers=hp['num_layers'], num_bins=hp['num_bins'],
-                                           tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
-                                           num_blocks=hp['num_blocks'])
+        model = ConditionalFlow(input_dim=len(output_features),
+                                input_features=input_features,
+                                context_dim=hp['context_dim'],
+                                use_transformer=True,
+                                d_model=hp['d_model'], nhead=hp['nhead'],
+                                num_transformer_layers=hp['num_transformer_layers'],
+                                dropout=hp['dropout'],
+                                num_layers=hp['num_layers'], num_bins=hp['num_bins'],
+                                tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
+                                num_blocks=hp['num_blocks'], activation=nn.GELU())
     else:
         model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
                                 context_dim=hp['condition_net_output_size'],
@@ -42,20 +44,22 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
     elif useTransformer:
-        model = ConditionalFlowTransformer(input_dim=len(output_features),
-                                           context_dim=hp['context_dim'],
-                                           d_model=hp['d_model'], nhead=hp['nhead'],
-                                           num_transformer_layers=hp['num_transformer_layers'],
-                                           dropout=hp.get('dropout', 0.0),
-                                           num_layers=hp['num_layers'], num_bins=hp['num_bins'],
-                                           tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
-                                           num_blocks=hp['num_blocks'])
+        model = ConditionalFlow(input_dim=len(output_features),
+                                input_features=input_features,
+                                context_dim=hp['context_dim'],
+                                use_transformer=True,
+                                d_model=hp['d_model'], nhead=hp['nhead'],
+                                num_transformer_layers=hp['num_transformer_layers'],
+                                dropout=hp['dropout'],
+                                num_layers=hp['num_layers'], num_bins=hp['num_bins'],
+                                tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
+                                num_blocks=hp['num_blocks'], activation=nn.GELU())
     else:
         model = ConditionalFlow(input_dim=len(output_features), raw_condition_dim=len(input_features),
                                 context_dim=hp['condition_net_output_size'],
                                 cond_hidden_dim=hp['condition_net_hidden_size'],
                                 cond_num_blocks=hp['condition_net_num_blocks'],
-                                num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'], 
+                                num_layers=hp['num_layers'], num_bins=hp['num_bins'], tail_bound=hp['tail_bound'],
                                 hidden_size=hp['hidden_size'], num_blocks=hp['num_blocks'],
                                 batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
 
