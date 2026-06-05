@@ -21,8 +21,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 dm_order = [
     "DM0DM0", "DM0DM1", "DM0DM2", "DM0DM10",
     "DM1DM1", "DM1DM2", "DM1DM10",
-    "DM2DM2", "DM2DM10",
-    "DM10DM10",
+    "DM2DM2", "DM2DM10", "DM10DM10",
 ]
 
 sections = [
@@ -56,8 +55,8 @@ def find_pdf(directory, dm):
 def main():
     parser = argparse.ArgumentParser(description="Combine DM plots side by side for easy comparison.")
     parser.add_argument("model_dir", help="Directory containing gen/, recoNu/, recoRun3/ subdirectories")
-    parser.add_argument("output", nargs="?", default=None, help="Output PDF (default: <model_dir>/combined_plots.pdf)")
-    parser.add_argument("--dpi", type=int, default=150, help="Rasterisation DPI (default: 150)")
+    parser.add_argument("--output", nargs="?", default=None, help="Output PDF (default: <model_dir>/combined_plots.pdf)")
+    parser.add_argument("--compare", default=None, help="Compare recoNu from model_dir against recoNu in this directory")
     args = parser.parse_args()
 
     model_dir = os.path.abspath(args.model_dir)
@@ -66,18 +65,35 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         with PdfPages(output_path) as pdf:
             for dm in dm_order:
-                # Rasterise the PDF for each section that exists
                 section_data = []
-                for subdir, label, color in sections:
-                    section_dir = os.path.join(model_dir, subdir)
-                    if not os.path.isdir(section_dir):
-                        continue
-                    pdf_path = find_pdf(section_dir, dm)
-                    if pdf_path is None:
-                        print(f"  Warning: no PDF for {dm} in {subdir}, skipping section.", file=sys.stderr)
-                        continue
-                    imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_{subdir}", dpi=args.dpi)
-                    section_data.append((label, color, imgs))
+
+                if args.compare:
+                    compare_dir = os.path.abspath(args.compare)
+                    pairs = [
+                        (os.path.join(model_dir, "recoNu"),  os.path.basename(model_dir),  "#1a9641", "Original"),
+                        (os.path.join(compare_dir, "recoNu"), os.path.basename(compare_dir), "#d7191c", "New"),
+                    ]
+                    for section_dir, label, color, prefix_tag in pairs:
+                        if not os.path.isdir(section_dir):
+                            print(f"  Warning: recoNu not found in {section_dir}, skipping.", file=sys.stderr)
+                            continue
+                        pdf_path = find_pdf(section_dir, dm)
+                        if pdf_path is None:
+                            print(f"  Warning: no PDF for {dm} in {section_dir}, skipping.", file=sys.stderr)
+                            continue
+                        imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_recoNu_{prefix_tag}", dpi=150)
+                        section_data.append((label, color, imgs))
+                else:
+                    for subdir, label, color in sections:
+                        section_dir = os.path.join(model_dir, subdir)
+                        if not os.path.isdir(section_dir):
+                            continue
+                        pdf_path = find_pdf(section_dir, dm)
+                        if pdf_path is None:
+                            print(f"  Warning: no PDF for {dm} in {subdir}, skipping section.", file=sys.stderr)
+                            continue
+                        imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_{subdir}", dpi=150)
+                        section_data.append((label, color, imgs))
 
                 if not section_data:
                     continue
@@ -99,7 +115,6 @@ def main():
                             img = mpimg.imread(imgs[page_idx])
                             ax.imshow(img)
                         ax.axis("off")
-                        # Coloured label bar above each panel
                         ax.set_title(label, fontsize=13, fontweight="bold",
                                      color="white", pad=4,
                                      bbox=dict(facecolor=color, edgecolor="none",
