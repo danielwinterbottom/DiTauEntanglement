@@ -22,6 +22,7 @@ dm_order = [
     "DM0DM0", "DM0DM1", "DM0DM2", "DM0DM10",
     "DM1DM1", "DM1DM2", "DM1DM10",
     "DM2DM2", "DM2DM10", "DM10DM10",
+    'DM100DM0', 'DM100DM1', 'DM100DM2', 'DM100DM10',
 ]
 
 sections = [
