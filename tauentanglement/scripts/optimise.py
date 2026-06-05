@@ -20,6 +20,7 @@ if __name__ == "__main__":
     argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, required=True)
     argparser.add_argument('--n_trials', '-t', help='number of Optuna hyperparameter optimisation trials', type=int, default=100)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
+    argparser.add_argument('--loadDS', help='whether to load existing train/val datasets or recreate', action='store_true')
     args = argparser.parse_args()
 
     import optuna
@@ -38,7 +39,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     datasets = data_config['datasets']
-    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config)
+    train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config, load_existing=args.loadDS)
 
     print(f"Train dataset size: {len(train_dataset)}, Validation dataset size: {len(val_dataset)}")
 
