@@ -66,7 +66,6 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
                                 batch_norm=batch_norm, activation=nn.LeakyReLU(0.05))
 
     if verbose:
-        # print(model)
         # print number of parameters
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total number of model parameters: {total_params}")
@@ -75,18 +74,7 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
     scheduler = None
     es = None
 
-    #gamma = -math.log(0.1)/(hp['epochs_to_10perc_lr'] * len(train_dataloader))
-    #scheduler = CosineAnnealingExpDecayLR(optimizer, T_max=2 * len(train_dataloader), gamma=gamma)
-
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=hp['num_epochs'] * len(train_dataloader),eta_min=hp['lr']*0.01)    
-
-    #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, factor=0.1**.5)
-
-    #constant lr scheduler
-    #scheduler = torch.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=total_steps)
-
     # use cos annealing schedule with warm up period:
-
     total_steps = hp['num_epochs'] * len(train_dataloader)
     warmup_steps = int(0.05 * total_steps)  # e.g. 5% warmup
     
@@ -126,36 +114,54 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
     #es = EarlyStopper(patience=10, min_delta=0.)
 
     # check if reload is true, if so load model from output_dir if it exists
+    start_epoch = 0
+    initial_history = None
+
     if reload:
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         partial_model_path = f'{output_plots_dir}/partial_model.pth'
         if os.path.exists(partial_model_path):
             model_path = partial_model_path
             print(f"Reloading model from {model_path}...")
         else:
-            print(f"Model path {model_path} does not exist. Can't reload. Exiting.")
+            print(f"Model path {partial_model_path} does not exist. Can't reload. Exiting.")
             exit(1)
-        # if loading model we will copy the old model before loading it
         copied_name = model_path.replace('.pth', '_copy.pth')
         os.system(f'cp {model_path} {copied_name}')
-        # load model
-        try:
-            model.load_state_dict(torch.load(model_path))
-        except:
-            print(f"Loading model from {model_path} failed. Trying to load from CPU.")
-            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    return model, optimizer, train_dataloader, test_dataloader, scheduler, es
+        model.load_state_dict(torch.load(model_path, map_location=device))
+
+        optimizer_path = f'{output_plots_dir}/partial_optimizer.pth'
+        if os.path.exists(optimizer_path):
+            print(f"Reloading optimizer from {optimizer_path}...")
+            optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
+            for state in optimizer.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.to(device)
+        else:
+            print("No optimizer checkpoint found; optimizer state will be reset.")
+
+        meta_path = f'{output_plots_dir}/partial_meta.pth'
+        if os.path.exists(meta_path):
+            meta = torch.load(meta_path, map_location=torch.device('cpu'))
+            start_epoch = meta.get('epoch', 0)
+            initial_history = meta.get('history', None)
+            print(f"Resuming from epoch {start_epoch + 1}.")
+
+    return model, optimizer, train_dataloader, test_dataloader, scheduler, es, start_epoch, initial_history
 
 
 
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
-    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None):
+    save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None,
+    start_epoch=0, initial_history=None):
     model.to(device)
-    best_val_loss = float("inf")
-    history = {"train_loss": [], "val_loss": []}
+    history = initial_history if initial_history is not None else {"train_loss": [], "val_loss": []}
+    best_val_loss = min(history["val_loss"]) if history["val_loss"] else float("inf")
 
     if early_stopper: early_stopper.reset()
 
-    for epoch in range(1, num_epochs+1):
+    for epoch in range(start_epoch + 1, num_epochs + 1):
         running_loss=0
         mlp_loss_fn = nn.MSELoss()
         for batch, (X, y) in enumerate(train_dataloader):
@@ -246,7 +252,8 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         if save_every_N and epoch % save_every_N == 0 and output_plots_dir:
             print(f"Saving model checkpoint at epoch {epoch}...")
             torch.save(model.state_dict(), f'{output_plots_dir}/partial_model.pth')
-            # save scheduler state
+            torch.save(optimizer.state_dict(), f'{output_plots_dir}/partial_optimizer.pth')
+            torch.save({'epoch': epoch, 'history': history}, f'{output_plots_dir}/partial_meta.pth')
             if scheduler:
                 torch.save(scheduler.state_dict(), f'{output_plots_dir}/partial_scheduler.pth')
 

@@ -20,8 +20,6 @@ def NormalizingFlow(input_size=8,
                     hidden_size=64,
                     num_blocks=2,
                     batch_norm=False,
-                    #activation=nn.PReLU()):
-                    #activation=nn.LeakyReLU(0.1)):
                     activation=nn.ReLU()):
     """Creates a normalizing flow model using nflows library."""
     transforms = []
