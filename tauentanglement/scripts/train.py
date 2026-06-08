@@ -38,7 +38,7 @@ if __name__ == "__main__":
     ## Get train and validation datasets
 
     datasets = data_config['datasets']
-    data_config['use_transformer'] = nn_config.get('use_transformer', False)
+    data_config['use_transformer'] = nn_config.get('use_transformer', False)  # label data
     train_dataset, val_dataset, input_features, output_features = get_train_val_test_datasets(datasets, data_config, load_existing=args.loadDS)
 
     # store the means and stds used for normalization
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     print(f"Hyperparameters: {hp}")
 
     # Setup model
-    model, optimizer, train_loader, val_loader, scheduler, es = setup_model_and_training(hp, train_dataset, val_dataset, input_features, output_features, nn_config['model_name'], reload=nn_config['reload'], reload_scheduler=nn_config['reload_scheduler'], batch_norm=False, useMLP=args.useMLP, useTransformer=use_transformer)
+    model, optimizer, train_loader, val_loader, scheduler, es = setup_model_and_training(hp, train_dataset, val_dataset, input_features, output_features, nn_config['model_name'], reload=nn_config['reload'], reload_scheduler=nn_config['reload_scheduler'], batch_norm=False, useMLP=args.useMLP, useTransformer=use_transformer, leptonic_mode=data_config['leptonic_mode'])
     print("Model and training setup complete.")
 
     # Train
