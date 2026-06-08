@@ -17,6 +17,8 @@ def main():
     argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useCPU', help='whether to use CPU only for evaluation', action='store_true')
+    argparser.add_argument('--oneprong', help='whether to only evaluate on 1-prong taus only', action='store_true')
+    argparser.add_argument('--threeprong', help='whether to only evaluate on events with at least 1 3-prong tau', action='store_true')
     args = argparser.parse_args()
 
     # load config
@@ -79,8 +81,9 @@ def main():
 
         data_config["test_dataset"] = test_dataset_name
         data_config["test_output_name"] = test_output_name
-        test_dataset, test_df, _, _ = get_test_dataset(data_config, norm_data)
-    
+        test_dataset, test_df, _, _ = get_test_dataset(data_config, norm_data, oneprong=args.oneprong)
+
+
         print(f'Evaluating on test dataset {test_dataset_name}')
         print(f'Number of events in test dataset: {len(test_dataset)}')
     
@@ -96,7 +99,8 @@ def main():
         true_taup_pi  = test_df[[f'{tau1_prefix}_pi1_e', f'{tau1_prefix}_pi1_px', f'{tau1_prefix}_pi1_py', f'{tau1_prefix}_pi1_pz']].values
         true_taun_pizero  = test_df[[f'{tau2_prefix}_pizero1_e', f'{tau2_prefix}_pizero1_px', f'{tau2_prefix}_pizero1_py', f'{tau2_prefix}_pizero1_pz']].values
         true_taup_pizero = test_df[[f'{tau1_prefix}_pizero1_e', f'{tau1_prefix}_pizero1_px', f'{tau1_prefix}_pizero1_py', f'{tau1_prefix}_pizero1_pz']].values
-    
+
+
         # gets ips as well
         true_taun_pi_ip = test_df[[f'{tau2_prefix}_pi1_ipx', f'{tau2_prefix}_pi1_ipy', f'{tau2_prefix}_pi1_ipz']].values
         true_taup_pi_ip = test_df[[f'{tau1_prefix}_pi1_ipx', f'{tau1_prefix}_pi1_ipy', f'{tau1_prefix}_pi1_ipz']].values
