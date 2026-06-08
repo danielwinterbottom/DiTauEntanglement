@@ -351,7 +351,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
     one_prong_only = config.get('one_prong_only', False)  # option to select only one prong decays for training
     match_n_prongs = config.get('match_n_prongs', False)  # option to select only one prong decays for training
     inc_three_prongs = config.get('inc_three_prongs', False)  # option to select only events with at least 1 3-prong tau
-
+    transformer = config.get('use_transformer', False)  # option to use transformer for conditioning
 
     # check if key is not a list, if not add it to a list
     if not isinstance(keys, list):
@@ -371,6 +371,9 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
         extra_name = f"_leptonic_mode_{leptonic_mode}"
     if inc_three_prongs:
         extra_name += "_inc_three_prongs"
+    if transformer:
+        print("Transformer dataset required")
+        extra_name += "_transformer"
 
     for k in keys:
 
