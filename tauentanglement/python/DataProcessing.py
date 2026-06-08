@@ -507,9 +507,19 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
     return train_dataset, val_dataset, input_features, output_features
 
-def get_test_dataset(config, norm_data):
+def get_test_dataset(config, norm_data, oneprong=False, threeprong=False):
+
+    if oneprong and threeprong:
+        raise ValueError("Cannot select both oneprong and threeprong options simultaneously. Please choose one or neither.")
 
     test_df = pd.read_parquet(config['test_dataset'])
+
+    if oneprong:
+        test_df = test_df[(test_df['reco_taup_npi'] == 1) & (test_df['reco_taun_npi'] == 1)]
+
+    if threeprong:
+        # require either tau to be 3-prong
+        test_df = test_df[(test_df['reco_taup_npi'] == 3) | (test_df['reco_taun_npi'] == 3)]
 
     input_features = config['Features']['input_features']
     if config['inc_reco_taus']:

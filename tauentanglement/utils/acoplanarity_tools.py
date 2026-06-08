@@ -334,6 +334,13 @@ def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
         print('>> Using true pions for polarimetric vector calculation.')
         pion_prefix = 'true'
 
+    # check if pi2 exists if not return 0
+    if f"{pion_prefix}_taup_pi2_px" not in df.columns or f"{pion_prefix}_taun_pi2_px" not in df.columns:
+        print(">> pi2 information not found, returning zero polarimetric vectors.")
+        num_events = len(df)
+        zero_vector = ak.zip({"x": ak.zeros_like(df[f"{pion_prefix}_taup_pi1_px"]), "y": ak.zeros_like(df[f"{pion_prefix}_taup_pi1_px"]), "z": ak.zeros_like(df[f"{pion_prefix}_taup_pi1_px"])}, with_name="Vector3D")
+        return zero_vector, zero_vector, zero_vector, zero_vector 
+
     # Tau plus decay mode
     taup_is_leptonic = df["taup_DM"].values == 100
     taup_is_dm0 = df["taup_DM"].values == 0
