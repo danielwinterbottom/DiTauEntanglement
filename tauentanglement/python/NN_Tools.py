@@ -104,6 +104,8 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
         milestones=[warmup_steps]
     )
 
+    output_plots_dir = f'outputs_{model_name}/plots'
+
     if reload_scheduler:
         scheduler_path = f'{output_plots_dir}/partial_scheduler.pth'
         if os.path.exists(scheduler_path):
