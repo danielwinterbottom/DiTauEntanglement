@@ -45,7 +45,9 @@ def main():
     output_features = data_config['Features']['output_features'][data_config['coordinates']]
 
     hp = nn_config['MLP_hyperparams'] if args.useMLP else nn_config['hyperparams']
-    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP)
+    is_transformer = nn_config.get('use_transformer', False)
+    leptonic_mode = data_config.get('leptonic_mode', 0)
+    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP, useTransformer=is_transformer, leptonic_mode=leptonic_mode)
     model_path = f'{output_plots_dir}/best_model.pth'
     print(f"Using model {nn_config['model_name']}")
     print(f"Loading model from {model_path}...")
