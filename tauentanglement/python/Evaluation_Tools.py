@@ -195,47 +195,6 @@ def flow_map_predict(
             #print(f"x_map[0]={x_map[0].cpu().numpy()}")
             all_best_samples.append(x.detach().cpu())
 
-    elif method == 'lbfgs':
-        latent_dim = model.flow._distribution._shape[0]
-
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (lbfgs)"):
-            t0 = time.time()
-            end = min(start + chunk_size, B)
-            X_chunk = X[start:end]
-            C = X_chunk.shape[0]
-
-            with torch.no_grad():
-                cond_embed_chunk = model.condition_net(X_chunk)
-
-            z = torch.zeros(
-                C,
-                latent_dim,
-                device=X_chunk.device,
-                requires_grad=True,
-            )
-
-            optimizer = torch.optim.LBFGS([z], lr=1, max_iter=n_steps, max_eval=n_steps, line_search_fn="strong_wolfe")
-
-            def closure():
-                optimizer.zero_grad()
-                _, logabsdet = model.flow._transform.inverse(z, context=cond_embed_chunk)
-                log_pz = -0.5 * (z ** 2).sum(dim=-1)
-                log_p = log_pz - logabsdet
-                loss = -log_p.sum()
-                loss.backward()
-                return loss
-
-            optimizer.step(closure)
-            t1 = time.time()
-
-            print(f"LBFGS time taken for chunk: {t1 - t0:.2f} s")
-
-            with torch.no_grad():
-                x_map, _ = model.flow._transform.inverse(z, context=cond_embed_chunk)
-
-            print(f"x_map[0]={x_map[0].cpu().numpy()}")
-
-            all_best_samples.append(x_map.cpu())
     else:
         raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
 
