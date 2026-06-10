@@ -20,6 +20,7 @@ def main():
     argparser.add_argument('--useCPU', help='whether to use CPU only for evaluation', action='store_true')
     argparser.add_argument('--oneprong', help='whether to only evaluate on 1-prong taus only', action='store_true')
     argparser.add_argument('--threeprong', help='whether to only evaluate on events with at least 1 3-prong tau', action='store_true')
+    argparser.add_argument('--make_root_output', help='whether to save the results in a root file as well as a pandas dataframe', action='store_true')
     args = argparser.parse_args()
 
     # load config
@@ -486,9 +487,10 @@ def main():
         # write the results dataframe to a parquet file
         results_df.to_parquet(f"{output_dir}/{data_config['test_output_name']}.parquet")
     
-        # write root file aswell
-        with uproot.recreate(f"{output_dir}/{data_config['test_output_name']}.root") as f:
-            f.mktree('tree', results_df.to_dict(orient="list"))
+        if args.make_root_output:
+            # write as root file aswell
+            with uproot.recreate(f"{output_dir}/{data_config['test_output_name']}.root") as f:
+                f.mktree('tree', results_df.to_dict(orient="list"))
 
 if __name__ == "__main__":
     main()
