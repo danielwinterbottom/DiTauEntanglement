@@ -305,6 +305,59 @@ def save_sampled_pdfs(
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
 
+def save_sampled_pdfs_LHC(
+    model,
+    dataset,
+    device,
+    output_features,
+    event_number,
+    num_samples=50000,
+    bins=100,
+    outdir="pdf_slices_sampled",
+    map_value=None,
+):
+    """
+    Sample 1D marginals p(x_i | context) from the conditional flow for a single
+    LHC event and save a histogram per output feature. Plots are in the native
+    coordinate space of the model (e.g. n/r/k for onorm).
+
+    map_value : np.ndarray of shape [n_output_features], optional
+        MAP estimate in the same destandardized coordinate space as the samples.
+        If provided, overlaid as an orange dashed line on each plot.
+    """
+    os.makedirs(outdir, exist_ok=True)
+    model.eval()
+
+    X = dataset.X[event_number].unsqueeze(0).to(device)
+    y = dataset.y[event_number].unsqueeze(0)
+
+    with torch.no_grad():
+        predictions_norm = model.sample(num_samples=num_samples, context=X).squeeze()
+
+    predictions = dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+    true_values = dataset.destandardize_outputs(y).cpu().numpy()[0]
+
+    n_bins = bins
+    for i, v in enumerate(output_features):
+        v_pred = predictions[:, i]
+        lower = np.percentile(v_pred, 0.5)
+        upper = np.percentile(v_pred, 99.5)
+        bin_edges = np.linspace(lower, upper, n_bins)
+
+        plt.figure(figsize=(6, 4))
+        plt.hist(v_pred, bins=bin_edges, density=True, histtype='step', linewidth=2)
+        plt.axvline(true_values[i], color='r', linestyle='--', linewidth=2, label='True value')
+        if map_value is not None:
+            plt.axvline(map_value[i], color='orange', linestyle='--', linewidth=2, label='MAP estimate')
+        plt.legend()
+        plt.xlabel(v)
+        plt.ylabel("pdf (sampled)")
+        plt.title(f"Sampled p({v} | context), event {event_number}")
+        plt.tight_layout()
+        plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
+        plt.close()
+
+
 def plot_spin_density_matrix(results, dm_category, outdir):
     os.makedirs(outdir, exist_ok=True)
 
