@@ -14,6 +14,7 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
+    argparser.add_argument('--useTransformerBaseline', help='whether to use a transformer encoder + regression head (MSE) instead of a normalizing flow', action='store_true')
     argparser.add_argument('--loadDS', help='whether to load existing train/val datasets or recreate', action='store_true')
 
     args = argparser.parse_args()
@@ -53,16 +54,22 @@ if __name__ == "__main__":
 
     # Get hyperparameters
     use_transformer = nn_config.get('use_transformer', False)  # transformer or ResNet
-    hp = nn_config['MLP_hyperparams'] if args.useMLP else nn_config['hyperparams']
+    if args.useMLP:
+        hp = nn_config['MLP_hyperparams']
+    elif args.useTransformerBaseline:
+        hp = nn_config['TransformerBaseline_hyperparams']
+    else:
+        hp = nn_config['hyperparams']
     hp['num_epochs'] = nn_config['n_epochs']
     print(f"Hyperparameters: {hp}")
 
     # Setup model
-    model, optimizer, train_loader, val_loader, scheduler, es, start_epoch, initial_history = setup_model_and_training(hp, train_dataset, val_dataset, input_features, output_features, nn_config['model_name'], reload=nn_config['reload'], reload_scheduler=nn_config['reload_scheduler'], batch_norm=False, useMLP=args.useMLP, useTransformer=use_transformer, leptonic_mode=data_config['leptonic_mode'])
+    model, optimizer, train_loader, val_loader, scheduler, es, start_epoch, initial_history = setup_model_and_training(hp, train_dataset, val_dataset, input_features, output_features, nn_config['model_name'], reload=nn_config['reload'], reload_scheduler=nn_config['reload_scheduler'], batch_norm=False, useMLP=args.useMLP, useTransformer=use_transformer, useTransformerMLP=args.useTransformerBaseline, leptonic_mode=data_config['leptonic_mode'])
     print("Model and training setup complete.")
 
-    # Train
-    best_val_loss, history = train_model(model, optimizer, train_loader, val_loader, num_epochs=nn_config['n_epochs'], device=device, verbose=True, output_plots_dir=output_plots_dir, save_every_N=1, scheduler=scheduler, early_stopper=es, useMLP=args.useMLP, start_epoch=start_epoch, initial_history=initial_history)
+    # Train — TransformerBaseline uses MSE loss, same as useMLP
+    use_mse_loss = args.useMLP or args.useTransformerBaseline
+    best_val_loss, history = train_model(model, optimizer, train_loader, val_loader, num_epochs=nn_config['n_epochs'], device=device, verbose=True, output_plots_dir=output_plots_dir, save_every_N=1, scheduler=scheduler, early_stopper=es, useMLP=use_mse_loss, start_epoch=start_epoch, initial_history=initial_history)
 
     model_name = nn_config['model_name']
     torch.save(model.state_dict(), f'{output_dir}/{model_name}.pth')
