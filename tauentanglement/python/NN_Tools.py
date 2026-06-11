@@ -4,16 +4,26 @@ import pandas as pd
 import os
 import torch
 from torch.utils.data import DataLoader
-from tauentanglement.python.NN_Models import ConditionalFlow, MLP
+from tauentanglement.python.NN_Models import ConditionalFlow, MLP, TransformerRegressor
 from tauentanglement.python.Plotting import plot_loss
 import torch.nn as nn
 import torch.optim as optim
 
 
-def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, leptonic_mode=0):
+def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
     if useMLP:
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
+    elif useTransformerMLP:
+        model = TransformerRegressor(
+            input_features=input_features,
+            leptonic_mode=leptonic_mode,
+            output_dim=len(output_features),
+            context_dim=hp['context_dim'],
+            d_model=hp['d_model'], nhead=hp['nhead'],
+            num_layers=hp['num_transformer_layers'],
+            dropout=hp['dropout'],
+        )
     elif useTransformer:
         model = ConditionalFlow(input_dim=len(output_features),
                                 input_features=input_features,
@@ -37,13 +47,23 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
     return model
 
 
-def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False, useTransformer=False, leptonic_mode=0):
+def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
     if useMLP:
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
+    elif useTransformerMLP:
+        model = TransformerRegressor(
+            input_features=input_features,
+            leptonic_mode=leptonic_mode,
+            output_dim=len(output_features),
+            context_dim=hp['context_dim'],
+            d_model=hp['d_model'], nhead=hp['nhead'],
+            num_layers=hp['num_transformer_layers'],
+            dropout=hp['dropout'],
+        )
     elif useTransformer:
         model = ConditionalFlow(input_dim=len(output_features),
                                 input_features=input_features,

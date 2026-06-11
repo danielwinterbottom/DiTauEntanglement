@@ -16,6 +16,7 @@ def main():
     argparser = argparse.ArgumentParser()
     argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
+    argparser.add_argument('--useTransformerBaseline', help='whether to use a transformer encoder + regression head instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useCPU', help='whether to use CPU only for evaluation', action='store_true')
     argparser.add_argument('--oneprong', help='whether to only evaluate on 1-prong taus only', action='store_true')
     argparser.add_argument('--threeprong', help='whether to only evaluate on events with at least 1 3-prong tau', action='store_true')
@@ -44,10 +45,15 @@ def main():
     input_features = data_config['Features']['input_features']
     output_features = data_config['Features']['output_features'][data_config['coordinates']]
 
-    hp = nn_config['MLP_hyperparams'] if args.useMLP else nn_config['hyperparams']
+    if args.useMLP:
+        hp = nn_config['MLP_hyperparams']
+    elif args.useTransformerBaseline:
+        hp = nn_config['TransformerBaseline_hyperparams']
+    else:
+        hp = nn_config['hyperparams']
     is_transformer = nn_config.get('use_transformer', False)
     leptonic_mode = data_config.get('leptonic_mode', 0)
-    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP, useTransformer=is_transformer, leptonic_mode=leptonic_mode)
+    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP, useTransformer=is_transformer, useTransformerMLP=args.useTransformerBaseline, leptonic_mode=leptonic_mode)
     model_path = f'{output_plots_dir}/best_model.pth'
     print(f"Using model {nn_config['model_name']}")
     print(f"Loading model from {model_path}...")
@@ -185,8 +191,8 @@ def main():
     
         samples_map = None
         sample_chunk_size = 50000 if device.type == 'cpu' else 100000
-        if args.useMLP:
-            # for MLP we just do a forward pass then get predictions
+        if args.useMLP or args.useTransformerBaseline:
+            # for regression models (MLP or TransformerBaseline) just do a forward pass
             with torch.no_grad():
                 predictions_norm = model(X_test)
         else:
@@ -227,15 +233,17 @@ def main():
     
         predictions = convert_coordinates_pred(predictions, **conv_kwargs)
     
-        if not args.useMLP:
+        if not args.useMLP and not args.useTransformerBaseline:
+            chunk_size = nn_config.get('chunk_size', 1000 if device.type == 'cpu' else 10000)
             # define alternative prediction by taking most probable value from flow, do this by sampling to find MAP estimate
             print("Computing alternative predictions using flow_map_predict...")
             map_method = nn_config.get('map_method', 'latent_zero')
+            print(f">> Method: {map_method} with chunk size {chunk_size}")
             _, samples_map = flow_map_predict(
                 model, X_test,
                 test_dataset=test_dataset,
                 num_draws=nn_config.get('map_num_draws', 100),
-                chunk_size= nn_config.get('chunk_size', 1000 if device.type == 'cpu' else 10000),
+                chunk_size= chunk_size,
                 method=map_method,
             )
             samples_map = convert_coordinates_pred(samples_map, **conv_kwargs)

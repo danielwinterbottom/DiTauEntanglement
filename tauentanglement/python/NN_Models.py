@@ -226,6 +226,31 @@ class ParticleTransformerCondition(nn.Module):
         context = (out * present).sum(dim=1) / present.sum(dim=1)
         return self.output_proj(context)
 
+class TransformerRegressor(nn.Module):
+    """Transformer encoder (same tokenisation as ConditionalFlow w/ use_transformer=True)
+    followed by a small MLP head for direct regression. Trained with MSE loss."""
+
+    def __init__(self, input_features, leptonic_mode, output_dim,
+                 context_dim=256, d_model=128, nhead=4, num_layers=3, dropout=0.0):
+        super().__init__()
+        print("!! INFO: TransformerRegressor — transformer encoder + MSE regression head (no normalizing flow)")
+        self.encoder = ParticleTransformerCondition(
+            input_features=input_features,
+            leptonic_mode=leptonic_mode,
+            context_dim=context_dim,
+            d_model=d_model, nhead=nhead,
+            num_layers=num_layers, dropout=dropout,
+        )
+        self.head = nn.Sequential(
+            nn.Linear(context_dim, context_dim),
+            nn.GELU(),
+            nn.Linear(context_dim, output_dim),
+        )
+
+    def forward(self, x):
+        return self.head(self.encoder(x))
+
+
 class ConditionalFlow(nn.Module):
     def __init__(self,
                  input_dim,
