@@ -490,7 +490,12 @@ def main():
                 if predictions_map is not None:
                     plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)
                 plot_spin_density_matrix(plot_results, dm_category, outdir=spin_plot_dir)
-    
+
+                del true_Bplus, true_Bminus, true_C, true_con, true_m12, pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12
+                if predictions_map is not None:
+                    del map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12
+            del dm_masks
+
         # write the results dataframe to a parquet file
         results_df.to_parquet(f"{output_dir}/{data_config['test_output_name']}.parquet")
     
@@ -498,6 +503,9 @@ def main():
             # write as root file aswell
             with uproot.recreate(f"{output_dir}/{data_config['test_output_name']}.root") as f:
                 f.mktree('tree', results_df.to_dict(orient="list"))
+
+        # delete all remaining objects to free memory
+        del results_df
 
 if __name__ == "__main__":
     main()
