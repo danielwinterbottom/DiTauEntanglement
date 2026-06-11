@@ -60,7 +60,7 @@ def main():
 
     data_config['test_dataset'] = data_config['test_dataset'] if not isinstance(data_config['test_dataset'], list) else data_config['test_dataset'][0]
     data_config['test_output_name'] = args.output_name
-    test_dataset, _, _, _ = get_test_dataset(data_config, norm_data, oneprong=False)
+    test_dataset, test_df, _, _ = get_test_dataset(data_config, norm_data, oneprong=False)
 
     outdir = f"{output_dir}/pdf_slices_sampled_{args.output_name}"
     print(f"Saving plots to {outdir}/")
@@ -93,6 +93,8 @@ def main():
             bins=args.bins,
             outdir=outdir,
             map_value=map_value,
+            df=test_df,
+            coordinates=data_config['coordinates']
         )
 
     print("Done.")

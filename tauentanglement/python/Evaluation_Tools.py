@@ -2,6 +2,7 @@ import torch
 from tqdm import tqdm
 import numpy as np
 from tauentanglement.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
+from tauentanglement.utils.coordinate_conversions import ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
 import os
 import matplotlib
 matplotlib.use('Agg')
@@ -305,6 +306,24 @@ def save_sampled_pdfs(
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
 
+def _plot_pdf(v_pred, true_val, map_val, label, outdir, event_number, bins, clip, xlabel=None):
+    if xlabel is None:
+        xlabel = label
+    bins = np.linspace(np.percentile(v_pred, 0.1), np.percentile(v_pred, 99.9), bins) if clip else bins
+    plt.figure(figsize=(6, 4))
+    plt.hist(v_pred, bins=bins, density=True, histtype='step', linewidth=2)
+    plt.axvline(true_val, color='r', linestyle='--', linewidth=2, label='True value')
+    if map_val is not None:
+        plt.axvline(map_val, color='orange', linestyle='--', linewidth=2, label='MAP estimate')
+    plt.legend()
+    plt.xlabel(xlabel)
+    plt.ylabel("pdf (sampled)")
+    plt.title(f"Sampled p({label} | context), event {event_number}")
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f"event{event_number}_{label}.pdf"))
+    plt.close()
+
+
 def save_sampled_pdfs_LHC(
     model,
     dataset,
@@ -315,6 +334,10 @@ def save_sampled_pdfs_LHC(
     bins=100,
     outdir="pdf_slices_sampled",
     map_value=None,
+    df=None,
+    coordinates='onorm',
+    leptonic_mode=0,
+    clip=True,
 ):
     """
     Sample 1D marginals p(x_i | context) from the conditional flow for a single
@@ -324,6 +347,9 @@ def save_sampled_pdfs_LHC(
     map_value : np.ndarray of shape [n_output_features], optional
         MAP estimate in the same destandardized coordinate space as the samples.
         If provided, overlaid as an orange dashed line on each plot.
+    df : pd.DataFrame, optional
+        Test dataframe with visible tau decay products. If provided, also produces
+        Cartesian (px,py,pz) and energy plots after converting from native coordinates.
     """
     os.makedirs(outdir, exist_ok=True)
     model.eval()
@@ -337,25 +363,58 @@ def save_sampled_pdfs_LHC(
     predictions = dataset.destandardize_outputs(predictions_norm).cpu().numpy()
     true_values = dataset.destandardize_outputs(y).cpu().numpy()[0]
 
-    n_bins = bins
+    if clip==True:
+        print("WARNING: This script clips 0.1% outliers on variables by default")
     for i, v in enumerate(output_features):
-        v_pred = predictions[:, i]
-        lower = np.percentile(v_pred, 0.5)
-        upper = np.percentile(v_pred, 99.5)
-        bin_edges = np.linspace(lower, upper, n_bins)
+        _plot_pdf(predictions[:, i], true_values[i],
+                  map_value[i] if map_value is not None else None,
+                  v, outdir, event_number, bins, clip)
 
-        plt.figure(figsize=(6, 4))
-        plt.hist(v_pred, bins=bin_edges, density=True, histtype='step', linewidth=2)
-        plt.axvline(true_values[i], color='r', linestyle='--', linewidth=2, label='True value')
-        if map_value is not None:
-            plt.axvline(map_value[i], color='orange', linestyle='--', linewidth=2, label='MAP estimate')
-        plt.legend()
-        plt.xlabel(v)
-        plt.ylabel("pdf (sampled)")
-        plt.title(f"Sampled p({v} | context), event {event_number}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
-        plt.close()
+    # plot cartesian components and energy
+    if df is not None:
+        tau1_prefix = 'taup' if 'taup_nu_px' in df.columns else 'tau1'
+        tau2_prefix = 'taun' if tau1_prefix == 'taup' else 'tau2'
+
+        reco_taup_charged = df[[f'reco_{tau1_prefix}_charged_e', f'reco_{tau1_prefix}_charged_px', f'reco_{tau1_prefix}_charged_py', f'reco_{tau1_prefix}_charged_pz']].values[event_number:event_number+1]
+        reco_taun_charged = df[[f'reco_{tau2_prefix}_charged_e', f'reco_{tau2_prefix}_charged_px', f'reco_{tau2_prefix}_charged_py', f'reco_{tau2_prefix}_charged_pz']].values[event_number:event_number+1]
+        reco_taup_pizero = df[[f'reco_{tau1_prefix}_pizero1_e', f'reco_{tau1_prefix}_pizero1_px', f'reco_{tau1_prefix}_pizero1_py', f'reco_{tau1_prefix}_pizero1_pz']].values[event_number:event_number+1]
+        reco_taun_pizero = df[[f'reco_{tau2_prefix}_pizero1_e', f'reco_{tau2_prefix}_pizero1_px', f'reco_{tau2_prefix}_pizero1_py', f'reco_{tau2_prefix}_pizero1_pz']].values[event_number:event_number+1]
+
+        single_kwargs = dict(coordinates=coordinates, output_features=output_features,
+                             tau1_charged=reco_taup_charged, tau1_pi0=reco_taup_pizero,
+                             tau2_charged=reco_taun_charged, tau2_pi0=reco_taun_pizero,
+                             leptonic_mode=leptonic_mode)
+        n = len(predictions)
+        pred_conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
+                                tau1_charged=np.tile(reco_taup_charged, (n, 1)),
+                                tau1_pi0=np.tile(reco_taup_pizero, (n, 1)),
+                                tau2_charged=np.tile(reco_taun_charged, (n, 1)),
+                                tau2_pi0=np.tile(reco_taun_pizero, (n, 1)),
+                                leptonic_mode=leptonic_mode)
+
+        pred_cart = convert_coordinates_pred(predictions, **pred_conv_kwargs)
+        true_cart = convert_coordinates_pred(true_values[np.newaxis, :], **single_kwargs)[0]
+        map_cart = convert_coordinates_pred(map_value[np.newaxis, :], **single_kwargs)[0] if map_value is not None else None
+
+        cart_features = ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz']
+        nu_p_slices = {'taup_nu': (0, 3), 'taun_nu': (3, 6)}
+
+        # plot px, py, pz
+        for i, v in enumerate(cart_features):
+            _plot_pdf(pred_cart[:, i], true_cart[i],
+                      map_cart[i] if map_cart is not None else None,
+                      v, outdir, event_number, bins, clip)
+
+        # plot energy
+        for nu_name, (s, e) in nu_p_slices.items():
+            E_pred = np.sqrt(np.sum(pred_cart[:, s:e]**2, axis=1))
+            E_true = np.sqrt(np.sum(true_cart[s:e]**2))
+            E_map = np.sqrt(np.sum(map_cart[s:e]**2)) if map_cart is not None else None
+            _plot_pdf(E_pred, E_true, E_map, f'{nu_name}_E', outdir, event_number, bins, clip,
+                      xlabel=f'{nu_name}_E [GeV]')
+
+
+
 
 
 def plot_spin_density_matrix(results, dm_category, outdir):
