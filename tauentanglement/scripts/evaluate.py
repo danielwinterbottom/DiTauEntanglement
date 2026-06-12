@@ -335,6 +335,8 @@ def main():
                 reco_taup_iselectron = np.zeros((len(test_df), 1))
                 reco_taun_iselectron = np.zeros((len(test_df), 1))
     
+        del test_df
+
         # collect true and predicted nus, true and predicted taus, and pi's into pandas dataframe, label the columns
         results_df = pd.DataFrame(data=np.concatenate([true_values, predictions, true_taus, pred_taus, true_taun_haspizero,
                                 true_taup_haspizero, true_taup_ishadronic, true_taun_ishadronic, true_taup_npizero, true_taun_npizero,
@@ -374,8 +376,19 @@ def main():
                                            'true_taup_pi3_E', 'true_taup_pi3_px', 'true_taup_pi3_py', 'true_taup_pi3_pz',
                                            'true_taun_pi3_E', 'true_taun_pi3_px', 'true_taun_pi3_py', 'true_taun_pi3_pz',
                                            ])
+
+        # invariant masses (per tau and for the pair)
+        results_df['true_tau_plus_mass']  = inv_mass(true_taus, 0)
+        results_df['true_tau_minus_mass'] = inv_mass(true_taus, 4)
+        results_df['pred_tau_plus_mass']  = inv_mass(pred_taus, 0)
+        results_df['pred_tau_minus_mass'] = inv_mass(pred_taus, 4)
+        results_df['pred_boson_mass'] = np.sqrt(np.maximum(
+            (pred_taus[:,0]+pred_taus[:,4])**2 - (pred_taus[:,1]+pred_taus[:,5])**2
+            - (pred_taus[:,2]+pred_taus[:,6])**2 - (pred_taus[:,3]+pred_taus[:,7])**2, 0))
         
-        
+        # delete everything that has been concatinated into results_df to save memory
+        del true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero, true_taup_ishadronic, true_taun_ishadronic, true_taup_npizero, true_taun_npizero, true_taup_is3prong, true_taun_is3prong, true_taup_ismuon, true_taun_ismuon, true_taup_iselectron, true_taun_iselectron, true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero, true_taun_pi_ip, true_taup_pi_ip, true_taup_charged, true_taun_charged, true_taup_charged_ip, true_taun_charged_ip, true_taup_sv, true_taun_sv, true_taup_pi2, true_taun_pi2, true_taup_pi3, true_taun_pi3
+
         if use_reco:
             results_df_extra = pd.DataFrame(data=np.concatenate([reco_taup_haspizero, reco_taun_haspizero, reco_taup_ishadronic, reco_taun_ishadronic, reco_taup_npizero, reco_taun_npizero, reco_taup_is3prong, reco_taun_is3prong, reco_taup_ismuon, reco_taun_ismuon, reco_taup_iselectron, reco_taun_iselectron,
                                                                 reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero, reco_taun_pi_ip, reco_taup_pi_ip, reco_taup_charged, reco_taun_charged, reco_taup_charged_ip, reco_taun_charged_ip, reco_taup_sv, reco_taun_sv,
@@ -404,7 +417,13 @@ def main():
                                             'reco_taup_pi3_E', 'reco_taup_pi3_px', 'reco_taup_pi3_py', 'reco_taup_pi3_pz',
                                             'reco_taun_pi3_E', 'reco_taun_pi3_px', 'reco_taun_pi3_py', 'reco_taun_pi3_pz',
                                            ])
+
+            # delete the reco variables that have been concatenated into results_df_extra to save memory
+            del reco_taup_haspizero, reco_taun_haspizero, reco_taup_ishadronic, reco_taun_ishadronic, reco_taup_npizero, reco_taun_npizero, reco_taup_is3prong, reco_taun_is3prong, reco_taup_ismuon, reco_taun_ismuon, reco_taup_iselectron, reco_taun_iselectron, reco_taup_pi, reco_taup_pizero, reco_taun_pi, reco_taun_pizero, reco_taun_pi_ip, reco_taup_pi_ip, reco_taup_charged, reco_taun_charged, reco_taup_charged_ip, reco_taun_charged_ip, reco_taup_sv, reco_taun_sv, reco_taup_pi2, reco_taun_pi2, reco_taup_pi3, reco_taun_pi3
+
             results_df = pd.concat([results_df, results_df_extra], axis=1)
+            del results_df_extra
+
     
     
         if predictions_map is not None:
@@ -417,22 +436,18 @@ def main():
                     'map_pred_tau_minus_E', 'map_pred_tau_minus_px', 'map_pred_tau_minus_py', 'map_pred_tau_minus_pz',
                 ])
             results_df = pd.concat([results_df, results_df_extra], axis=1)
+            del results_df_extra
             
         
         # invariant masses (per tau and for the pair)
-        results_df['true_tau_plus_mass']  = inv_mass(true_taus, 0)
-        results_df['true_tau_minus_mass'] = inv_mass(true_taus, 4)
-        results_df['pred_tau_plus_mass']  = inv_mass(pred_taus, 0)
-        results_df['pred_tau_minus_mass'] = inv_mass(pred_taus, 4)
-        results_df['pred_boson_mass'] = np.sqrt(np.maximum(
-            (pred_taus[:,0]+pred_taus[:,4])**2 - (pred_taus[:,1]+pred_taus[:,5])**2
-            - (pred_taus[:,2]+pred_taus[:,6])**2 - (pred_taus[:,3]+pred_taus[:,7])**2, 0))
         if predictions_map is not None:
             results_df['map_pred_tau_plus_mass']  = inv_mass(pred_taus_map, 0)
             results_df['map_pred_tau_minus_mass'] = inv_mass(pred_taus_map, 4)
             results_df['map_pred_boson_mass'] = np.sqrt(np.maximum(
                 (pred_taus_map[:,0]+pred_taus_map[:,4])**2 - (pred_taus_map[:,1]+pred_taus_map[:,5])**2
                 - (pred_taus_map[:,2]+pred_taus_map[:,6])**2 - (pred_taus_map[:,3]+pred_taus_map[:,7])**2, 0))
+
+            del pred_taus_map
     
         if leptonic_mode == 0:
             # spin variables - not implemented yet for leptonic modes 
@@ -487,7 +502,12 @@ def main():
                 if predictions_map is not None:
                     plot_results['MAP'] = (map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12)
                 plot_spin_density_matrix(plot_results, dm_category, outdir=spin_plot_dir)
-    
+
+                del true_Bplus, true_Bminus, true_C, true_con, true_m12, pred_Bplus, pred_Bminus, pred_C, pred_con, pred_m12
+                if predictions_map is not None:
+                    del map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12
+            del dm_masks
+
         # write the results dataframe to a parquet file
         results_df.to_parquet(f"{output_dir}/{data_config['test_output_name']}.parquet")
     
@@ -495,6 +515,9 @@ def main():
             # write as root file aswell
             with uproot.recreate(f"{output_dir}/{data_config['test_output_name']}.root") as f:
                 f.mktree('tree', results_df.to_dict(orient="list"))
+
+        # delete all remaining objects to free memory
+        del results_df
 
 if __name__ == "__main__":
     main()

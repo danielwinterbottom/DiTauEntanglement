@@ -322,12 +322,8 @@ class ConditionalFlow(nn.Module):
         """
         Map latent space -> data space (z -> x)
         """
-        #t0 = time.time()
         cond_embed = self.condition_net(context)
-        #t1 = time.time()
         x, logabsdet = self.flow._transform.inverse(z, context=cond_embed)
-        #t2 = time.time()
-        #print(f"Conditioning time: {t1 - t0:.4f} s, Flow decode time: {t2 - t1:.4f} s")
         return x, logabsdet
 
     def sample_and_log_prob(self, num_samples, context):
