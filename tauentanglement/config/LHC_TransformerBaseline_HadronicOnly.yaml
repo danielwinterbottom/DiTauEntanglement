@@ -12,19 +12,19 @@ SetupNN:
               'nhead': 4,
               'num_transformer_layers': 3,
               'dropout': 0.2,
-              'lr': 0.001,
-              'weight_decay': !!float 1e-05}
+              'lr': 0.001}
   use_transformer: True  # tells DataProcessing to use transformer-style data labelling
   map_method: gradient
   map_num_draws: 100
+  chunk_size: 20000
 
 
 Data:
   datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1', 'ppToHToTauTau_AllDM_CPEven_May22_ext2', 'ppToHToTauTau_AllDM_CPOdd_May22_ext2','ppToHToTauTau_AllDM_CPEven_May22_ext3', 'ppToHToTauTau_AllDM_CPOdd_May22_ext3', 'ppToHToTauTau_DM0and1_CPEven_May22','ppToHToTauTau_DM0and1_CPOdd_May22', 'ppToHToTauTau_DM0and1_CPEven_May22_ext1', 'ppToHToTauTau_DM0and1_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
-  test_dataset: 'prepared_LHC_data/ppToHToTauTau_AllDM_CPEven_May22/test_dataframe__leptonic_mode_0_transformer.parquet'
-  test_output_name: 'output_results_CPEven'
+  test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet']
+  test_output_name: ['output_results_CPEven', 'output_results_CPOdd']
   leptonic_mode: 0 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
