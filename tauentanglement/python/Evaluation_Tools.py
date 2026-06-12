@@ -19,6 +19,7 @@ def flow_map_predict(
     method='stochastic',
     n_steps=200,
     lr=1e-2,
+    return_log_prob=False,
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
@@ -64,6 +65,7 @@ def flow_map_predict(
 
     B = X.shape[0]
     all_best_samples = []
+    all_best_log_probs = [] if return_log_prob else None
 
     if method == 'latent_zero':
         # this doesn't work very well, but might as well leave it in
@@ -115,6 +117,8 @@ def flow_map_predict(
                 (-log_p.sum()).backward()
                 optimizer.step()
 
+            if return_log_prob:
+                all_best_log_probs.append(log_p.detach().cpu())
             with torch.no_grad():
                 x_map, _ = model.decode(z, context=X_chunk)
             all_best_samples.append(x_map.cpu())
@@ -166,8 +170,9 @@ def flow_map_predict(
     else:
         samples_alt = None
 
+    if return_log_prob:
+        return samples_norm_alt, samples_alt, torch.cat(all_best_log_probs, dim=0).numpy()
     return samples_norm_alt, samples_alt
-
 
 
 def compute_spin_vars(df, tau_pred_prefix='true_', tau_vis_prefix=''):
@@ -371,7 +376,8 @@ def save_sampled_pdfs_LHC(
                   v, outdir, event_number, bins, clip)
 
     # plot cartesian components and energy
-    if df is not None:
+    if df is not None and coordinates!='standard':
+        print('recomputing 4 components in cartesian')
         tau1_prefix = 'taup' if 'taup_nu_px' in df.columns else 'tau1'
         tau2_prefix = 'taun' if tau1_prefix == 'taup' else 'tau2'
 
