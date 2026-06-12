@@ -89,15 +89,13 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
         # print number of parameters
         total_params = sum(p.numel() for p in model.parameters())
         print(f"Total number of model parameters: {total_params}")
-    optimizer = optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
-
     scheduler = None
     es = None
 
     # use cos annealing schedule with warm up period:
     total_steps = hp['num_epochs'] * len(train_dataloader)
     warmup_steps = int(0.05 * total_steps)  # e.g. 5% warmup
-    
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'])
     
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -243,7 +241,7 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
 
-        if optuna_trial is not None and epoch == 20:
+        if optuna_trial is not None and ((epoch == 10) or (epoch == 15)):
             import optuna
             optuna_trial.report(val_loss, epoch)
             if optuna_trial.should_prune():
