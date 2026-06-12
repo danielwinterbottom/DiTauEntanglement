@@ -71,8 +71,9 @@ def main():
                 if args.compare:
                     compare_dir = os.path.abspath(args.compare)
                     pairs = [
-                        (os.path.join(model_dir, "recoNu"),  os.path.basename(model_dir),  "#1a9641", "Original"),
-                        (os.path.join(compare_dir, "recoNu"), os.path.basename(compare_dir), "#d7191c", "New"),
+                        (os.path.join(model_dir, "recoNu"),  os.path.basename(model_dir),  "#2166ac", "New"),
+                        (os.path.join(compare_dir, "recoNu"), os.path.basename(compare_dir), "#1a9641", "Compare"),
+                        (os.path.join(model_dir, "recoRun3"),  "Run 3 Method",  "#d7191c", "Run 3 Method"),
                     ]
                     for section_dir, label, color, prefix_tag in pairs:
                         if not os.path.isdir(section_dir):
