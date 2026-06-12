@@ -366,9 +366,12 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
     train_df = None
     val_df = None
 
+
     extra_name = ''
+    if config['coordinates'] == 'standard':
+        extra_name += 'cartesian'
     if leptonic_mode>=0:
-        extra_name = f"_leptonic_mode_{leptonic_mode}"
+        extra_name += f"_leptonic_mode_{leptonic_mode}"
     if inc_three_prongs:
         extra_name += "_inc_three_prongs"
     if transformer:
@@ -391,7 +394,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
         else:
             if config['coordinates'] == 'standard':
-                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_dataframe.parquet'))
+                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
             elif config['coordinates'] == 'polar':
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
             elif config['coordinates'] == 'onorm':
