@@ -6,7 +6,11 @@ import numpy as np
 from tauentanglement.python.NN_Tools import load_model
 from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
-
+import matplotlib.pyplot as plt
+import mplhep as hep
+from tqdm import tqdm
+plt.style.use(hep.style.CMS)
+plt.rcParams.update({"font.size": 16})
 
 def main():
     argparser = argparse.ArgumentParser()
@@ -22,6 +26,7 @@ def main():
     argparser.add_argument('--no_map', action='store_true',
                            help='skip MAP estimate overlay')
     argparser.add_argument('--useCPU', action='store_true')
+    argparser.add_argument('--scan_pdf', action='store_true')
     args = argparser.parse_args()
 
     with open(args.config, 'r') as f:
@@ -63,6 +68,7 @@ def main():
     test_dataset, test_df, _, _ = get_test_dataset(data_config, norm_data, oneprong=False)
 
     outdir = f"{output_dir}/pdf_slices_sampled_{args.output_name}"
+    os.makedirs(outdir, exist_ok=True)
     print(f"Saving plots to {outdir}/")
 
     map_method  = nn_config.get('map_method', 'gradient')
@@ -74,15 +80,68 @@ def main():
         map_value = None
         if not args.no_map:
             X_event = test_dataset.X[event_number].unsqueeze(0).to(device)
-            _, map_pred = flow_map_predict(
+            map_norm, map_pred, log_prob_z = flow_map_predict(
                 model, X_event,
                 test_dataset=test_dataset,
                 num_draws=map_num_draws,
                 chunk_size=1,
                 method=map_method,
+                return_log_prob=True
             )
             map_value = map_pred[0]
 
+
+            print("\n\nINFO!!!")
+            print(f"At best standardised x ({map_norm}), found likelihood: {log_prob_z}")
+            print("-"*60, '\n')
+
+            if args.scan_pdf:
+                # SCAN LOG
+                for tau in ['taun', 'taup']:
+                    if tau == 'taun':
+                        scan_idx = 5 # 6th element
+                    else:
+                        scan_idx = 2 # 3rd element
+                    x_map_norm = map_norm[0].to(device)
+                    shifts = np.arange(-1, 1, 0.01)
+                    scan_log_p = []
+                    x_shifted_phys = []
+                    print(f">> Profiling likelihood for k in {tau} (others frozen)")
+                    with torch.no_grad():
+                        for shift in tqdm(shifts):
+                            x_shifted = x_map_norm.clone()
+                            x_shifted[scan_idx] += float(shift)
+                            z, logabsdet_enc = model.encode(x_shifted.unsqueeze(0), context=X_event)
+                            log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                            log_p = log_pz + logabsdet_enc
+                            # print(f">> for x ({x_shifted}) have logp: {log_p.item()}")
+                            scan_log_p.append((log_p).item())
+                            x_shifted_phys.append(test_dataset.destandardize_outputs(x_shifted.unsqueeze(0).cpu())[0][scan_idx])
+
+                    scan_log_p = np.array(scan_log_p)
+
+                    # plot the scan
+                    x_range = [x_map_norm[scan_idx].item()+shift for shift in shifts]
+
+                    fig,ax = plt.subplots(figsize=(6,6))
+                    plt.plot(x_range, scan_log_p)
+                    ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
+                    ax.legend()
+                    plt.xlabel(f"k component {tau} (entry {scan_idx+1}) - standardised")
+                    plt.ylabel('log(p)')
+                    plt.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_standardised.pdf"))
+                    # unstandardised
+                    fig,ax = plt.subplots(figsize=(6,6))
+                    plt.plot(x_shifted_phys, scan_log_p)
+                    ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
+                    ax.legend()
+                    plt.xlabel(f"k component {tau} (entry {scan_idx+1}) - physical")
+                    plt.ylabel('log(p)')
+                    plt.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_physical.pdf"))
+
+
+
+        # Scan
         save_sampled_pdfs_LHC(
             model=model,
             device=device,
