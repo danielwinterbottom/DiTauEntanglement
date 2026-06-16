@@ -1,6 +1,5 @@
 import numpy as np
 import ROOT
-from scipy.linalg import sqrtm
 
 def ldot(a, b):
     """
