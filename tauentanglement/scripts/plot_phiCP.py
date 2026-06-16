@@ -21,14 +21,10 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2/test_output_results_CPEven.parquet',
-'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31_v2/test_output_results_CPOdd.parquet',
-#'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPEven.parquet',
-#'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May31/output_results_CPOdd.parquet',
-#'sl_even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPEven_new.parquet',
-#'sl_odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/output_results_CPOdd_new.parquet',
-'sl_even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/test_output_results_CPEven.parquet',
-'sl_odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02/test_output_results_CPOdd.parquet',
+# 'even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_100e_June5/output_results_CPEven_HD.parquet',
+# 'odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_100e_June5/output_results_CPOdd_HD.parquet',
+'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
+'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
 'mix': None
 },
     'gen': {
@@ -44,6 +40,30 @@ options = {
         'tag':   'RecoNu_Smeared',
     },
 }
+
+# def replace_low_pred_map(df):
+#     df = df.copy()
+
+#     mask_plus = df['map_pred_nu_E'] < 5
+#     mask_minus = df['map_pred_nubar_E'] < 5
+#     n_plus = mask_plus.sum()
+#     n_minus = mask_minus.sum()
+#     print(f"replace_low_pred_map: replacing {n_plus}/{len(df)} tau+ entries, {n_minus}/{len(df)} tau- entries")
+
+#     df['map_pred_tau_plus_E'] = np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_E'], df['map_pred_tau_plus_E'])
+#     df['map_pred_tau_plus_px'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_px'], df['map_pred_tau_plus_px'])
+#     df['map_pred_tau_plus_py'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_py'], df['map_pred_tau_plus_py'])
+#     df['map_pred_tau_plus_pz'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_pz'], df['map_pred_tau_plus_pz'])
+
+#     df['map_pred_tau_minus_E'] = np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_E'], df['map_pred_tau_minus_E'])
+#     df['map_pred_tau_minus_px'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_px'], df['map_pred_tau_minus_px'])
+#     df['map_pred_tau_minus_py'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_py'], df['map_pred_tau_minus_py'])
+#     df['map_pred_tau_minus_pz'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_pz'], df['map_pred_tau_minus_pz'])
+
+#     return df
+
+
+
 
 
 def compute_phicp_all(df, option, use_map=True):
@@ -103,7 +123,9 @@ def load_data(prefix='',extra_pt_cut=-1):
     read = pd.read_parquet
     mix_df = read(cfg['mix']) if cfg.get('mix') is not None else None
     even_df = read(cfg[f'{prefix}even'])
+    print(f'EVEN File: {cfg[f"{prefix}even"]}')
     odd_df = read(cfg[f'{prefix}odd'])
+    print(f'ODD File: {cfg[f"{prefix}even"]}')
     # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
         def compute_vis_pt(df, prefix):

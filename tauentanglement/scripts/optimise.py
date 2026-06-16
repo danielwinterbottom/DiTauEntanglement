@@ -31,6 +31,8 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
     data_config = config['Data']
     nn_config = config['SetupNN']
+    use_transformer = nn_config.get('use_transformer', False)
+    data_config['use_transformer'] = use_transformer
 
     output_dir = f"outputs_{nn_config['model_name']}_OPTIMISATION"
     output_plots_dir = f"{output_dir}/plots"
@@ -70,32 +72,43 @@ if __name__ == "__main__":
         print(f"\nStarting trial {trial.number}...")
 
         hp = {
-            'batch_size': trial.suggest_categorical('batch_size', powers_of_two(13, 15)),
+            # flow hyperparams
+            'batch_size': trial.suggest_categorical('batch_size', powers_of_two(12, 14)),
             'num_layers': trial.suggest_int('num_layers', 2, 10),
             'num_bins': trial.suggest_int('num_bins', 8, 24, step=4),
             'tail_bound': trial.suggest_float('tail_bound', 3.0, 5.0, step=1.0),
             'hidden_size': trial.suggest_categorical('hidden_size', powers_of_two(6, 9)),
-            'num_blocks': trial.suggest_int('num_blocks', 1, 4),
-            'lr': trial.suggest_categorical('lr', [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5, 1e-5]),
-            'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
-            'condition_net_hidden_size': trial.suggest_categorical('condition_net_hidden_size', powers_of_two(6, 9)),
-            'condition_net_num_blocks': trial.suggest_int('condition_net_num_blocks', 0, 4),
-            'condition_net_output_size': trial.suggest_categorical('condition_net_output_size', powers_of_two(5, 8)),
-            'num_epochs': 1,
+            'num_blocks': trial.suggest_int('num_blocks', 1, 5),
+            'lr': trial.suggest_categorical('lr', [1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 5e-5]),
+            # transformer conditioning hyperparams
+            'context_dim': trial.suggest_categorical('context_dim', powers_of_two(6, 8)),
+            'd_model': trial.suggest_categorical('d_model', [64, 128, 256]),
+            'nhead': trial.suggest_categorical('nhead', [2, 4, 8]),
+            'num_transformer_layers': trial.suggest_int('num_transformer_layers', 1, 6),
+            'dropout': trial.suggest_float('dropout', 0.0, 0.4, step=0.1),
+            'num_epochs': n_epochs_opt,
         }
 
-        model, optimizer, train_loader, val_loader, scheduler, es = setup_model_and_training(
+
+
+
+        model, optimizer, train_loader, val_loader, scheduler, es, _, _ = setup_model_and_training(
             hp, train_dataset, val_dataset, input_features, output_features,
-            nn_config['model_name']+'_OPTIMISATION', verbose=False, useMLP=args.useMLP
+            nn_config['model_name']+'_OPTIMISATION', verbose=False, useMLP=args.useMLP,
+            useTransformer=use_transformer, leptonic_mode=data_config.get('leptonic_mode', -1)
         )
 
         num_params = sum(p.numel() for p in model.parameters())
         trial.set_user_attr("n_params", num_params)
 
+        trial_plots_dir = os.path.join(output_plots_dir, f"trial_{trial.number}")
+        os.makedirs(trial_plots_dir, exist_ok=True)
+        with open(os.path.join(trial_plots_dir, "hyperparams.yaml"), "w") as f:
+            yaml.dump(hp, f)
         best_val_loss, history = train_model(
             model, optimizer, train_loader, val_loader,
             num_epochs=n_epochs_opt, device=device, verbose=False,
-            output_plots_dir=None, save_every_N=None, scheduler=scheduler,
+            output_plots_dir=trial_plots_dir, save_every_N=None, scheduler=scheduler,
             recompute_train_loss=False, early_stopper=es, useMLP=args.useMLP,
             optuna_trial=trial
         )
@@ -109,6 +122,8 @@ if __name__ == "__main__":
         if best_val_loss < best_trial_loss:
             with open(best_trial_loss_path, "w") as f:
                 f.write(str(best_val_loss))
+            with open(os.path.join(output_dir, "best_trial_number.txt"), "w") as f:
+                f.write(str(trial.number))
             torch.save(model.state_dict(), os.path.join(output_dir, "best_trial_model.pth"))
 
         return best_val_loss
@@ -119,7 +134,7 @@ if __name__ == "__main__":
         direction="minimize",
         storage=f"sqlite:///{db_path}?timeout=10000",
         load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=20)
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=10)
     )
     study.optimize(objective, n_trials=args.n_trials, callbacks=[live_plot_callback])
 

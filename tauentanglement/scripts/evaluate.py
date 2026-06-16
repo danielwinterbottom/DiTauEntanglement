@@ -193,10 +193,14 @@ def main():
         samples_map = None
         sample_chunk_size = nn_config.get('chunk_size', 50000 if device.type == 'cpu' else 100000)
         
-        if args.useMLP or args.useTransformerBaseline:
-            # for regression models (MLP or TransformerBaseline) just do a forward pass
+        if args.useTransformerBaseline or args.useMLP:
+            # chunk to avoid OOM from (N, 13, d_model) token tensors
+            pred_chunks = []
             with torch.no_grad():
-                predictions_norm = model(X_test)
+                for start in range(0, X_test.shape[0], sample_chunk_size):
+                    pred_chunks.append(model(X_test[start:start + sample_chunk_size]).cpu())
+            predictions_norm = torch.cat(pred_chunks, dim=0)
+            del pred_chunks
         else:
             # sample from the normflow pdf in chunks to avoid memory issues
             pred_chunks = []

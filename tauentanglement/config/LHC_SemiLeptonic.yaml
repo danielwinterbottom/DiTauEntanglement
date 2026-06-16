@@ -1,7 +1,9 @@
+# WARNING: OLD CONFIG THAT USES RESNET FOR CONDITIONING!!!
+
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_NFlows_LHC_onnorm_reco_mixedCPtraining_SemiLeptonic_Jun02
+  model_name: model_NFlows_LHC_onnorm_reco_CPEvenOdd_50epochs_SemiLeptonic_June5
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
   n_epochs: 100
@@ -13,7 +15,6 @@ SetupNN:
               'hidden_size': 256,
               'num_blocks': 3,
               'lr': 0.001,
-              'weight_decay': !!float 1e-05,
               'condition_net_hidden_size': 128,
               'condition_net_num_blocks': 2,
               'condition_net_output_size': 128}
@@ -21,8 +22,7 @@ SetupNN:
               'batch_size': 8192,
               'num_blocks': 6,
               'hidden_size': 512,
-              'lr': 0.0005,
-              'weight_decay': !!float 1e-05}
+              'lr': 0.0005}
   map_method: gradient
   map_num_draws: 100
 
