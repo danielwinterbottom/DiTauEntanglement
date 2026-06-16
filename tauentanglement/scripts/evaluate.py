@@ -21,6 +21,7 @@ def main():
     argparser.add_argument('--oneprong', help='whether to only evaluate on 1-prong taus only', action='store_true')
     argparser.add_argument('--threeprong', help='whether to only evaluate on events with at least 1 3-prong tau', action='store_true')
     argparser.add_argument('--make_root_output', help='whether to save the results in a root file as well as a pandas dataframe', action='store_true')
+    argparser.add_argument('--inc_significance', help='whether to include the estimate of the neutrino \"significance\"', action='store_true')
     args = argparser.parse_args()
 
     # load config
@@ -190,7 +191,8 @@ def main():
         model = model.to(device)
     
         samples_map = None
-        sample_chunk_size = 50000 if device.type == 'cpu' else 100000
+        sample_chunk_size = nn_config.get('chunk_size', 50000 if device.type == 'cpu' else 100000)
+        
         if args.useMLP or args.useTransformerBaseline:
             # for regression models (MLP or TransformerBaseline) just do a forward pass
             with torch.no_grad():
@@ -251,6 +253,47 @@ def main():
         # add energies (E=|p|) and build neutrino 4-vectors
         predictions     = add_energies_pair(predictions)
         predictions_map = add_energies_pair(samples_map) if samples_map is not None else None
+
+        if args.inc_significance:
+            # compute neutrino significance by taking N samples, computing E for each one, getting variance, then dividing by mean
+            print("Computing neutrino significance...")
+            N_significance_samples = 10
+            nu_E_significance = []
+            nubar_E_significance = []
+            significance_chunks = []
+            for i in range(0, X_test.shape[0], sample_chunk_size):
+                chunk = model.sample(num_samples=N_significance_samples, context=X_test[i:i + sample_chunk_size])
+                significance_chunks.append(chunk.cpu())
+            significances = torch.cat(significance_chunks, dim=0)
+            # destandardize
+            significances = test_dataset.destandardize_outputs(significances)
+            # convert coordinates, need to do this for each sample
+            significance_converted = []
+            for j in range(significances.shape[1]):
+                pred_j = significances[:, j, :].cpu().numpy()
+                pred_j = convert_coordinates_pred(pred_j, **conv_kwargs)
+                # compute and add energies
+                pred_j = add_energies_pair(pred_j)
+                significance_converted.append(torch.tensor(pred_j))
+            
+            significances = torch.stack(significance_converted, dim=1)
+            #get nubar_E and nu_E 
+            nu_E = significances[:, :, 4]
+            nubar_E = significances[:, :, 0]
+            nuE_mean = torch.mean(nu_E, dim=1)
+            nubarE_mean = torch.mean(nubar_E, dim=1)
+            nu_E_std = torch.std(nu_E, dim=1)
+            nubar_E_std = torch.std(nubar_E, dim=1)
+            nu_significance = nuE_mean / nu_E_std
+            nubar_significance = nubarE_mean / nubar_E_std
+
+
+        #### temp set predictions to zeros
+        ###N = predictions.shape[0]
+        #### zero neutrino 4-vectors: [nu_p(4), nu_n(4)]
+        ###predictions = np.zeros((N, 8), dtype=predictions.dtype)
+        ###predictions_map = np.zeros_like(predictions)
+
     
         # get true taus by summing with pis and pizeros
         true_taus = np.concatenate([true_values[:, 0:4] + true_taup_charged + true_taup_pizero,
@@ -434,6 +477,10 @@ def main():
             results_df = pd.concat([results_df, results_df_extra], axis=1)
             del results_df_extra
             
+        if args.inc_significance:
+            results_df['nu_significance'] = nu_significance
+            results_df['nubar_significance'] = nubar_significance
+            del nu_significance, nubar_significance
         
         # invariant masses (per tau and for the pair)
         if predictions_map is not None:
