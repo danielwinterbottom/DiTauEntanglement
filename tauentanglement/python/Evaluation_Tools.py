@@ -156,7 +156,7 @@ def flow_map_predict(
         latent_dim = model.flow._distribution._shape[0]
 
         for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (forward gradient)"):
-            #t0 = time.time()
+            t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
@@ -179,27 +179,178 @@ def flow_map_predict(
                 
                 log_p = model.flow.log_prob(inputs=x, context=cond_embed_chunk)
 
-                #final_log_p = log_p.mean().item()
-                #if step == 0: initial_log_p = final_log_p
+                final_log_p = log_p.mean().item()
+                if step == 0: initial_log_p = final_log_p
                 
                 loss = - log_p.sum()
                 loss.backward()
                 optimizer.step()
 
-                #if step % 10 == 0:
-                #    print(
-                #        f"step={step:4d} "
-                #        f"mean_logp={log_p.mean().item():.6f} "
-                #        f"max_logp={log_p.max().item():.6f} "
-                #        f"min_logp={log_p.min().item():.6f} "
-                #        f"x[0]={x[0].detach().cpu().numpy()}"
-                #    )
+                if (step+1) % 10 == 0 or step == 0:
+                    print(
+                        f"step={step:4d} "
+                        f"mean_logp={log_p.mean().item():.6f} "
+                        f"max_logp={log_p.max().item():.6f} "
+                        f"min_logp={log_p.min().item():.6f} "
+                        f"x[0]={x[0].detach().cpu().numpy()}"
+                    )
 
-            #t1 = time.time()
-            #print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
-            #print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
-            #print(f"x_map[0]={x_map[0].cpu().numpy()}")
+            t1 = time.time()
+            print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
+            print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
             all_best_samples.append(x.detach().cpu())
+
+    elif method == 'gradient_forward_alt':
+
+        latent_dim = model.flow._distribution._shape[0]
+
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (forward gradient)"):
+            t0 = time.time()
+            end = min(start + chunk_size, B)
+            X_chunk = X[start:end]
+            C = X_chunk.shape[0]
+
+            # Pre-compute the embedding once for this chunk 
+            with torch.no_grad():
+                cond_embed_chunk = model.condition_net(X_chunk)
+
+            # sample to find initial value using flow.sample
+            with torch.no_grad():
+               sample  = model.flow.sample(num_samples=1, context=cond_embed_chunk)
+            x_init = sample.squeeze(1)
+            x = x_init.clone().detach().requires_grad_(True)
+            
+            optimizer = torch.optim.Adam([x], lr=lr)
+
+            for step in range(n_steps):
+                optimizer.zero_grad()
+                
+                log_p = model.flow.log_prob(inputs=x, context=cond_embed_chunk)
+
+                final_log_p = log_p.mean().item()
+                if step == 0: initial_log_p = final_log_p
+                
+                loss = - log_p.sum()
+                loss.backward()
+                optimizer.step()
+
+                if (step+1) % 10 == 0 or step == 0:
+                    print(
+                        f"step={step:4d} "
+                        f"mean_logp={log_p.mean().item():.6f} "
+                        f"max_logp={log_p.max().item():.6f} "
+                        f"min_logp={log_p.min().item():.6f} "
+                        f"x[0]={x[0].detach().cpu().numpy()}"
+                    )
+
+            t1 = time.time()
+            print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
+            print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
+            all_best_samples.append(x.detach().cpu())
+
+    elif method == "minuit_forward":
+    
+        latent_dim = model.flow._distribution._shape[0]
+    
+        #minuit_tol = 1e-2
+        #minuit_strategy = 0
+        minuit_max_calls = 5000 #n_steps
+    
+        for i in tqdm(range(B), desc="Processing events (Minuit)"):
+    
+            t0 = time.time()
+    
+            X_i = X[i:i + 1]
+            device = X_i.device
+            dtype = X_i.dtype
+    
+            #with torch.no_grad():
+            #    cond_i = model.condition_net(X_i)
+            #    sample_i = model.flow.sample(num_samples=1, context=cond_i)
+    
+            #x_init_i = sample_i.squeeze(1).detach()
+            #x0_i = x_init_i.squeeze(0).cpu().numpy().astype(np.float64)
+    
+            #get initial value from z0
+
+            # Initialize optimization variable x
+            with torch.no_grad():
+                cond_i = model.condition_net(X_i)
+            
+                z_init = torch.zeros(1, latent_dim, device=device, dtype=dtype)
+            
+                x_init_i, _ = model.flow._transform.inverse(
+                    z_init,
+                    context=cond_i,
+                )
+            
+            x0_i = x_init_i.squeeze(0).detach().cpu().numpy().astype(np.float64)  
+
+
+            with torch.no_grad():
+                start_logp = model.flow.log_prob(
+                    inputs=x_init_i,
+                    context=cond_i,
+                ).item()
+    
+            def _loss_and_grad(pars_np):
+                x_t = torch.as_tensor(
+                    pars_np.reshape(1, latent_dim),
+                    device=device,
+                    dtype=dtype,
+                ).detach().requires_grad_(True)
+    
+                log_p = model.flow.log_prob(inputs=x_t, context=cond_i)
+                loss = -log_p.sum()
+                loss.backward()
+    
+                grad = x_t.grad.detach().cpu().numpy().astype(np.float64).ravel()
+                return float(loss.detach().cpu().item()), grad
+    
+            def fcn(*pars):
+                val, _ = _loss_and_grad(np.asarray(pars, dtype=np.float64))
+                return val
+    
+            def grad(*pars):
+                _, g = _loss_and_grad(np.asarray(pars, dtype=np.float64))
+                return g
+    
+            m = Minuit(
+                fcn,
+                *x0_i,
+                grad=grad,
+                name=[f"x{j}" for j in range(latent_dim)],
+            )
+    
+            m.errordef = Minuit.LIKELIHOOD
+            #m.strategy = minuit_strategy
+            #m.tol = minuit_tol
+            m.print_level = 0
+            m.throw_nan = False
+            #m.errors = np.full(latent_dim, minuit_step)
+    
+            m.migrad(ncall=minuit_max_calls)
+    
+            x_best_i = np.fromiter(m.values, dtype=np.float64, count=latent_dim)
+    
+            print(
+                f"event={i:4d} "
+                f"start_logp={start_logp:.6f} "
+                f"found_value={m.fval:.6f} "
+                f"found_logp={-m.fval:.6f} "
+                f"gain={(-m.fval) - start_logp:.6f} "
+                f"valid={m.valid} "
+                f"nfcn={m.nfcn}"
+            )
+            print("x_init =", x0_i)
+            print("x_best =", x_best_i)
+    
+            all_best_samples.append(
+                torch.as_tensor(x_best_i, dtype=dtype).detach().cpu()
+            )
+    
+            t1 = time.time()
+            print(f"Time taken for event {i}: {t1 - t0:.2f} s")
 
     else:
         raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")

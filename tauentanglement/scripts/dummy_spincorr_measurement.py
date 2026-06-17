@@ -50,6 +50,11 @@ def product_hist_correlated(
     if normalize and hz.Integral() > 0:
         hz.Scale(1.0 / hz.Integral())
 
+    #check if any bins are negative
+    for ibin in range(1, hz.GetNbinsX() + 1):
+        if hz.GetBinContent(ibin) < 0:
+            print("Warning: bin", ibin, "has negative content:", hz.GetBinContent(ibin))
+
     return hz
 
 x_var = 'true_cosr_plus'
