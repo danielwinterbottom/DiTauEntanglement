@@ -1,7 +1,7 @@
 """
-Merge gen, recoNu, recoRun3 plots from a model output directory into one PDF.
-Each page groups all three versions of a given DM combination side by side.
-Usage: python merge_dm_plots.py <model_dir> [output.pdf]
+Merge plots from up to three model directories into one PDF, grouping each
+DM combination side by side.
+Usage: python compare_phiCP_plots.py 'path1:"Name 1"' ['path2:"Name 2"'] ['path3:"Name 3"']
 """
 
 import argparse
@@ -25,11 +25,15 @@ dm_order = [
     'DM100DM0', 'DM100DM1', 'DM100DM2', 'DM100DM10',
 ]
 
-sections = [
-    ("gen",      "Generator Level",         "#2166ac"),
-    ("recoNu",   "Reconstructed Neutrino", "#1a9641"),
-    ("recoRun3", "Previous Method",            "#d7191c"),
-]
+colors = ["#2166ac", "#1a9641", "#d7191c", "#fdae61", "#762a83"]
+
+
+def parse_model_arg(arg):
+    path, _, name = arg.partition(":")
+    name = name.strip().strip('"').strip("'")
+    if not name:
+        name = os.path.basename(os.path.normpath(path))
+    return os.path.abspath(path), name
 
 
 def format_dm_title(dm):
@@ -55,47 +59,37 @@ def find_pdf(directory, dm):
 
 def main():
     parser = argparse.ArgumentParser(description="Combine DM plots side by side for easy comparison.")
-    parser.add_argument("model_dir", help="Directory containing gen/, recoNu/, recoRun3/ subdirectories")
-    parser.add_argument("--output", nargs="?", default=None, help="Output PDF (default: <model_dir>/combined_plots.pdf)")
-    parser.add_argument("--compare", default=None, help="Compare recoNu from model_dir against recoNu in this directory")
+    parser.add_argument("--model1", default=None, help='First model, as path:"Name", e.g. outputs_dir/phiCP/recoNu:"Model name"')
+    parser.add_argument("--model2", default=None, help='Second model, as path:"Name" (optional)')
+    parser.add_argument("--model3", nargs="?", default=None, help='Third model, as path:"Name" (optional)')
+    parser.add_argument("--recoRun3", dest="reco_run3", default=None, help="Optional recoRun3 input path")
+    parser.add_argument("--gen", default=None, help="Optional gen input path")
+    parser.add_argument("--output", default=None, help="Output PDF (default: ./combined_plots.pdf)")
     args = parser.parse_args()
 
-    model_dir = os.path.abspath(args.model_dir)
-    output_path = args.output or os.path.join(model_dir, "combined_plots.pdf")
+    models = [parse_model_arg(a) for a in (args.model1, args.model2, args.model3) if a is not None]
+    if args.reco_run3 is not None:
+        models.append((os.path.abspath(args.reco_run3), "Previous Method"))
+    if args.gen is not None:
+        models.append((os.path.abspath(args.gen), "Generator"))
+    output_path = args.output or "combined_plots.pdf"
 
     with tempfile.TemporaryDirectory() as tmpdir:
         with PdfPages(output_path) as pdf:
             for dm in dm_order:
                 section_data = []
 
-                if args.compare:
-                    compare_dir = os.path.abspath(args.compare)
-                    pairs = [
-                        (os.path.join(model_dir, "recoNu"),  os.path.basename(model_dir),  "#2166ac", "New"),
-                        (os.path.join(compare_dir, "recoNu"), os.path.basename(compare_dir), "#1a9641", "Compare"),
-                        (os.path.join(model_dir, "recoRun3"),  "Run 3 Method",  "#d7191c", "Run 3 Method"),
-                    ]
-                    for section_dir, label, color, prefix_tag in pairs:
-                        if not os.path.isdir(section_dir):
-                            print(f"  Warning: recoNu not found in {section_dir}, skipping.", file=sys.stderr)
-                            continue
-                        pdf_path = find_pdf(section_dir, dm)
-                        if pdf_path is None:
-                            print(f"  Warning: no PDF for {dm} in {section_dir}, skipping.", file=sys.stderr)
-                            continue
-                        imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_recoNu_{prefix_tag}", dpi=150)
-                        section_data.append((label, color, imgs))
-                else:
-                    for subdir, label, color in sections:
-                        section_dir = os.path.join(model_dir, subdir)
-                        if not os.path.isdir(section_dir):
-                            continue
-                        pdf_path = find_pdf(section_dir, dm)
-                        if pdf_path is None:
-                            print(f"  Warning: no PDF for {dm} in {subdir}, skipping section.", file=sys.stderr)
-                            continue
-                        imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_{subdir}", dpi=150)
-                        section_data.append((label, color, imgs))
+                for (path, name), color in zip(models, colors):
+                    if not os.path.isdir(path):
+                        print(f"  Warning: directory not found: {path}, skipping.", file=sys.stderr)
+                        continue
+                    pdf_path = find_pdf(path, dm)
+                    if pdf_path is None:
+                        print(f"  Warning: no PDF for {dm} in {path}, skipping.", file=sys.stderr)
+                        continue
+                    safe_name = "".join(c if c.isalnum() else "_" for c in name)
+                    imgs = pdf_to_images(pdf_path, tmpdir, f"{dm}_{safe_name}", dpi=150)
+                    section_data.append((name, color, imgs))
 
                 if not section_data:
                     continue
