@@ -320,10 +320,11 @@ def compute_aco_classic_a1a1(df):
 
 
 
-def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
+def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True, add_ghosts=True):
     """
     tau_prefix: sets whether reco or true tau is used ("true" or "map_pred")
     reco_pions: sets whether to use reco pions or true pions (some storage issues in gen)
+    add_ghosts: whether to add a "ghost" particle with small momentum to taus to handel cases where neutrinos are predicted to have zero momentum which causes issues for the polarimetric vector calculation. 
     """
 
     # Get R and P (polarimetric vector edition)
@@ -377,6 +378,19 @@ def get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True):
 
     # Tau minus
     tau_n = ak.zip({"px": df[f"{tau_prefix}_tau_minus_px"], "py": df[f"{tau_prefix}_tau_minus_py"], "pz": df[f"{tau_prefix}_tau_minus_pz"], "E": df[f"{tau_prefix}_tau_minus_E"]}, with_name="Momentum4D")
+
+    if add_ghosts:
+        # add small "ghost" particle to the taus to handle cases where the tau momentum is exactly equal to the visible momentum (i.e when neutrino was estimated to have exactly zero momentum)
+        # ghosts will be in the same direction as the tau and have total p=E=epsilon
+        epsilon = 1e-3
+        tau_p_pmag = np.sqrt(tau_p.px**2 + tau_p.py**2 + tau_p.pz**2)
+        tau_n_pmag = np.sqrt(tau_n.px**2 + tau_n.py**2 + tau_n.pz**2)
+        tau_p_unit = ak.zip({"x": tau_p.px / tau_p_pmag, "y": tau_p.py / tau_p_pmag, "z": tau_p.pz / tau_p_pmag}, with_name="Vector3D")
+        tau_n_unit = ak.zip({"x": tau_n.px / tau_n_pmag, "y": tau_n.py / tau_n_pmag, "z": tau_n.pz / tau_n_pmag}, with_name="Vector3D")
+        ghost_p = ak.zip({"px": tau_p_unit.x * epsilon, "py": tau_p_unit.y * epsilon, "pz": tau_p_unit.z * epsilon, "E": ak.full_like(tau_p.E, epsilon)}, with_name="Momentum4D")
+        ghost_n = ak.zip({"px": tau_n_unit.x * epsilon, "py": tau_n_unit.y * epsilon, "pz": tau_n_unit.z * epsilon, "E": ak.full_like(tau_n.E, epsilon)}, with_name="Momentum4D")
+        tau_p = tau_p + ghost_p
+        tau_n = tau_n + ghost_n
 
     # Higgs rest frame boost vectors
     higgs_bv = boost_vec(tau_p + tau_n)

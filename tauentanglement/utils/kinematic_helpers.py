@@ -1,7 +1,6 @@
 import numpy as np
 import ROOT
 
-
 def ldot(a, b):
     """
     Minkowski dot product (+,-,-,-)
@@ -227,10 +226,8 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
                      [0, 1]])
     
     rho1 = np.kron(I, I)
-    
-    rho2=sum(Bplus[i] * np.kron(pauli_matrices[i], I) for i in range(3))
-    
-    rho3=sum(Bminus[j] * np.kron(I, pauli_matrices[j]) for j in range(3))
+    rho2 = sum(Bplus[i, 0] * np.kron(pauli_matrices[i], I) for i in range(3))
+    rho3 = sum(Bminus[j, 0] * np.kron(I, pauli_matrices[j]) for j in range(3))
     
     rho4 = np.zeros((4, 4), dtype=complex)  # Initialize a 4x4 complex matrix
     for i in range(3):
@@ -239,6 +236,10 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
     
     
     rho = 1./4*(rho1+rho2+rho3+rho4) 
+
+    # check if rho is valid density matrix (Hermitian, positive semi-definite, trace=1)
+    if not np.all(np.linalg.eigvals(rho) >= -1e-10):
+        print("Warning: rho is unphysical - not positive semi-definite!")
 
    
     trace = np.trace(rho)
@@ -249,14 +250,19 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
    
     # using formulas from https://journals.aps.org/prd/pdf/10.1103/PhysRevD.107.093002 
     # seems to be different to https://arxiv.org/pdf/2405.09201 but gives the expected answer
-    rho_tilde = z*rhostar*z
-    
-    R = np.sqrt(np.sqrt(rho)*rho_tilde*np.sqrt(rho))
-    R_EVs = sorted(np.linalg.eigvals(R),reverse=True)
-    con = R_EVs[0]-sum(R_EVs[1:])
+    #rho_tilde = z*rhostar*z
+    #R = np.sqrt(np.sqrt(rho)*rho_tilde*np.sqrt(rho))
+    #R_EVs = sorted(np.linalg.eigvals(R),reverse=True)
+    #con = max(0, R_EVs[0]-sum(R_EVs[1:]))
 
+    #using formulas from https://arxiv.org/pdf/2405.09201
+    y = np.kron(sig2, sig2)
+    R = rho @ y @ rhostar @ y
+    R_EVs = np.linalg.eigvals(R)
+    lambdas = np.sort(np.sqrt(np.clip(np.real_if_close(R_EVs).real, 0, None)))[::-1]
+    con = max(0, lambdas[0] - lambdas[1] - lambdas[2] - lambdas[3])
 
-    M = C*C.T
+    M = C @ C.T
     M_EVs = sorted(np.linalg.eigvals(M),reverse=True)
     m12 = M_EVs[0]+M_EVs[1]
   

@@ -179,14 +179,14 @@ def flow_map_predict(
                 
                 log_p = model.flow.log_prob(inputs=x, context=cond_embed_chunk)
 
-                #final_log_p = log_p.mean().item()
-                #if step == 0: initial_log_p = final_log_p
+                final_log_p = log_p.mean().item()
+                if step == 0: initial_log_p = final_log_p
                 
                 loss = - log_p.sum()
                 loss.backward()
                 optimizer.step()
 
-                #if step % 10 == 0:
+                #if (step+1) % 10 == 0 or step == 0:
                 #    print(
                 #        f"step={step:4d} "
                 #        f"mean_logp={log_p.mean().item():.6f} "
@@ -198,7 +198,6 @@ def flow_map_predict(
             #t1 = time.time()
             #print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
             #print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
-            #print(f"x_map[0]={x_map[0].cpu().numpy()}")
             all_best_samples.append(x.detach().cpu())
 
     else:
