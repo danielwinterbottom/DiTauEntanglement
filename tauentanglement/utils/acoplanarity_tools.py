@@ -67,7 +67,12 @@ def polarimetric_vec_dm1(H_pi, H_pizero, H_tau, boost_vec_tau):
 
 def polarimetric_vec_dm10(tau_rf, os_pi_rf, ss1_pi_rf, ss2_pi_rf, taucharge):
     """Compute the DM10 (a1) polarimetric vector in the tau rest frame."""
-    pv = PolarimetricA1_vectorised(tau_rf, os_pi_rf, ss1_pi_rf, ss2_pi_rf, taucharge).PVC()
+    bv_tau = boost_vec(tau_rf)
+    tau_trf   = boost4(tau_rf,    bv_tau)
+    os_trf    = boost4(os_pi_rf,  bv_tau)
+    ss1_trf   = boost4(ss1_pi_rf, bv_tau)
+    ss2_trf   = boost4(ss2_pi_rf, bv_tau)
+    pv = PolarimetricA1_vectorised(tau_trf, os_trf, ss1_trf, ss2_trf, taucharge).PVC()
     # note the sign reversal here by convention
     pv_ak = ak.zip({"x": -pv.x, "y": -pv.y, "z": -pv.z}, with_name="Vector3D")
     return pv_ak.unit()
