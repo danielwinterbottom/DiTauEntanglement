@@ -75,7 +75,7 @@ def _get_vec(df, pref: str) -> np.ndarray:
 
 def _build_nrk_basis_from_visible_tau(
     df,
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     eps: float = 1e-12,
 ):
@@ -90,7 +90,7 @@ def _build_nrk_basis_from_visible_tau(
       n, r, k as (N,3) arrays
     """
 
-    v_vis = _get_vec(df, pi_prefix) + _get_vec(df, pi0_prefix)
+    v_vis = _get_vec(df, charged_prefix) + _get_vec(df, pi0_prefix)
 
     # --- k_hat ---
     k_norm = np.linalg.norm(v_vis, axis=1, keepdims=True)
@@ -131,7 +131,7 @@ def _build_nrk_basis_from_visible_tau(
 def ConvertToOrthonormalNRK(
     df,
     prefix_to_convert: str,
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     out_prefix = None,
     drop_xyz: bool = True,
@@ -141,7 +141,7 @@ def ConvertToOrthonormalNRK(
     if out_prefix is None:
         out_prefix = prefix_to_convert
 
-    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+    n, r, k = _build_nrk_basis_from_visible_tau(df, charged_prefix, pi0_prefix, eps=eps)
     v = _get_vec(df, prefix_to_convert)
 
     df[f"{out_prefix}n"] = np.sum(v * n, axis=1)
@@ -163,7 +163,7 @@ def ConvertToOrthonormalNRK(
 def ConvertFromOrthonormalNRK(
     df,
     prefix_to_convert: str,  # expects {prefix}n,{prefix}r,{prefix}k
-    pi_prefix: str,
+    charged_prefix: str,
     pi0_prefix: str,
     out_prefix = None,  # writes {out}px,{out}py,{out}pz
     drop_nrk: bool = False,
@@ -172,7 +172,7 @@ def ConvertFromOrthonormalNRK(
     if out_prefix is None:
         out_prefix = prefix_to_convert
 
-    n, r, k = _build_nrk_basis_from_visible_tau(df, pi_prefix, pi0_prefix, eps=eps)
+    n, r, k = _build_nrk_basis_from_visible_tau(df, charged_prefix, pi0_prefix, eps=eps)
 
     vn = df[f"{prefix_to_convert}n"].to_numpy(dtype=float)[:, None]
     vr = df[f"{prefix_to_convert}r"].to_numpy(dtype=float)[:, None]
@@ -190,65 +190,93 @@ def ConvertFromOrthonormalNRK(
     return df
 
 
-def convert_coordinates_pred(arr, coordinates, output_features, taup_pi, taup_pizero, taun_pi, taun_pizero):
+def convert_coordinates_pred(arr, coordinates, output_features, tau1_charged, tau1_pi0, tau2_charged, tau2_pi0, leptonic_mode=0):
     if coordinates == 'polar':
+        if leptonic_mode !=0:
+            raise ValueError("Polar coordinates are currently only implemented for the hadronic tau case (leptonic_mode=0)")
         return ConvertPredictionsToCartesian(arr, output_features)
     elif coordinates == 'onorm':
-        return ConvertFromOrthonormalNRK_Predictions(arr, taup_pi=taup_pi, taup_pi0=taup_pizero,
-                                                     taun_pi=taun_pi, taun_pi0=taun_pizero)
+        return ConvertFromOrthonormalNRK_Predictions(arr, tau1_charged=tau1_charged, tau1_pi0=tau1_pi0,
+                                                     tau2_charged=tau2_charged, tau2_pi0=tau2_pi0, leptonic_mode=leptonic_mode)
     return arr
 
 
 def ConvertFromOrthonormalNRK_Predictions(
     predictions,
-    taup_pi,
-    taup_pi0,
-    taun_pi,
-    taun_pi0,
+    tau1_charged,
+    tau1_pi0,
+    tau2_charged,
+    tau2_pi0,
     eps: float = 1e-12,
+    leptonic_mode: int = 0,
 ):
 
+    charged_name = "charged"
+
     # create a dataframe with predictions and visible tau decay products
-    column_names = ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']
-    taup_pi_columns = [f'reco_taup_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    taup_pi0_columns = [f'reco_taup_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    taun_pi_columns = [f'reco_taun_pi1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    taun_pi0_columns = [f'reco_taun_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
-    visible_data = np.concatenate([taup_pi, taup_pi0, taun_pi, taun_pi0], axis=1)
-    visible_column_names = taup_pi_columns + taup_pi0_columns + taun_pi_columns + taun_pi0_columns
+    
+    tau1_prefix = 'taup'
+    tau2_prefix = 'taun'
+
+    if leptonic_mode == 1:
+        column_names = ['tau1_nu_m','tau1_nu_n', 'tau1_nu_r', 'tau1_nu_k','tau2_nu_n', 'tau2_nu_r', 'tau2_nu_k']
+        tau1_prefix = 'tau1'
+        tau2_prefix = 'tau2'
+    elif leptonic_mode == 2:
+        column_names = ['tau1_nu_m','tau1_nu_n', 'tau1_nu_r', 'tau1_nu_k','tau2_nu_m','tau2_nu_n', 'tau2_nu_r', 'tau2_nu_k']
+    else:
+        column_names = ['taup_nu_n', 'taup_nu_r', 'taup_nu_k','taun_nu_n', 'taun_nu_r', 'taun_nu_k']
+
+    tau1_charged_columns = [f'reco_{tau1_prefix}_{charged_name}_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    tau1_pi0_columns = [f'reco_{tau1_prefix}_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    tau2_charged_columns = [f'reco_{tau2_prefix}_{charged_name}_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    tau2_pi0_columns = [f'reco_{tau2_prefix}_pizero1_{comp}' for comp in ['E', 'px', 'py', 'pz']]
+    visible_data = np.concatenate([tau1_charged, tau1_pi0, tau2_charged, tau2_pi0], axis=1)
+    visible_column_names = tau1_charged_columns + tau1_pi0_columns + tau2_charged_columns + tau2_pi0_columns
     all_data = np.concatenate([predictions, visible_data], axis=1)
     column_names += visible_column_names
     df = pd.DataFrame(all_data, columns=column_names)
 
 
     # now call ConvertFromOrthonormalNRK on the dataframe, first for nubar tau+ neutrino
-    pi_prefix = 'reco_taup_pi1_'
-    pi0_prefix = 'reco_taup_pizero1_'
+    charged_prefix = f'reco_{tau1_prefix}_{charged_name}_'
+    pi0_prefix = f'reco_{tau1_prefix}_pizero1_'
     df = ConvertFromOrthonormalNRK(
         df,
-        prefix_to_convert='taup_nu_',
-        pi_prefix=pi_prefix,
+        prefix_to_convert=f'{tau1_prefix}_nu_',
+        charged_prefix=charged_prefix,
         pi0_prefix=pi0_prefix,
         drop_nrk=True,
         eps=eps,
     )
     # then for nubar tau- neutrino
-    pi_prefix = 'reco_taun_pi1_'
-    pi0_prefix = 'reco_taun_pizero1_'
+    charged_prefix = f'reco_{tau2_prefix}_{charged_name}_'
+    pi0_prefix = f'reco_{tau2_prefix}_pizero1_'
     df = ConvertFromOrthonormalNRK(
         df,
-        prefix_to_convert='taun_nu_',
-        pi_prefix=pi_prefix,
+        prefix_to_convert=f'{tau2_prefix}_nu_',
+        charged_prefix=charged_prefix,
         pi0_prefix=pi0_prefix,
         drop_nrk=True,
         eps=eps,
     )
 
-    # ensure it is ordered like taup_nu_px, taup_nu_py, taup_nu_pz, taun_nu_px, taun_nu_py, taun_nu_pz
-    ordered_columns = [
-        'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
-        'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
-    ]
+    # ensure it is ordered correctly
+    if leptonic_mode==1:
+        ordered_columns = [
+            'tau1_nu_m', 'tau1_nu_px', 'tau1_nu_py', 'tau1_nu_pz',
+            'tau2_nu_px', 'tau2_nu_py', 'tau2_nu_pz'
+        ]
+    elif leptonic_mode==2:
+        ordered_columns = [
+            'taup_nu_m', 'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+            'taun_nu_m', 'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+        ]
+    else:
+        ordered_columns = [
+            'taup_nu_px', 'taup_nu_py', 'taup_nu_pz',
+            'taun_nu_px', 'taun_nu_py', 'taun_nu_pz'
+        ]
     df = df[ordered_columns]
     # return as numpy array
     return df.values

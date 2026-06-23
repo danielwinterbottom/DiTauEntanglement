@@ -57,6 +57,80 @@ spin_density_vars = {
     "C32": r"$\cos\theta_k^+ \cos\theta_r^-$",
 }
 
+reco_vars = {
+    "reco_taup_haspizero":    r"$\tau^+$ has $\pi^0$",
+    "reco_taun_haspizero":    r"$\tau^-$ has $\pi^0$",
+    "reco_taup_ishadronic":   r"$\tau^+$ is hadronic",
+    "reco_taun_ishadronic":   r"$\tau^-$ is hadronic",
+    "reco_taup_npizero":      r"$\tau^+$ $N_{\pi^0}$",
+    "reco_taun_npizero":      r"$\tau^-$ $N_{\pi^0}$",
+    "reco_taup_is3prong":     r"$\tau^+$ is 3-prong",
+    "reco_taun_is3prong":     r"$\tau^-$ is 3-prong",
+    "reco_taup_ismuon":       r"$\tau^+$ is $\mu$",
+    "reco_taun_ismuon":       r"$\tau^-$ is $\mu$",
+    "reco_taup_iselectron":   r"$\tau^+$ is $e$",
+    "reco_taun_iselectron":   r"$\tau^-$ is $e$",
+    "reco_taup_pi1_E":        r"$\tau^+$ $\pi_1$ $E$",
+    "reco_taup_pi1_px":       r"$\tau^+$ $\pi_1$ $p_x$",
+    "reco_taup_pi1_py":       r"$\tau^+$ $\pi_1$ $p_y$",
+    "reco_taup_pi1_pz":       r"$\tau^+$ $\pi_1$ $p_z$",
+    "reco_taup_pizero1_E":    r"$\tau^+$ $\pi^0_1$ $E$",
+    "reco_taup_pizero1_px":   r"$\tau^+$ $\pi^0_1$ $p_x$",
+    "reco_taup_pizero1_py":   r"$\tau^+$ $\pi^0_1$ $p_y$",
+    "reco_taup_pizero1_pz":   r"$\tau^+$ $\pi^0_1$ $p_z$",
+    "reco_taun_pi1_E":        r"$\tau^-$ $\pi_1$ $E$",
+    "reco_taun_pi1_px":       r"$\tau^-$ $\pi_1$ $p_x$",
+    "reco_taun_pi1_py":       r"$\tau^-$ $\pi_1$ $p_y$",
+    "reco_taun_pi1_pz":       r"$\tau^-$ $\pi_1$ $p_z$",
+    "reco_taun_pizero1_E":    r"$\tau^-$ $\pi^0_1$ $E$",
+    "reco_taun_pizero1_px":   r"$\tau^-$ $\pi^0_1$ $p_x$",
+    "reco_taun_pizero1_py":   r"$\tau^-$ $\pi^0_1$ $p_y$",
+    "reco_taun_pizero1_pz":   r"$\tau^-$ $\pi^0_1$ $p_z$",
+    "reco_taup_pi1_ipx":      r"$\tau^+$ $\pi_1$ $ip_x$",
+    "reco_taup_pi1_ipy":      r"$\tau^+$ $\pi_1$ $ip_y$",
+    "reco_taup_pi1_ipz":      r"$\tau^+$ $\pi_1$ $ip_z$",
+    "reco_taun_pi1_ipx":      r"$\tau^-$ $\pi_1$ $ip_x$",
+    "reco_taun_pi1_ipy":      r"$\tau^-$ $\pi_1$ $ip_y$",
+    "reco_taun_pi1_ipz":      r"$\tau^-$ $\pi_1$ $ip_z$",
+    "reco_taup_charged_E":    r"$\tau^+$ charged $E$",
+    "reco_taup_charged_px":   r"$\tau^+$ charged $p_x$",
+    "reco_taup_charged_py":   r"$\tau^+$ charged $p_y$",
+    "reco_taup_charged_pz":   r"$\tau^+$ charged $p_z$",
+    "reco_taun_charged_E":    r"$\tau^-$ charged $E$",
+    "reco_taun_charged_px":   r"$\tau^-$ charged $p_x$",
+    "reco_taun_charged_py":   r"$\tau^-$ charged $p_y$",
+    "reco_taun_charged_pz":   r"$\tau^-$ charged $p_z$",
+    "reco_taup_charged_ipx":  r"$\tau^+$ charged $ip_x$",
+    "reco_taup_charged_ipy":  r"$\tau^+$ charged $ip_y$",
+    "reco_taup_charged_ipz":  r"$\tau^+$ charged $ip_z$",
+    "reco_taun_charged_ipx":  r"$\tau^-$ charged $ip_x$",
+    "reco_taun_charged_ipy":  r"$\tau^-$ charged $ip_y$",
+    "reco_taun_charged_ipz":  r"$\tau^-$ charged $ip_z$",
+    "reco_taup_sv_x":         r"$\tau^+$ SV $x$",
+    "reco_taup_sv_y":         r"$\tau^+$ SV $y$",
+    "reco_taup_sv_z":         r"$\tau^+$ SV $z$",
+    "reco_taun_sv_x":         r"$\tau^-$ SV $x$",
+    "reco_taun_sv_y":         r"$\tau^-$ SV $y$",
+    "reco_taun_sv_z":         r"$\tau^-$ SV $z$",
+    "reco_taup_pi2_E":        r"$\tau^+$ $\pi_2$ $E$",
+    "reco_taup_pi2_px":       r"$\tau^+$ $\pi_2$ $p_x$",
+    "reco_taup_pi2_py":       r"$\tau^+$ $\pi_2$ $p_y$",
+    "reco_taup_pi2_pz":       r"$\tau^+$ $\pi_2$ $p_z$",
+    "reco_taun_pi2_E":        r"$\tau^-$ $\pi_2$ $E$",
+    "reco_taun_pi2_px":       r"$\tau^-$ $\pi_2$ $p_x$",
+    "reco_taun_pi2_py":       r"$\tau^-$ $\pi_2$ $p_y$",
+    "reco_taun_pi2_pz":       r"$\tau^-$ $\pi_2$ $p_z$",
+    "reco_taup_pi3_E":        r"$\tau^+$ $\pi_3$ $E$",
+    "reco_taup_pi3_px":       r"$\tau^+$ $\pi_3$ $p_x$",
+    "reco_taup_pi3_py":       r"$\tau^+$ $\pi_3$ $p_y$",
+    "reco_taup_pi3_pz":       r"$\tau^+$ $\pi_3$ $p_z$",
+    "reco_taun_pi3_E":        r"$\tau^-$ $\pi_3$ $E$",
+    "reco_taun_pi3_px":       r"$\tau^-$ $\pi_3$ $p_x$",
+    "reco_taun_pi3_py":       r"$\tau^-$ $\pi_3$ $p_y$",
+    "reco_taun_pi3_pz":       r"$\tau^-$ $\pi_3$ $p_z$",
+}
+
+
 spin_density_products = {
     "C11": ("cosn_plus", "cosn_minus"),
     "C22": ("cosr_plus", "cosr_minus"),
@@ -143,18 +217,74 @@ def add_spin_density_cols(df, useMAP=True):
     return df
 
 
-def plot_spin_density_vars(df, output_dir, useMAP):
+def plot_spin_density_vars(df, output_dir, useMAP, tag=''):
     df = add_spin_density_cols(df, useMAP=useMAP)
-    plotter(df, spin_density_vars, output_dir, 'spin_density', useMAP=useMAP)
+    suffix = f'{tag}_' if tag else ''
+    plotter(df, spin_density_vars, output_dir, f'{suffix}spin_density', useMAP=useMAP)
 
 
-def plot_spin_vars(df, output_dir, useMAP):
-    plotter(df, spin_vars, output_dir, 'spin_vars', useMAP=useMAP)
+def plot_spin_vars(df, output_dir, useMAP, tag=''):
+    suffix = f'{tag}_' if tag else ''
+    plotter(df, spin_vars, output_dir, f'{suffix}spin_vars', useMAP=useMAP)
 
 
-def plot_pred_taunu(df, output_dir, useMAP):
-    plotter(df, pred_taunu_vars, output_dir, 'pred_taunu', clip=True, useMAP=useMAP)
+def plot_pred_taunu(df, output_dir, useMAP, tag=''):
+    suffix = f'{tag}_' if tag else ''
+    plotter(df, pred_taunu_vars, output_dir, f'{suffix}pred_taunu', clip=True, useMAP=useMAP)
 
+
+def plot_reco_vars(df, output_dir, tag=''):
+    subdir = f'{tag}_reco_vars' if tag else 'reco_vars'
+    os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
+    for var, label in reco_vars.items():
+        reco_col = var
+        stem = var[len("reco_"):]
+        true_col = f"true_{stem}"
+
+        combined_parts = []
+        for col in (true_col, reco_col):
+            if col in df.columns:
+                combined_parts.append(df[col].dropna())
+        combined = pd.concat(combined_parts) if combined_parts else pd.Series(dtype=float)
+
+        if len(combined) > 0:
+            if var.endswith('_E') or var.endswith('_mass'):
+                bin_range = (combined.min(), combined.quantile(0.98))
+            else:
+                bin_range = (combined.quantile(0.01), combined.quantile(0.99))
+            bins = np.histogram_bin_edges(combined, bins=50, range=bin_range)
+        else:
+            bins = 50
+
+        fig, (ax_main, ax_diff) = plt.subplots(1, 2, figsize=(12, 5))
+        fig.suptitle(label)
+        for col, color, legend_label in [(true_col, "#00c04b", "Generator"), (reco_col, "#2979ff", "Reconstructed")]:
+            if col in df.columns:
+                ax_main.hist(df[col].dropna(), bins=bins, histtype="step", linewidth=1.5, color=color, label=legend_label)
+            else:
+                print(f"Warning: Column {col} not found")
+        ax_main.set_xlabel(label)
+        ax_main.set_ylabel("Events")
+        ax_main.set_xlim(bins[0], bins[-1])
+        ax_main.legend()
+        ax_main.text(0.97, 0.97, "(2% clipped)", ha="right", va="top", fontsize=11, transform=ax_main.transAxes, color="grey")
+
+        if true_col in df.columns and reco_col in df.columns:
+            mask = df[true_col].notna() & df[reco_col].notna()
+            lo, hi = bin_range
+            mask &= df[true_col].between(lo, hi) & df[reco_col].between(lo, hi)
+            diff = df.loc[mask, reco_col] - df.loc[mask, true_col]
+            diff_bins = np.histogram_bin_edges(diff, bins=50)
+            ax_diff.hist(diff, bins=diff_bins, histtype="stepfilled", linewidth=1.5, alpha=0.7, color="#C84B2F", edgecolor="#7a2010")
+            ax_diff.set_xlim(diff_bins[0], diff_bins[-1])
+        else:
+            print(f"Warning: Missing columns, so no diff possible")
+        ax_diff.set_xlabel("Reconstructed - Generator (per event)")
+        ax_diff.set_ylabel("Events")
+        plt.tight_layout()
+        fig.savefig(os.path.join(output_dir, subdir, f"{var}.pdf"))
+        plt.close(fig)
+        print(f">> Saved {var}.pdf")
 
 
 def main():
@@ -162,15 +292,28 @@ def main():
     parser = argparse.ArgumentParser(description="Plot kinematics and spin variables")
     parser.add_argument("--input", type=str, help="Path to input parquet file")
     parser.add_argument('--useMLP', action='store_true')
+    parser.add_argument('--sampled', action='store_true')
+    parser.add_argument('--tag', type=str, default='', help="Tag appended to output subdirectory names")
     args = parser.parse_args()
     use_map = not args.useMLP
+    if args.sampled:
+        use_map = False
     df = pd.read_parquet(args.input)
     output_dir = args.input.replace('.parquet', '')
     print(f">> Loaded {len(df)} events from {args.input}")
 
-    plot_spin_vars(df, output_dir, use_map)
-    plot_pred_taunu(df, output_dir, use_map)
-    plot_spin_density_vars(df, output_dir, use_map)
+    # # neutrino cut
+    # pred_col = f"map_pred_nu_E" if use_map else f"pred_{var}"
+    # mask = df[pred_col] < 5
+    # # mask = (df[pred_col] > 5) & (df['map_pred_nubar_E'] > 5)
+    # df = df[mask]
+
+    plot_reco_vars(df, output_dir, tag=args.tag)
+    plot_spin_vars(df, output_dir, use_map, tag=args.tag)
+    plot_pred_taunu(df, output_dir, use_map, tag=args.tag)
+    plot_spin_density_vars(df, output_dir, use_map, tag=args.tag)
+
+
 
 
 

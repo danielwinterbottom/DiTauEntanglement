@@ -438,3 +438,304 @@ class PolarimetricA1:
 
         return out
 
+
+class Vec4:
+    """Array-backed Lorentz 4-vector, metric (+,-,-,-)"""
+
+    def __init__(self, t, x, y, z):
+        self.t = t
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def __add__(self, other):
+        return Vec4(self.t + other.t, self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other):
+        return Vec4(self.t - other.t, self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def __neg__(self):
+        return Vec4(-self.t, -self.x, -self.y, -self.z)
+
+    def __mul__(self, scalar):
+        return Vec4(self.t * scalar, self.x * scalar, self.y * scalar, self.z * scalar)
+
+    def __rmul__(self, scalar):
+        return self.__mul__(scalar)
+
+    def dot(self, other):
+        return self.t * other.t - self.x * other.x - self.y * other.y - self.z * other.z
+
+    def M2(self):
+        return self.dot(self)
+
+    def M(self):
+        return np.sqrt(np.abs(self.M2()))
+
+
+class PolarimetricA1_vectorised:
+    def __init__(self,
+                 p4_tau,
+                 p4_os_pi,
+                 p4_ss1_pi,
+                 p4_ss2_pi,
+                 taucharge) -> None:
+        """
+        Vectorised polarimetric vector for tau -> a1 decay, operating on
+        arrays of events.  Inputs are Momentum4D awkward arrays (fields: E,
+        px, py, pz) or any object whose .E / .px / .py / .pz attributes
+        return array-like values.  taucharge is an array of +/-1 values.
+        """
+
+        def _v(p4):
+            return Vec4(np.asarray(p4.E), np.asarray(p4.px),
+                        np.asarray(p4.py), np.asarray(p4.pz))
+
+        self.p4_tau    = _v(p4_tau)
+        self.p4_os_pi  = _v(p4_os_pi)
+        self.p4_ss1_pi = _v(p4_ss1_pi)
+        self.p4_ss2_pi = _v(p4_ss2_pi)
+
+        self.mpi            =  0.13957018
+        self.mpi0           =  0.1349766
+        self.mtau           =  1.776
+        self.coscab         =  0.975
+        self.mrho           =  0.773
+        self.mrhoprime      =  1.370
+        self.ma1            =  1.251
+        self.mpiprime       =  1.300
+        self.Gamma0rho      =  0.145
+        self.Gamma0rhoprime =  0.510
+        self.Gamma0a1       =  0.599
+        self.Gamma0piprime  =  0.3
+        self.fpi            =  0.093
+        self.fpiprime       =  0.08
+        self.gpiprimerhopi  =  5.8
+        self.grhopipi       =  6.08
+        self.beta           = -0.145
+        self.COEF1          =  2.0*np.sqrt(2.)/3.0
+        self.COEF2          = -2.0*np.sqrt(2.)/3.0
+        self.COEF3          =  2.0*np.sqrt(2.)/3.0
+        self.SIGN           = -np.asarray(taucharge, dtype=float)
+        self.doSystematic   =  False
+        self.systType       =  "UP"
+
+
+    def PVC(self) -> 'Vec4':
+        P  = self.p4_tau
+        q1 = self.p4_ss1_pi
+        q2 = self.p4_ss2_pi
+        q3 = self.p4_os_pi
+
+        a1 = q1 + q2 + q3
+        N  = P - a1
+
+        s1 = (q2 + q3).M2()
+        s2 = (q1 + q3).M2()
+        s3 = (q1 + q2).M2()
+
+        a1_m2 = a1.M2()
+        vec1 = (q2 - q3) - a1 * (a1.dot(q2 - q3) / a1_m2)
+        vec2 = (q3 - q1) - a1 * (a1.dot(q3 - q1) / a1_m2)
+        vec3 = (q1 - q2) - a1 * (a1.dot(q1 - q2) / a1_m2)
+
+        F1 = self.COEF1 * self._F3PI(1, a1_m2, s1, s2)
+        F2 = self.COEF2 * self._F3PI(2, a1_m2, s2, s1)
+        F3 = self.COEF3 * self._F3PI(3, a1_m2, s3, s1)
+
+        HADCUR = [
+            vec1.t * F1 + vec2.t * F2 + vec3.t * F3,
+            vec1.x * F1 + vec2.x * F2 + vec3.x * F3,
+            vec1.y * F1 + vec2.y * F2 + vec3.y * F3,
+            vec1.z * F1 + vec2.z * F2 + vec3.z * F3,
+        ]
+        HADCURC = [np.conj(h) for h in HADCUR]
+
+        CLV = self._CLVEC(HADCUR, HADCURC, N)
+        CLA = self._CLAXI(HADCUR, HADCURC, N)
+
+        omega    = P.dot(CLV) - P.dot(CLA)
+        pdotdiff = P.dot(CLA) - P.dot(CLV)
+        out = ((CLA - CLV) * P.M2() - P * pdotdiff) * (1.0 / omega / P.M())
+
+        return out
+
+
+    def _F3PI(self, IFORM: int, QQ, SA, SB):
+        MRO = 0.7743;  GRO = 0.1491
+        MRP = 1.370;   GRP = 0.386
+        MF2 = 1.275;   GF2 = 0.185
+        MF0 = 1.186;   GF0 = 0.350
+        MSG = 0.860;   GSG = 0.880
+
+        M1, M2, M3 = self.mpi0, self.mpi0, self.mpi
+        M1SQ = M1*M1;  M2SQ = M2*M2;  M3SQ = M3*M3
+
+        db2, dph2 = 0.094, 0.253
+        db3, dph3 = 0.094, 0.104
+        db4, dph4 = 0.296, 0.170
+        db5, dph5 = 0.167, 0.104
+        db6, dph6 = 0.284, 0.036
+        db7, dph7 = 0.148, 0.063
+
+        scale = 0.0
+        if self.doSystematic:
+            scale = 1.0 if self.systType == "UP" else -1.0
+
+        BT1 = 1.0 + 0j
+        BT2 = (0.12 + scale*db2) * np.exp(1j * (0.99   + scale*dph2) * np.pi)
+        BT3 = (0.37 + scale*db3) * np.exp(1j * (-0.15  + scale*dph3) * np.pi)
+        BT4 = (0.87 + scale*db4) * np.exp(1j * ( 0.53  + scale*dph4) * np.pi)
+        BT5 = (0.71 + scale*db5) * np.exp(1j * ( 0.56  + scale*dph5) * np.pi)
+        BT6 = (2.10 + scale*db6) * np.exp(1j * ( 0.23  + scale*dph6) * np.pi)
+        BT7 = (0.77 + scale*db7) * np.exp(1j * (-0.54  + scale*dph7) * np.pi)
+
+        if IFORM == 1 or IFORM == 2:
+            S1 = SA
+            S2 = SB
+            S3 = QQ - SA - SB + M1SQ + M2SQ + M3SQ
+
+            F134 = -(1/3.)  * ((S3 - M3SQ) - (S1 - M1SQ))
+            F150 =  (1/18.) * (QQ - M3SQ + S3) * (2*M1SQ + 2*M2SQ - S3) / S3
+            F167 =  (2/3.)
+
+            FRO1 = self._BWIGML(S1, MRO, GRO, M2, M3, 1)
+            FRP1 = self._BWIGML(S1, MRP, GRP, M2, M3, 1)
+            FRO2 = self._BWIGML(S2, MRO, GRO, M3, M1, 1)
+            FRP2 = self._BWIGML(S2, MRP, GRP, M3, M1, 1)
+            FF23 = self._BWIGML(S3, MF2, GF2, M1, M2, 2)
+            FSG3 = self._BWIGML(S3, MSG, GSG, M1, M2, 0)
+            FF03 = self._BWIGML(S3, MF0, GF0, M1, M2, 0)
+
+            F3PIFactor = (BT1*FRO1 + BT2*FRP1
+                          + BT3*F134*FRO2 + BT4*F134*FRP2
+                          + BT5*F150*FF23 + BT6*F167*FSG3 + BT7*F167*FF03)
+
+        else:  # IFORM == 3
+            S3 = SA
+            S1 = SB
+            S2 = QQ - SA - SB + M1SQ + M2SQ + M3SQ
+
+            F34A = (1/3.)  * ((S2 - M2SQ) - (S3 - M3SQ))
+            F34B = (1/3.)  * ((S3 - M3SQ) - (S1 - M1SQ))
+            F35  = -(1/2.) * ((S1 - M1SQ) - (S2 - M2SQ))
+
+            FRO1 = self._BWIGML(S1, MRO, GRO, M2, M3, 1)
+            FRP1 = self._BWIGML(S1, MRP, GRP, M2, M3, 1)
+            FRO2 = self._BWIGML(S2, MRO, GRO, M3, M1, 1)
+            FRP2 = self._BWIGML(S2, MRP, GRP, M3, M1, 1)
+            FF23 = self._BWIGML(S3, MF2, GF2, M1, M2, 2)
+
+            F3PIFactor = (BT3*(F34A*FRO1 + F34B*FRO2)
+                          + BT4*(F34A*FRP1 + F34B*FRP2)
+                          + BT5*F35*FF23)
+
+        return F3PIFactor * self._FA1A1P(QQ)
+
+
+    def _BWIGML(self, S, M, G, m1, m2, L):
+        MP  = (m1 + m2)**2
+        MM  = (m1 - m2)**2
+        MSQ = M**2
+        W   = np.sqrt(np.maximum(S, 0.0))
+
+        above  = W > (m1 + m2)
+        safe_W = np.where(above, W, 1.0)
+
+        QS  = np.where(above, np.sqrt(np.abs((S - MP)*(S - MM))) / safe_W, 0.0)
+        QM  = np.sqrt(np.abs((MSQ - MP)*(MSQ - MM))) / M
+        WGS = np.where(above, G * (MSQ / safe_W) * (QS / QM)**(2*L + 1), 0.0)
+
+        return MSQ / ((MSQ - S) - 1j*WGS)
+
+
+    def _FA1A1P(self, XMSQ):
+        XM1 = 1.275000;  XG1 = 0.700
+        XM2 = 1.461000;  XG2 = 0.250
+        BET = 0.0 + 0j
+
+        GG1   = XM1*XG1 / (1.3281*0.806)
+        GG2   = XM2*XG2 / (1.3281*0.806)
+        XM1SQ = XM1**2
+        XM2SQ = XM2**2
+
+        GF  = self._WGA1(XMSQ)
+        FG1 = GG1 * GF
+        FG2 = GG2 * GF
+
+        F1 = -XM1SQ / ((XMSQ - XM1SQ) + 1j*FG1)
+        F2 = -XM2SQ / ((XMSQ - XM2SQ) + 1j*FG2)
+
+        return F1 + BET*F2
+
+
+    def _WGA1(self, QQ):
+        MKST  = 0.894;  MK = 0.496
+        MK1SQ = (MKST + MK)**2
+        MK2SQ = (MKST - MK)**2
+        C3PI  = 0.2384**2
+        CKST  = (4.7621**2) * C3PI
+
+        S    = QQ
+        GKST = np.where(S > MK1SQ,
+                        np.sqrt(np.maximum((S - MK1SQ)*(S - MK2SQ), 0.0)) / (2.0*S),
+                        0.0)
+
+        return C3PI*(self._WGA1C(S) + self._WGA1N(S)) + CKST*GKST
+
+
+    def _WGA1C(self, S):
+        STH = 0.1753
+        Q0 =  5.80900;  Q1 = -3.00980;  Q2 = 4.57920
+        P0 = -13.91400;  P1 = 27.67900;  P2 = -13.39300;  P3 = 3.19240;  P4 = -0.10487
+
+        dS = S - STH
+        lo = Q0 * dS**3 * (1.0 + Q1*dS + Q2*dS**2)
+        hi = P0 + P1*S + P2*S**2 + P3*S**3 + P4*S**4
+
+        return np.where(S < STH, 0.0, np.where(S < 0.823, lo, hi))
+
+
+    def _WGA1N(self, S):
+        Q0 =  6.28450;  Q1 = -2.95950;  Q2 = 4.33550
+        P0 = -15.41100;  P1 = 32.08800;  P2 = -17.66600;  P3 = 4.93550;  P4 = -0.37498
+        STH = 0.1676
+
+        dS = S - STH
+        lo = Q0 * dS**3 * (1.0 + Q1*dS + Q2*dS**2)
+        hi = P0 + P1*S + P2*S**2 + P3*S**3 + P4*S**4
+
+        return np.where(S < STH, 0.0, np.where(S < 0.823, lo, hi))
+
+
+    def _CLVEC(self, H, HC, N):
+        HN = H[0]*N.t  - H[1]*N.x  - H[2]*N.y  - H[3]*N.z
+        HH = (H[0]*HC[0] - H[1]*HC[1] - H[2]*HC[2] - H[3]*HC[3]).real
+
+        return Vec4(
+            2*(2*(HN*HC[0]).real - HH*N.t),
+            2*(2*(HN*HC[1]).real - HH*N.x),
+            2*(2*(HN*HC[2]).real - HH*N.y),
+            2*(2*(HN*HC[3]).real - HH*N.z),
+        )
+
+
+    def _CLAXI(self, H, HC, N):
+        a1, a2, a3, a4 = HC[1], HC[2], HC[3], HC[0]
+        b1, b2, b3, b4 =  H[1],  H[2],  H[3],  H[0]
+        c1, c2, c3, c4 = N.x, N.y, N.z, N.t
+
+        d34 = (a3*b4 - a4*b3).imag
+        d24 = (a2*b4 - a4*b2).imag
+        d23 = (a2*b3 - a3*b2).imag
+        d14 = (a1*b4 - a4*b1).imag
+        d13 = (a1*b3 - a3*b1).imag
+        d12 = (a1*b2 - a2*b1).imag
+
+        return Vec4(
+            -self.SIGN * 2*(-c1*d23 + c2*d13 - c3*d12),
+             self.SIGN * 2*( c2*d34 - c3*d24 + c4*d23),
+             self.SIGN * 2*(-c1*d34 + c3*d14 - c4*d13),
+             self.SIGN * 2*( c1*d24 - c2*d14 + c4*d12),
+        )
+

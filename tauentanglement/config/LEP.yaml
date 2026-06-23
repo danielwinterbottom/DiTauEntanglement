@@ -13,7 +13,6 @@ SetupNN:
               'hidden_size': 256,
               'num_blocks': 3,
               'lr': 0.001,
-              'weight_decay': !!float 1e-05,
               'condition_net_hidden_size': 128,
               'condition_net_num_blocks': 2,
               'condition_net_output_size': 128}
@@ -21,8 +20,7 @@ SetupNN:
               'batch_size': 8192,
               'num_blocks': 6,
               'hidden_size': 512,
-              'lr': 0.0005,
-              'weight_decay': !!float 1e-05}
+              'lr': 0.0005}
 
 Data:
   datasets: ['ee_to_tauhtauh_test']  # name of dataset to use, has to be one of the keys in the available_files dictionary below

@@ -8,20 +8,18 @@ from nflows.transforms.permutations import ReversePermutation
 from nflows.transforms.lu import LULinear
 from nflows.transforms.coupling import PiecewiseRationalQuadraticCouplingTransform, AffineCouplingTransform
 from nflows.flows.base import Flow
+import time
 
+# Model Definitions
 
-# normalizing flow definitions
-
-def NormalizingFlowNew(input_size=8, 
-                    context_features=6, 
-                    num_layers=8, 
-                    num_bins=8, 
-                    tail_bound=2.0, 
-                    hidden_size=64, 
+def NormalizingFlow(input_size=8,
+                    context_features=6,
+                    num_layers=8,
+                    num_bins=8,
+                    tail_bound=2.0,
+                    hidden_size=64,
                     num_blocks=2,
                     batch_norm=False,
-                    #activation=nn.PReLU()):
-                    #activation=nn.LeakyReLU(0.1)):
                     activation=nn.ReLU()):
     """Creates a normalizing flow model using nflows library."""
     transforms = []
@@ -45,7 +43,7 @@ def NormalizingFlowNew(input_size=8,
     transform = CompositeTransform(transforms)
     distribution = StandardNormal([input_size])
     flow = Flow(transform, distribution)
-    return flow 
+    return flow
 
 def MLP(input_size=8,
     num_blocks=3,
@@ -67,22 +65,95 @@ def MLP(input_size=8,
 
 class ParticleTransformerCondition(nn.Module):
     """
-    Tokenises reco tau decay products as particles and encodes with a transformer.
-    Expects input features ordered as in the LHC config:
-        [taup_haspizero, taun_haspizero, met_px, met_py,
-         taup_pi1_(px,py,pz,e,ipx,ipy,ipz),
-         taun_pi1_(px,py,pz,e,ipx,ipy,ipz),
-         taup_pizero1_(px,py,pz,e),
-         taun_pizero1_(px,py,pz,e)]
-    -> only works with DM0/1 currently
+    Tokenises reco tau decay products and encodes with a transformer.
+
+    Mode 0 (hadronic, 13 tokens):
+      [taup_pi1, taun_pi1, taup_ip, taun_ip, taup_pi2, taun_pi2,
+       taup_pi3, taun_pi3, taup_pi0, taun_pi0, MET, taup_sv, taun_sv]
+      pi2/pi3/sv masked when is_3prong=0; pi0 masked when haspizero=0.
+
+    Mode 1 (semi-leptonic, 9 tokens):
+      [tau1_lep, tau1_lep_ip, tau2_pi1, tau2_ip, tau2_pi2,
+       tau2_pi3, tau2_pi0, MET, tau2_sv]
+      tau2 pi2/pi3/sv masked when is_3prong=0; tau2_pi0 masked when haspizero=0.
     """
 
-    def __init__(self, context_dim=256, d_model=64, nhead=4, num_layers=3, dropout=0.0):
+    # mode 0 feature names
+    _taup_pi1_feats = ['reco_taup_pi1_px', 'reco_taup_pi1_py', 'reco_taup_pi1_pz', 'reco_taup_pi1_e']
+    _taun_pi1_feats = ['reco_taun_pi1_px', 'reco_taun_pi1_py', 'reco_taun_pi1_pz', 'reco_taun_pi1_e']
+    _taup_charged_ip_feats = ['reco_taup_charged_ipx', 'reco_taup_charged_ipy', 'reco_taup_charged_ipz']
+    _taun_charged_ip_feats = ['reco_taun_charged_ipx', 'reco_taun_charged_ipy', 'reco_taun_charged_ipz']
+    _taup_pi2_feats = ['reco_taup_pi2_px', 'reco_taup_pi2_py', 'reco_taup_pi2_pz', 'reco_taup_pi2_e']
+    _taun_pi2_feats = ['reco_taun_pi2_px', 'reco_taun_pi2_py', 'reco_taun_pi2_pz', 'reco_taun_pi2_e']
+    _taup_pi3_feats = ['reco_taup_pi3_px', 'reco_taup_pi3_py', 'reco_taup_pi3_pz', 'reco_taup_pi3_e']
+    _taun_pi3_feats = ['reco_taun_pi3_px', 'reco_taun_pi3_py', 'reco_taun_pi3_pz', 'reco_taun_pi3_e']
+    _taup_pizero_feats = ['reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz', 'reco_taup_pizero1_e']
+    _taun_pizero_feats = ['reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz', 'reco_taun_pizero1_e']
+    _taup_sv_feats = ['reco_taup_sv_x', 'reco_taup_sv_y', 'reco_taup_sv_z']
+    _taun_sv_feats = ['reco_taun_sv_x', 'reco_taun_sv_y', 'reco_taun_sv_z']
+
+    # mode 1 feature names (tau1=lepton, tau2=hadronic)
+    _tau1_lep_feats = ['reco_tau1_lep_px', 'reco_tau1_lep_py', 'reco_tau1_lep_pz', 'reco_tau1_lep_e']
+    _tau1_lep_ip_feats = ['reco_tau1_lep_ipx', 'reco_tau1_lep_ipy', 'reco_tau1_lep_ipz']
+    _tau2_pi1_feats = ['reco_tau2_pi1_px', 'reco_tau2_pi1_py', 'reco_tau2_pi1_pz', 'reco_tau2_pi1_e']
+    _tau2_charged_ip_feats = ['reco_tau2_charged_ipx', 'reco_tau2_charged_ipy', 'reco_tau2_charged_ipz']
+    _tau2_pi2_feats = ['reco_tau2_pi2_px', 'reco_tau2_pi2_py', 'reco_tau2_pi2_pz', 'reco_tau2_pi2_e']
+    _tau2_pi3_feats = ['reco_tau2_pi3_px', 'reco_tau2_pi3_py', 'reco_tau2_pi3_pz', 'reco_tau2_pi3_e']
+    _tau2_pizero_feats = ['reco_tau2_pizero1_px', 'reco_tau2_pizero1_py', 'reco_tau2_pizero1_pz', 'reco_tau2_pizero1_e']
+    _tau2_sv_feats = ['reco_tau2_sv_x', 'reco_tau2_sv_y', 'reco_tau2_sv_z']
+
+    _met_feats = ['reco_met_px', 'reco_met_py']
+
+    def __init__(self, input_features, leptonic_mode, context_dim=256, d_model=64, nhead=4, num_layers=3, dropout=0.0):
         super().__init__()
-        self.pion_proj   = nn.Linear(7, d_model)   # 4-mom + IP (shared taup/taun)
-        self.pizero_proj = nn.Linear(4, d_model)   # 4-mom only (shared taup/taun)
-        self.met_proj    = nn.Linear(2, d_model)   # px, py
-        self.type_emb    = nn.Embedding(5, d_model) # learned per-token-type embedding
+        self.leptonic_mode = leptonic_mode
+        feat_idx = {name: i for i, name in enumerate(input_features)}
+
+        self.met_idx = [feat_idx[f] for f in self._met_feats]
+
+        # projections shared across modes
+        self.pi_proj = nn.Linear(4, d_model)   # 4-momentum (pi1, pi2, pi3, pi0)
+        self.ip_proj = nn.Linear(3, d_model)   # impact parameter / SV 3-vector
+        self.met_proj = nn.Linear(2, d_model)
+        self.sv_proj = nn.Linear(3, d_model)
+
+        if leptonic_mode == 0:
+            print(">> Using Hadronic Training Embedding")
+            self.taup_pi1_idx = [feat_idx[f] for f in self._taup_pi1_feats]
+            self.taun_pi1_idx = [feat_idx[f] for f in self._taun_pi1_feats]
+            self.taup_charged_ip_idx = [feat_idx[f] for f in self._taup_charged_ip_feats]
+            self.taun_charged_ip_idx = [feat_idx[f] for f in self._taun_charged_ip_feats]
+            self.taup_pi2_idx = [feat_idx[f] for f in self._taup_pi2_feats]
+            self.taun_pi2_idx = [feat_idx[f] for f in self._taun_pi2_feats]
+            self.taup_pi3_idx = [feat_idx[f] for f in self._taup_pi3_feats]
+            self.taun_pi3_idx = [feat_idx[f] for f in self._taun_pi3_feats]
+            self.taup_pizero_idx = [feat_idx[f] for f in self._taup_pizero_feats]
+            self.taun_pizero_idx = [feat_idx[f] for f in self._taun_pizero_feats]
+            self.taup_sv_idx = [feat_idx[f] for f in self._taup_sv_feats]
+            self.taun_sv_idx = [feat_idx[f] for f in self._taun_sv_feats]
+            self.taup_haspizero_idx = feat_idx['reco_taup_haspizero']
+            self.taun_haspizero_idx = feat_idx['reco_taun_haspizero']
+            self.taup_is3prong_idx = feat_idx['reco_taup_is3prong']
+            self.taun_is3prong_idx = feat_idx['reco_taun_is3prong']
+            self.type_emb = nn.Embedding(13, d_model)
+
+        elif leptonic_mode == 1:
+            print(">> Using SemiLeptonic Training Embedding")
+            self.tau1_lep_idx = [feat_idx[f] for f in self._tau1_lep_feats]
+            self.tau1_lep_ip_idx = [feat_idx[f] for f in self._tau1_lep_ip_feats]
+            self.tau1_ismuon_idx = feat_idx['reco_tau1_ismuon']
+            self.tau2_pi1_idx = [feat_idx[f] for f in self._tau2_pi1_feats]
+            self.tau2_charged_ip_idx = [feat_idx[f] for f in self._tau2_charged_ip_feats]
+            self.tau2_pi2_idx = [feat_idx[f] for f in self._tau2_pi2_feats]
+            self.tau2_pi3_idx = [feat_idx[f] for f in self._tau2_pi3_feats]
+            self.tau2_pizero_idx = [feat_idx[f] for f in self._tau2_pizero_feats]
+            self.tau2_sv_idx = [feat_idx[f] for f in self._tau2_sv_feats]
+            self.tau2_haspizero_idx = feat_idx['reco_tau2_haspizero']
+            self.tau2_is3prong_idx = feat_idx['reco_tau2_is3prong']
+            self.lep_proj = nn.Linear(5, d_model)  # lep 4-momentum + ismuon flag
+            self.type_emb = nn.Embedding(9, d_model)
+        else:
+            raise ValueError(f"Unsupported leptonic_mode: {leptonic_mode}")
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=nhead,
@@ -90,25 +161,63 @@ class ParticleTransformerCondition(nn.Module):
             dropout=dropout, batch_first=True,
             activation='gelu', norm_first=True,
         )
-        self.transformer  = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        self.output_proj  = nn.Linear(d_model, context_dim)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.output_proj = nn.Linear(d_model, context_dim)
 
     def forward(self, x):
         B, device = x.shape[0], x.device
-        type_embs = self.type_emb(torch.arange(5, device=device))  # [5, d_model]
 
-        tokens = torch.stack([
-            self.pion_proj(x[:, 4:11])    + type_embs[0],  # taup pion
-            self.pion_proj(x[:, 11:18])   + type_embs[1],  # taun pion
-            self.pizero_proj(x[:, 18:22]) + type_embs[2],  # taup pi0
-            self.pizero_proj(x[:, 22:26]) + type_embs[3],  # taun pi0
-            self.met_proj(x[:, 2:4])      + type_embs[4],  # MET
-        ], dim=1)
+        if self.leptonic_mode == 0:
+            type_embs = self.type_emb(torch.arange(13, device=device))
+            tokens = torch.stack([
+                self.pi_proj(x[:, self.taup_pi1_idx]) + type_embs[0],
+                self.pi_proj(x[:, self.taun_pi1_idx]) + type_embs[1],
+                self.ip_proj(x[:, self.taup_charged_ip_idx]) + type_embs[2],
+                self.ip_proj(x[:, self.taun_charged_ip_idx]) + type_embs[3],
+                self.pi_proj(x[:, self.taup_pi2_idx]) + type_embs[4],
+                self.pi_proj(x[:, self.taun_pi2_idx]) + type_embs[5],
+                self.pi_proj(x[:, self.taup_pi3_idx]) + type_embs[6],
+                self.pi_proj(x[:, self.taun_pi3_idx]) + type_embs[7],
+                self.pi_proj(x[:, self.taup_pizero_idx]) + type_embs[8],
+                self.pi_proj(x[:, self.taun_pizero_idx]) + type_embs[9],
+                self.met_proj(x[:, self.met_idx]) + type_embs[10],
+                self.sv_proj(x[:, self.taup_sv_idx]) + type_embs[11],
+                self.sv_proj(x[:, self.taun_sv_idx]) + type_embs[12],
+            ], dim=1)
 
-        # True = ignore this token (PyTorch convention)
-        pad_mask = torch.zeros(B, 5, dtype=torch.bool, device=device)
-        pad_mask[:, 2] = ~x[:, 0].bool()  # taup pi0 absent when haspizero=0
-        pad_mask[:, 3] = ~x[:, 1].bool()  # taun pi0 absent when haspizero=0
+            # Mask undefined columns (DM dependent, True = ignore token)
+            pad_mask = torch.zeros(B, 13, dtype=torch.bool, device=device)
+            pad_mask[:, 4] = ~x[:, self.taup_is3prong_idx].bool()  # taup pi2
+            pad_mask[:, 5] = ~x[:, self.taun_is3prong_idx].bool()  # taun pi2
+            pad_mask[:, 6] = ~x[:, self.taup_is3prong_idx].bool()  # taup pi3
+            pad_mask[:, 7] = ~x[:, self.taun_is3prong_idx].bool()  # taun pi3
+            pad_mask[:, 8] = ~x[:, self.taup_haspizero_idx].bool()  # taup pi0
+            pad_mask[:, 9] = ~x[:, self.taun_haspizero_idx].bool()  # taun pi0
+            pad_mask[:, 11] = ~x[:, self.taup_is3prong_idx].bool()  # taup SV
+            pad_mask[:, 12] = ~x[:, self.taun_is3prong_idx].bool()  # taun SV
+
+        elif self.leptonic_mode == 1:
+            type_embs = self.type_emb(torch.arange(9, device=device))
+            lep_input = torch.cat(
+                [x[:, self.tau1_lep_idx], x[:, self.tau1_ismuon_idx].unsqueeze(-1)], dim=-1
+            )
+            tokens = torch.stack([
+                self.lep_proj(lep_input) + type_embs[0],  # tau1 lepton
+                self.ip_proj(x[:, self.tau1_lep_ip_idx]) + type_embs[1], # tau1 lep IP
+                self.pi_proj(x[:, self.tau2_pi1_idx]) + type_embs[2], # tau2 pi1
+                self.ip_proj(x[:, self.tau2_charged_ip_idx]) + type_embs[3], # tau2 IP
+                self.pi_proj(x[:, self.tau2_pi2_idx]) + type_embs[4],  # tau2 pi2
+                self.pi_proj(x[:, self.tau2_pi3_idx]) + type_embs[5],  # tau2 pi3
+                self.pi_proj(x[:, self.tau2_pizero_idx]) + type_embs[6],  # tau2 pi0
+                self.met_proj(x[:, self.met_idx]) + type_embs[7],  # MET
+                self.sv_proj(x[:, self.tau2_sv_idx]) + type_embs[8],  # tau2 SV
+            ], dim=1)
+
+            pad_mask = torch.zeros(B, 9, dtype=torch.bool, device=device)
+            pad_mask[:, 4] = ~x[:, self.tau2_is3prong_idx].bool()  # tau2 pi2
+            pad_mask[:, 5] = ~x[:, self.tau2_is3prong_idx].bool() # tau2 pi3
+            pad_mask[:, 6] = ~x[:, self.tau2_haspizero_idx].bool()  # tau2 pi0
+            pad_mask[:, 8] = ~x[:, self.tau2_is3prong_idx].bool()  # tau2 SV
 
         out = self.transformer(tokens, src_key_padding_mask=pad_mask)
 
@@ -117,65 +226,65 @@ class ParticleTransformerCondition(nn.Module):
         context = (out * present).sum(dim=1) / present.sum(dim=1)
         return self.output_proj(context)
 
-# Lucas TODO: can be merged with main one probably
-class ConditionalFlowTransformer(nn.Module):
-    """
-    Replacement for ConditionalFlow using a particle transformer
-    condition network and NormalizingFlowNew as the flow.
-    """
+class TransformerRegressor(nn.Module):
+    """Transformer encoder (same tokenisation as ConditionalFlow w/ use_transformer=True)
+    followed by a small MLP head for direct regression. Trained with MSE loss."""
 
-    def __init__(self, input_dim, context_dim=256, d_model=64, nhead=4,
-                 num_transformer_layers=3, dropout=0.0, **flow_kwargs):
+    def __init__(self, input_features, leptonic_mode, output_dim,
+                 context_dim=256, d_model=128, nhead=4, num_layers=3, dropout=0.0):
         super().__init__()
-        self.condition_net = ParticleTransformerCondition(
-            context_dim=context_dim, d_model=d_model,
-            nhead=nhead, num_layers=num_transformer_layers, dropout=dropout,
+        print("!! INFO: TransformerRegressor — transformer encoder + MSE regression head (no normalizing flow)")
+        self.encoder = ParticleTransformerCondition(
+            input_features=input_features,
+            leptonic_mode=leptonic_mode,
+            context_dim=context_dim,
+            d_model=d_model, nhead=nhead,
+            num_layers=num_layers, dropout=dropout,
         )
-        self.flow = NormalizingFlowNew(
-            input_size=input_dim,
-            context_features=context_dim,
-            **flow_kwargs
+        self.head = nn.Sequential(
+            nn.Linear(context_dim, context_dim),
+            nn.GELU(),
+            nn.Linear(context_dim, output_dim),
         )
 
-    def log_prob(self, inputs, context):
-        return self.flow.log_prob(inputs=inputs, context=self.condition_net(context))
-
-    def sample(self, num_samples, context):
-        return self.flow.sample(num_samples=num_samples, context=self.condition_net(context))
-
-    def encode(self, inputs, context):
-        cond_embed = self.condition_net(context)
-        z, logabsdet = self.flow._transform.forward(inputs, context=cond_embed)
-        return z, logabsdet
-
-    def decode(self, z, context):
-        cond_embed = self.condition_net(context)
-        x, logabsdet = self.flow._transform.inverse(z, context=cond_embed)
-        return x, logabsdet
-
-    def sample_and_log_prob(self, num_samples, context):
-        return self.flow.sample_and_log_prob(num_samples=num_samples, context=self.condition_net(context))
+    def forward(self, x):
+        return self.head(self.encoder(x))
 
 
 class ConditionalFlow(nn.Module):
     def __init__(self,
                  input_dim,
-                 raw_condition_dim,
-                 context_dim,
+                 raw_condition_dim=None,
+                 context_dim=256,
                  cond_hidden_dim=64,
                  cond_num_blocks=2,
                  batch_norm=False,
                  activation=nn.ReLU(),
+                 use_transformer=False,
+                 input_features=None,
+                 leptonic_mode=0,
+                 d_model=64,
+                 nhead=4,
+                 num_transformer_layers=3,
+                 dropout=0.0,
                  **flow_kwargs
     ):
         super().__init__()
 
-        # if cond_num_blocks = 0 we just skip the condition network
-        if cond_num_blocks == 0:
+        if use_transformer:
+            print("!! INFO: Using Transformer for conditioning")
+            self.condition_net = ParticleTransformerCondition(
+                input_features=input_features,
+                leptonic_mode=leptonic_mode,
+                context_dim=context_dim, d_model=d_model,
+                nhead=nhead, num_layers=num_transformer_layers, dropout=dropout,
+            )
+        elif cond_num_blocks == 0:
+            print("!! INFO: No conditioning network")
             self.condition_net = nn.Identity()
             context_dim = raw_condition_dim
-
         else:
+            print("!! INFO: Using ResidualNet for conditioning")
             self.condition_net = nets.ResidualNet(
                 in_features=raw_condition_dim,
                 out_features=context_dim,
@@ -185,7 +294,7 @@ class ConditionalFlow(nn.Module):
                 use_batch_norm=batch_norm
             )
 
-        self.flow = NormalizingFlowNew(
+        self.flow = NormalizingFlow(
             input_size=input_dim,
             context_features=context_dim,
             activation=activation,
@@ -194,7 +303,8 @@ class ConditionalFlow(nn.Module):
 
     def log_prob(self, inputs, context):
         cond_embed = self.condition_net(context)
-        return self.flow.log_prob(inputs=inputs, context=cond_embed)
+        log_prob = self.flow.log_prob(inputs=inputs, context=cond_embed)
+        return log_prob
 
     def sample(self, num_samples, context):
         cond_embed = self.condition_net(context)
@@ -224,5 +334,3 @@ class ConditionalFlow(nn.Module):
         """
         cond_embed = self.condition_net(context)
         return self.flow.sample_and_log_prob(num_samples=num_samples, context=cond_embed)
-    
-

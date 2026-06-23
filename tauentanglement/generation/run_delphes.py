@@ -39,10 +39,10 @@ def TraceTauMother(part, particles, verbose=False):
             print("Other mothers found:")
             for idx in mother_indices[1:]:
                 other_mother = particles.At(idx)
-                if not other_mother.PID in mother_ids_to_exclude:
-                    if verbose:
-                        print('id = %i, status = %i, pT = %.4f, eta = %.4f, phi = %.4f' %
-                              (other_mother.PID, other_mother.Status, other_mother.PT, other_mother.Eta, other_mother.Phi))
+                #if not other_mother.PID in mother_ids_to_exclude:
+                if verbose:
+                    print('id = %i, status = %i, pT = %.4f, eta = %.4f, phi = %.4f' %
+                          (other_mother.PID, other_mother.Status, other_mother.PT, other_mother.Eta, other_mother.Phi))
 
     return mother_id, mother_pdgid
 
@@ -451,10 +451,10 @@ class TrackAngularSmearer:
             3: ResolutionGraph(base + "phi_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
         }
 
-        self.costheta_res = {
-            1: ResolutionGraph(base + "costheta_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
-            2: ResolutionGraph(base + "costheta_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
-            3: ResolutionGraph(base + "costheta_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
+        self.cottheta_res = {
+            1: ResolutionGraph(base + "cottheta_resolution_eta_0_to_0p9.txt", unit_conversion=1e-3),
+            2: ResolutionGraph(base + "cottheta_resolution_eta_0p9_to_1p4.txt", unit_conversion=1e-3),
+            3: ResolutionGraph(base + "cottheta_resolution_eta_1p4_to_2p5.txt", unit_conversion=1e-3),
         }
 
         self.d0_res = {
@@ -486,9 +486,9 @@ class TrackAngularSmearer:
         eta_bin = self.get_eta_bin(eta)
         return self.phi_res[eta_bin].eval(pt)
 
-    def get_costheta_resolution(self, eta, pt):
+    def get_cottheta_resolution(self, eta, pt):
         eta_bin = self.get_eta_bin(eta)
-        return self.costheta_res[eta_bin].eval(pt)
+        return self.cottheta_res[eta_bin].eval(pt)
 
     def get_d0_resolution(self, eta, pt):
         eta_bin = self.get_eta_bin(eta)
@@ -500,18 +500,14 @@ class TrackAngularSmearer:
 
     def smear_eta_phi(self, eta, phi, pt):
         sigma_phi = self.get_phi_resolution(eta, pt)
-        sigma_costheta = self.get_costheta_resolution(eta, pt)
+        sigma_cottheta = self.get_cottheta_resolution(eta, pt)
 
         phi_smeared = phi + self.rng.normal(0.0, sigma_phi)
         phi_smeared = self.wrap_phi(phi_smeared)
 
-        costheta = np.tanh(eta)
-        costheta_smeared = costheta + self.rng.normal(0.0, sigma_costheta)
-
-        eps = 1e-9
-        costheta_smeared = np.clip(costheta_smeared, -1.0 + eps, 1.0 - eps)
-
-        eta_smeared = np.arctanh(costheta_smeared)
+        cottheta = np.sinh(eta)
+        cottheta_smeared = cottheta + self.rng.normal(0.0, sigma_cottheta)
+        eta_smeared = np.arcsinh(cottheta_smeared)
 
         return eta_smeared, phi_smeared
 
@@ -836,6 +832,17 @@ for iev in range(reader.GetEntries()):
         branch_vals['taup_pi3_pz'][0] = taup_pis[2].P4().Pz()
         branch_vals['taup_pi3_e'][0] = taup_pis[2].P4().E()
 
+    if len(taun_pis) > 1:
+        branch_vals['taun_pi2_px'][0] = taun_pis[1].P4().Px()
+        branch_vals['taun_pi2_py'][0] = taun_pis[1].P4().Py()
+        branch_vals['taun_pi2_pz'][0] = taun_pis[1].P4().Pz()
+        branch_vals['taun_pi2_e'][0] = taun_pis[1].P4().E()
+    if len(taun_pis) > 2:
+        branch_vals['taun_pi3_px'][0] = taun_pis[2].P4().Px()
+        branch_vals['taun_pi3_py'][0] = taun_pis[2].P4().Py()
+        branch_vals['taun_pi3_pz'][0] = taun_pis[2].P4().Pz()
+        branch_vals['taun_pi3_e'][0] = taun_pis[2].P4().E()
+
     branch_vals['taup_charged_px'][0] = taup_charged_sum.Px()
     branch_vals['taup_charged_py'][0] = taup_charged_sum.Py()
     branch_vals['taup_charged_pz'][0] = taup_charged_sum.Pz()
@@ -906,6 +913,7 @@ for iev in range(reader.GetEntries()):
             t.Phi = new_p4.Phi()
             t.D0 = new_d0
             t.DZ = new_dz
+            t.CtgTheta = np.sinh(t.Eta) # recalculate CtgTheta based on new Eta
         for t in taun_reco_track_matches:
             new_p4 = smearer.smear_tlorentzvector_angles(t.P4())
             new_d0, new_dz = smearer.smear_d0_dz(t.D0, t.DZ, t.Eta, t.PT)
@@ -914,7 +922,7 @@ for iev in range(reader.GetEntries()):
             t.Phi = new_p4.Phi()
             t.D0 = new_d0
             t.DZ = new_dz
-
+            t.CtgTheta = np.sinh(t.Eta) # recalculate CtgTheta based on new Eta
     taup_strips = RecoStrips(taup_reco_photon_matches)
     # sort by pT of the strip
     taup_strips.sort(key=lambda x: x[0].Pt(), reverse=True)

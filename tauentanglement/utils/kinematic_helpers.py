@@ -1,7 +1,6 @@
 import numpy as np
 import ROOT
 
-
 def ldot(a, b):
     """
     Minkowski dot product (+,-,-,-)
@@ -33,9 +32,31 @@ def add_energy(pvec3):
     return np.column_stack((np.sqrt((pvec3**2).sum(axis=1)), pvec3))
 
 
-def add_energies_pair(arr6):
-    """Convert (N,6) [nubar_px,py,pz, nu_px,py,pz] to (N,8) with E=|p| prepended to each triplet."""
-    return np.column_stack((add_energy(arr6[:, 0:3]), add_energy(arr6[:, 3:6])))
+def add_energies_pair(arr):
+    """
+    Depending on shape of input:
+    Convert (N,6) [nu1_px,nu1_py,nu1_pz, nu2_px,nu2_py,nu2_pz] to (N,8) with E=|p| prepended to each triplet.
+    Convert (N,7) [nu1_m,nu1_px,nu1_py,nu1_pz, nu2_px,nu2_py,nu2_pz] to (N,8) with E1=sqrt(p1^2+m1^2) and E2=|p2| prepended to each triplet.
+    Convert (N,8) [nu1_m,nu1_px,nu1_py,nu1_pz, nu2_m,nu2_px,nu2_py,nu2_pz] to (N,8) with E1=sqrt(p1^2+m1^2) and E2=sqrt(p2^2+m2^2) prepended to each triplet.
+    """
+    if arr.shape[1] == 6:
+        return np.column_stack((add_energy(arr[:, 0:3]), add_energy(arr[:, 3:6])))
+    elif arr.shape[1] == 7:
+        mass1 = arr[:, 0]
+        obj1_nomass = add_energy(arr[:, 1:4])
+        obj1 = np.column_stack((np.sqrt(obj1_nomass[:, 0]**2 + mass1**2), obj1_nomass[:, 1:]))
+        obj2 = add_energy(arr[:, 4:7])
+        return np.column_stack((obj1, obj2))
+    elif arr.shape[1] == 8:
+        mass1 = arr[:, 0]
+        mass2 = arr[:, 4]
+        obj1_nomass = add_energy(arr[:, 1:4])
+        obj1 = np.column_stack((np.sqrt(obj1_nomass[:, 0]**2 + mass1**2), obj1_nomass[:, 1:]))
+        obj2_nomass = add_energy(arr[:, 5:8])
+        obj2 = np.column_stack((np.sqrt(obj2_nomass[:, 0]**2 + mass2**2), obj2_nomass[:, 1:] ))
+        return np.column_stack((obj1, obj2))
+    else:
+        raise ValueError(f"Unexpected input shape {arr.shape}, expected (N,6), (N,7) or (N,8)")
 
 
 def inv_mass(taus, offset=0):
@@ -92,7 +113,7 @@ def polarimetric_vector_tau(
     pi1_b = boost(pi1[mask1], -boost_vec[mask1])
     tau_s[mask1] = spatial(pi1_b, unit=True)
 
-    mask2 = (tau_npi == 1) & (tau_npizero == 1)
+    mask2 = (tau_npi == 1) & (tau_npizero >= 1)
 
     q = pi1[mask2] - piz1[mask2]
     P = tau[mask2]
@@ -205,10 +226,8 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
                      [0, 1]])
     
     rho1 = np.kron(I, I)
-    
-    rho2=sum(Bplus[i] * np.kron(pauli_matrices[i], I) for i in range(3))
-    
-    rho3=sum(Bminus[j] * np.kron(I, pauli_matrices[j]) for j in range(3))
+    rho2 = sum(Bplus[i, 0] * np.kron(pauli_matrices[i], I) for i in range(3))
+    rho3 = sum(Bminus[j, 0] * np.kron(I, pauli_matrices[j]) for j in range(3))
     
     rho4 = np.zeros((4, 4), dtype=complex)  # Initialize a 4x4 complex matrix
     for i in range(3):
@@ -217,6 +236,10 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
     
     
     rho = 1./4*(rho1+rho2+rho3+rho4) 
+
+    # check if rho is valid density matrix (Hermitian, positive semi-definite, trace=1)
+    if not np.all(np.linalg.eigvals(rho) >= -1e-10):
+        print("Warning: rho is unphysical - not positive semi-definite!")
 
    
     trace = np.trace(rho)
@@ -227,14 +250,19 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
    
     # using formulas from https://journals.aps.org/prd/pdf/10.1103/PhysRevD.107.093002 
     # seems to be different to https://arxiv.org/pdf/2405.09201 but gives the expected answer
-    rho_tilde = z*rhostar*z
-    
-    R = np.sqrt(np.sqrt(rho)*rho_tilde*np.sqrt(rho))
-    R_EVs = sorted(np.linalg.eigvals(R),reverse=True)
-    con = R_EVs[0]-sum(R_EVs[1:])
+    #rho_tilde = z*rhostar*z
+    #R = np.sqrt(np.sqrt(rho)*rho_tilde*np.sqrt(rho))
+    #R_EVs = sorted(np.linalg.eigvals(R),reverse=True)
+    #con = max(0, R_EVs[0]-sum(R_EVs[1:]))
 
+    #using formulas from https://arxiv.org/pdf/2405.09201
+    y = np.kron(sig2, sig2)
+    R = rho @ y @ rhostar @ y
+    R_EVs = np.linalg.eigvals(R)
+    lambdas = np.sort(np.sqrt(np.clip(np.real_if_close(R_EVs).real, 0, None)))[::-1]
+    con = max(0, lambdas[0] - lambdas[1] - lambdas[2] - lambdas[3])
 
-    M = C*C.T
+    M = C @ C.T
     M_EVs = sorted(np.linalg.eigvals(M),reverse=True)
     m12 = M_EVs[0]+M_EVs[1]
   

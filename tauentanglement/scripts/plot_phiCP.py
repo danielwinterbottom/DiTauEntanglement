@@ -12,8 +12,8 @@ from tauentanglement.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
     get_R_P_vectors_all,
     compute_aco_classic,
-    get_ditau_polarimetric_gen,
-    get_ditau_polarimetric_reco,
+    compute_aco_classic_a1a1,
+    get_ditau_polarimetric
 )
 
 plt.style.use(hep.style.CMS)
@@ -21,8 +21,10 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May27/output_results_CPEven.parquet',
-'odd': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/outputs_model_NFlows_LHC_onnorm_reco_mixedCPtraining_HadronicOnly_May27/output_results_CPOdd.parquet',
+'even': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPEven.parquet',
+'odd': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPOdd.parquet',
+'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
+'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
 'mix': None
 },
     'gen': {
@@ -39,23 +41,68 @@ options = {
     },
 }
 
+# def replace_low_pred_map(df):
+#     df = df.copy()
+
+#     mask_plus = df['map_pred_nu_E'] < 5
+#     mask_minus = df['map_pred_nubar_E'] < 5
+#     n_plus = mask_plus.sum()
+#     n_minus = mask_minus.sum()
+#     print(f"replace_low_pred_map: replacing {n_plus}/{len(df)} tau+ entries, {n_minus}/{len(df)} tau- entries")
+
+#     df['map_pred_tau_plus_E'] = np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_E'], df['map_pred_tau_plus_E'])
+#     df['map_pred_tau_plus_px'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_px'], df['map_pred_tau_plus_px'])
+#     df['map_pred_tau_plus_py'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_py'], df['map_pred_tau_plus_py'])
+#     df['map_pred_tau_plus_pz'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_pz'], df['map_pred_tau_plus_pz'])
+
+#     df['map_pred_tau_minus_E'] = np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_E'], df['map_pred_tau_minus_E'])
+#     df['map_pred_tau_minus_px'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_px'], df['map_pred_tau_minus_px'])
+#     df['map_pred_tau_minus_py'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_py'], df['map_pred_tau_minus_py'])
+#     df['map_pred_tau_minus_pz'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_pz'], df['map_pred_tau_minus_pz'])
+
+#     return df
+
+
+
+
 
 def compute_phicp_all(df, option, use_map=True):
     # Compute phiCP for all events in the df (splitting of methods by DM done automatically, vectorised)
     df = df.copy()
     if option == 'gen':
-        R1, P1, R2, P2 = get_ditau_polarimetric_gen(df)
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
+        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix='true', reco_pions=True)
+        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoNu':
-        R1, P1, R2, P2 = get_ditau_polarimetric_reco(df, useMAP=use_map)
-        phiCP = compute_aco_polarimetric(R1, P1, R2, P2, 0, 0)
+        tau_prefix = 'map_pred' if use_map else 'pred'
+        R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix=tau_prefix, reco_pions=True)
+        # print R2's and P2's only for dm=10
+        R2_dm10 = R2[df['taun_DM'] == 10]
+        P2_dm10 = P2[df['taun_DM'] == 10]
+        phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoRun3':
-        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='reco_taup')
-        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='reco_taun')
-        phiCP = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
+        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup')
+        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='taun')
+        phiCPmain = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
+        phiCPa1a1 = compute_aco_classic_a1a1(df)
+        phiCP = np.where((df['taup_DM'] == 10) & (df['taun_DM'] == 10), phiCPa1a1, phiCPmain)
     df['phiCP'] = np.array(phiCP)
     return df
 
+def add_DM(df, dm_prefix='reco'):
+    for tau in ['taup', 'taun']:
+        tau_is_lep = df[f'{dm_prefix}_{tau}_ishadronic'].values == 0
+        tau_is_dm0 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0) & (~tau_is_lep)
+        tau_is_dm1 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0) & (~tau_is_lep)
+        tau_is_dm2 = ((df[f"{dm_prefix}_{tau}_npizero"].values == 1) | (df[f"{dm_prefix}_{tau}_npizero"].values == 2)) & (df[f'{dm_prefix}_{tau}_is3prong'] == 0) & (~tau_is_lep)
+        tau_is_dm10 = (df[f"{dm_prefix}_{tau}_npizero"].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1) & (~tau_is_lep)
+        tau_is_dm11 = (df[f"{dm_prefix}_{tau}_npizero"].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'] == 1) & (~tau_is_lep)
+        df[f'{tau}_DM'] = np.where(tau_is_dm0, 0,
+                             np.where(tau_is_dm1, 1,
+                                      np.where(tau_is_dm2, 2,
+                                               np.where(tau_is_dm10, 10, 
+                                                    np.where(tau_is_dm11, 11,
+                                                        np.where(tau_is_lep, 100, -1))))))
+    return df
 
 def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False):
     bin_width = bin_edges[1] - bin_edges[0]
@@ -71,11 +118,33 @@ def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_error
     return counts
 
 
-def load_data():
+def load_data(prefix='',extra_pt_cut=-1):
     cfg = options['files']
     read = pd.read_parquet
     mix_df = read(cfg['mix']) if cfg.get('mix') is not None else None
-    return read(cfg['even']), read(cfg['odd']), mix_df
+    even_df = read(cfg[f'{prefix}even'])
+    print(f'EVEN File: {cfg[f"{prefix}even"]}')
+    odd_df = read(cfg[f'{prefix}odd'])
+    print(f'ODD File: {cfg[f"{prefix}even"]}')
+    # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
+    if extra_pt_cut > 0:
+        def compute_vis_pt(df, prefix):
+            taup_px = df[f'reco_taup_charged_px'] + df[f'reco_taup_pizero1_px']
+            taun_px = df[f'reco_taun_charged_px'] + df[f'reco_taun_pizero1_px']
+            taup_py = df[f'reco_taup_charged_py'] + df[f'reco_taup_pizero1_py']
+            taun_py = df[f'reco_taun_charged_py'] + df[f'reco_taun_pizero1_py']
+            taup_pt = np.sqrt(taup_px**2 + taup_py**2)
+            taun_pt = np.sqrt(taun_px**2 + taun_py**2)
+            return np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
+        even_df['vis_pt'] = compute_vis_pt(even_df, prefix)
+        odd_df['vis_pt'] = compute_vis_pt(odd_df, prefix)
+        even_df = even_df[even_df['vis_pt'] > extra_pt_cut]
+        odd_df = odd_df[odd_df['vis_pt'] > extra_pt_cut]
+        if mix_df is not None:
+            mix_df['vis_pt'] = compute_vis_pt(mix_df, prefix)
+            mix_df = mix_df[mix_df['vis_pt'] > extra_pt_cut]
+    return even_df, odd_df, mix_df
+    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df
 
 
 def main():
@@ -88,42 +157,46 @@ def main():
                         help="Use true_ prefix for DM/prong masks instead of reco_.")
     parser.add_argument('--hide-errors', action='store_true',
                         help="Hide Poisson error bands on the bins (shown by default).")
+    parser.add_argument('--leptonic_mode', default=0, type=int, choices=[0,1,2],
+                        help="If 0 use hadronic decay modes, for 1 use semileptonic, for 2 use fully leptonic (not currently supported).")
 
     args = parser.parse_args()
+
+    if args.leptonic_mode == 2:
+        raise NotImplementedError("Fully leptonic mode not currently supported.")
+
+    do_DM10= False
 
     if args.output_dir != '.':
         os.makedirs(args.output_dir, exist_ok=True)
     os.makedirs(f"{args.output_dir}/logs", exist_ok=True)
     os.makedirs(f"{args.output_dir}/{args.option}", exist_ok=True)
 
-    even_df, odd_df, mix_df = load_data()
+    even_df, odd_df, mix_df = load_data(prefix='sl_' if args.leptonic_mode == 1 else '')
+
+
     use_map = not args.useMLP
+    dm_pfx = 'true' if args.GENfilter else 'reco'
+    even_df = add_DM(even_df, dm_prefix=dm_pfx)
+    odd_df = add_DM(odd_df, dm_prefix=dm_pfx)
     even_df = compute_phicp_all(even_df, args.option, use_map=use_map)
     odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map)
     if mix_df is not None:
+        mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
         mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map)
 
+    if args.leptonic_mode == 1:
+        dm_combs = [[100, 0], [100,1], [100,2], [100,10]]
+    else: 
+        dm_combs = [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2], [10,10], [0,10], [1,10], [2,10]]
 
-    for dm_taup, dm_taun in [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2]]: # [npi+/-, npi0]
+    for dm_taup, dm_taun in dm_combs:
 
-        pfx = 'true_' if args.GENfilter else 'reco_'
-        single_prong_mask = lambda df, p=pfx: (df[f'{p}taup_is3prong'] == 0) & (df[f'{p}taun_is3prong'] == 0)
-        if dm_taup != dm_taun:
-            dm_mask = lambda df, p=dm_taup, n=dm_taun, pfx=pfx: ((df[f'{pfx}taup_npizero'] == p) & (df[f'{pfx}taun_npizero'] == n)) | ((df[f'{pfx}taun_npizero'] == n) & (df[f'{pfx}taup_npizero'] == p))
-        else:
-            dm_mask = lambda df, p=dm_taup, n=dm_taun, pfx=pfx: (df[f'{pfx}taup_npizero'] == p) & (df[f'{pfx}taun_npizero'] == n)
+        dm_mask = lambda df, p=dm_taup, n=dm_taun: ((df['taup_DM'] == p) & (df['taun_DM'] == n)) | ((df['taun_DM'] == n) & (df['taup_DM'] == p))
         even = even_df[dm_mask(even_df)]
-        even = even[single_prong_mask(even)]
         odd  = odd_df[dm_mask(odd_df)]
-        odd  = odd[single_prong_mask(odd)]
-
-        # kin_mask = lambda df: (df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)
-        # even = even[kin_mask(even)]
-        # odd = odd[kin_mask(odd)]
 
         print(f"DM{dm_taup}-DM{dm_taun}: {len(even)} CP even, {len(odd)} CP odd events")
-        print(even['phiCP'].describe())
-        print(odd['phiCP'].describe())
 
         fig, ax = plt.subplots(figsize=(8, 6))
         bin_edges = np.linspace(0, 2 * np.pi, 21)
@@ -136,6 +209,18 @@ def main():
             plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
+
+        significance = 0 
+        for i in range(len(even_counts)):
+            b_est = (odd_counts[i] + even_counts[i])*0.5*4
+            #temp = odd_counts[i] - even_counts[i] + (even_counts[i]+b_est)*np.log((even_counts[i]+b_est)/(odd_counts[i]+b_est)) if even_counts[i] > 0 and odd_counts[i] > 0 else 0
+            temp = (odd_counts[i] - even_counts[i])**2
+            significance += temp
+        #significance = np.sqrt(2 * significance)
+        significance = np.sqrt(significance)
+
+        
+
         ax.set_xlabel(r'$\phi_{CP}$')
         ax.set_title(f'DM{dm_taup} - DM{dm_taun} - {options[args.option]["label"]}')
         ax.set_xlim(0, 2 * np.pi)
@@ -143,7 +228,9 @@ def main():
         ax.legend()
         ax.text(0.05, 0.95, f'Asymmetry: {asymmetry:.4f}', transform=ax.transAxes,
                 verticalalignment='top', fontweight='bold')
-        out = f"{args.output_dir}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
+        ax.text(0.05, 0.85, f'Asymmetry (quadrature): {significance:.4f}', transform=ax.transAxes,
+                verticalalignment='top', fontweight='bold')
+        out = f"{args.output_dir}/{args.option}/DM{dm_taup}DM{dm_taun}_{options[args.option]['tag']}.pdf"
         plt.savefig(out)
         plt.close()
         print(f"Saved {out}")

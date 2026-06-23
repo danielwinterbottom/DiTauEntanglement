@@ -2,12 +2,14 @@ import torch
 from tqdm import tqdm
 import numpy as np
 from tauentanglement.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
+from tauentanglement.utils.coordinate_conversions import ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
 import os
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm
-
+from iminuit import Minuit
+import time
 
 def flow_map_predict(
     model,
@@ -15,9 +17,10 @@ def flow_map_predict(
     test_dataset=None,
     num_draws=100,
     chunk_size=5000,
-    method='stochastic',
+    method='gradient',
     n_steps=200,
     lr=1e-2,
+    return_log_prob=False,
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
@@ -60,9 +63,12 @@ def flow_map_predict(
     """
 
     model.eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
 
     B = X.shape[0]
     all_best_samples = []
+    all_best_log_probs = [] if return_log_prob else None
 
     if method == 'latent_zero':
         # this doesn't work very well, but might as well leave it in
@@ -94,66 +100,105 @@ def flow_map_predict(
             all_best_samples.append(best_samples_chunk.cpu())
 
     elif method == 'gradient':
-        # optimisation of the MAP estimate
+        # optimisation of the MAP estimate in z-space
         latent_dim = model.flow._distribution._shape[0]
+
         for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient)"):
+            #t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
+
+            # pre-compute the embedding once for this chunk
+            with torch.no_grad():
+                cond_embed_chunk = model.condition_net(X_chunk)
 
             # optimise z directly using the change-of-variables log p(x|c) = log p_Z(z) - log|det J_decode(z)|
             # (z-space geometry is isotropic so easier to optimise)
             z = torch.zeros(C, latent_dim, device=X_chunk.device, requires_grad=True)
             optimizer = torch.optim.Adam([z], lr=lr)
 
-            for _ in range(n_steps):
+            for step in range(n_steps):
                 optimizer.zero_grad()
-                _, logabsdet = model.decode(z, context=X_chunk)
+                
+                _, logabsdet = model.flow._transform.inverse(z, context=cond_embed_chunk)
+                
                 log_pz = -0.5 * (z ** 2).sum(dim=-1)
-                log_p = log_pz - logabsdet
+                log_p = log_pz - logabsdet 
+                #if step == 0: initial_log_p = log_p.mean().item()
                 (-log_p.sum()).backward()
+
                 optimizer.step()
 
+                #if step % 10 == 0:
+                #    print(
+                #    f"step={step:4d} "
+                #    f"mean_logp={log_p.mean().item():.6f} "
+                #    f"max_logp={log_p.max().item():.6f} "
+                #    f"min_logp={log_p.min().item():.6f}"
+                #    )
+
+            #t1 = time.time()
+            #print(f"Time taken for maximizing log p: {t1 - t0:.2f} s")
+            #final_log_p = log_p.mean().item()
+            #print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
+
+            if return_log_prob:
+                all_best_log_probs.append(log_p.detach().cpu())
+
             with torch.no_grad():
-                x_map, _ = model.decode(z, context=X_chunk)
+                x_map, _ = model.flow._transform.inverse(z.detach(), context=cond_embed_chunk)
+            #print(f"x_map[0]={x_map[0].cpu().numpy()}")
             all_best_samples.append(x_map.cpu())
 
-    elif method == 'gradient_warmstart':
-        # mix of stochastic
+    elif method == 'gradient_forward':
+
         latent_dim = model.flow._distribution._shape[0]
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient_warmstart)"):
+
+        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (forward gradient)"):
+            #t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
 
+            # Pre-compute the embedding once for this chunk 
             with torch.no_grad():
-                # single pass get both [C, num_draws, F] and [C, num_draws]
-                samples_norm_chunk, log_probs = model.sample_and_log_prob(
-                    num_samples=num_draws, context=X_chunk
-                )
-            best_idx = torch.argmax(log_probs, dim=1)              # [C]
-            x_best = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
-            del samples_norm_chunk, log_probs, best_idx
+                cond_embed_chunk = model.condition_net(X_chunk)
 
-            # encode this best sampled point to z space
+            # Initialize optimization variable x
+            z_init = torch.zeros(C, latent_dim, device=X_chunk.device)
             with torch.no_grad():
-                z_init, _ = model.encode(x_best, context=X_chunk)
+                # use the pre-computed embedding here to save a decode calculation step
+                x_init, _ = model.flow._transform.inverse(z_init, context=cond_embed_chunk)
+            
+            x = x_init.clone().detach().requires_grad_(True)
+            optimizer = torch.optim.Adam([x], lr=lr)
 
-            # optimise from there
-            z = z_init.detach().clone().requires_grad_(True)
-            optimizer = torch.optim.Adam([z], lr=lr)
-
-            for _ in range(n_steps):
+            for step in range(n_steps):
                 optimizer.zero_grad()
-                _, logabsdet = model.decode(z, context=X_chunk)
-                log_pz = -0.5 * (z ** 2).sum(dim=-1)
-                log_p = log_pz - logabsdet
-                (-log_p.sum()).backward()
+                
+                log_p = model.flow.log_prob(inputs=x, context=cond_embed_chunk)
+
+                final_log_p = log_p.mean().item()
+                if step == 0: initial_log_p = final_log_p
+                
+                loss = - log_p.sum()
+                loss.backward()
                 optimizer.step()
 
-            with torch.no_grad():
-                x_map, _ = model.decode(z, context=X_chunk)
-            all_best_samples.append(x_map.cpu())
+                #if (step+1) % 10 == 0 or step == 0:
+                #    print(
+                #        f"step={step:4d} "
+                #        f"mean_logp={log_p.mean().item():.6f} "
+                #        f"max_logp={log_p.max().item():.6f} "
+                #        f"min_logp={log_p.min().item():.6f} "
+                #        f"x[0]={x[0].detach().cpu().numpy()}"
+                #    )
+
+            #t1 = time.time()
+            #print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
+            #print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
+            all_best_samples.append(x.detach().cpu())
 
     else:
         raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
@@ -165,8 +210,9 @@ def flow_map_predict(
     else:
         samples_alt = None
 
+    if return_log_prob:
+        return samples_norm_alt, samples_alt, torch.cat(all_best_log_probs, dim=0).numpy()
     return samples_norm_alt, samples_alt
-
 
 
 def compute_spin_vars(df, tau_pred_prefix='true_', tau_vis_prefix=''):
@@ -304,6 +350,118 @@ def save_sampled_pdfs(
         plt.tight_layout()
         plt.savefig(os.path.join(outdir, f"event{event_number}_{v}.pdf"))
         plt.close()
+
+def _plot_pdf(v_pred, true_val, map_val, label, outdir, event_number, bins, clip, xlabel=None):
+    if xlabel is None:
+        xlabel = label
+    bins = np.linspace(np.percentile(v_pred, 0.1), np.percentile(v_pred, 99.9), bins) if clip else bins
+    plt.figure(figsize=(6, 4))
+    plt.hist(v_pred, bins=bins, density=True, histtype='step', linewidth=2)
+    plt.axvline(true_val, color='r', linestyle='--', linewidth=2, label='True value')
+    if map_val is not None:
+        plt.axvline(map_val, color='orange', linestyle='--', linewidth=2, label='MAP estimate')
+    plt.legend()
+    plt.xlabel(xlabel)
+    plt.ylabel("pdf (sampled)")
+    plt.title(f"Sampled p({label} | context), event {event_number}")
+    plt.tight_layout()
+    plt.savefig(os.path.join(outdir, f"event{event_number}_{label}.pdf"))
+    plt.close()
+
+
+def save_sampled_pdfs_LHC(
+    model,
+    dataset,
+    device,
+    output_features,
+    event_number,
+    num_samples=50000,
+    bins=100,
+    outdir="pdf_slices_sampled",
+    map_value=None,
+    df=None,
+    coordinates='onorm',
+    leptonic_mode=0,
+    clip=True,
+):
+    """
+    Sample 1D marginals p(x_i | context) from the conditional flow for a single
+    LHC event and save a histogram per output feature. Plots are in the native
+    coordinate space of the model (e.g. n/r/k for onorm).
+
+    map_value : np.ndarray of shape [n_output_features], optional
+        MAP estimate in the same destandardized coordinate space as the samples.
+        If provided, overlaid as an orange dashed line on each plot.
+    df : pd.DataFrame, optional
+        Test dataframe with visible tau decay products. If provided, also produces
+        Cartesian (px,py,pz) and energy plots after converting from native coordinates.
+    """
+    os.makedirs(outdir, exist_ok=True)
+    model.eval()
+
+    X = dataset.X[event_number].unsqueeze(0).to(device)
+    y = dataset.y[event_number].unsqueeze(0)
+
+    with torch.no_grad():
+        predictions_norm = model.sample(num_samples=num_samples, context=X).squeeze()
+
+    predictions = dataset.destandardize_outputs(predictions_norm).cpu().numpy()
+    true_values = dataset.destandardize_outputs(y).cpu().numpy()[0]
+
+    if clip==True:
+        print("WARNING: This script clips 0.1% outliers on variables by default")
+    for i, v in enumerate(output_features):
+        _plot_pdf(predictions[:, i], true_values[i],
+                  map_value[i] if map_value is not None else None,
+                  v, outdir, event_number, bins, clip)
+
+    # plot cartesian components and energy
+    if df is not None and coordinates!='standard':
+        print('recomputing 4 components in cartesian')
+        tau1_prefix = 'taup' if 'taup_nu_px' in df.columns else 'tau1'
+        tau2_prefix = 'taun' if tau1_prefix == 'taup' else 'tau2'
+
+        reco_taup_charged = df[[f'reco_{tau1_prefix}_charged_e', f'reco_{tau1_prefix}_charged_px', f'reco_{tau1_prefix}_charged_py', f'reco_{tau1_prefix}_charged_pz']].values[event_number:event_number+1]
+        reco_taun_charged = df[[f'reco_{tau2_prefix}_charged_e', f'reco_{tau2_prefix}_charged_px', f'reco_{tau2_prefix}_charged_py', f'reco_{tau2_prefix}_charged_pz']].values[event_number:event_number+1]
+        reco_taup_pizero = df[[f'reco_{tau1_prefix}_pizero1_e', f'reco_{tau1_prefix}_pizero1_px', f'reco_{tau1_prefix}_pizero1_py', f'reco_{tau1_prefix}_pizero1_pz']].values[event_number:event_number+1]
+        reco_taun_pizero = df[[f'reco_{tau2_prefix}_pizero1_e', f'reco_{tau2_prefix}_pizero1_px', f'reco_{tau2_prefix}_pizero1_py', f'reco_{tau2_prefix}_pizero1_pz']].values[event_number:event_number+1]
+
+        single_kwargs = dict(coordinates=coordinates, output_features=output_features,
+                             tau1_charged=reco_taup_charged, tau1_pi0=reco_taup_pizero,
+                             tau2_charged=reco_taun_charged, tau2_pi0=reco_taun_pizero,
+                             leptonic_mode=leptonic_mode)
+        n = len(predictions)
+        pred_conv_kwargs = dict(coordinates=coordinates, output_features=output_features,
+                                tau1_charged=np.tile(reco_taup_charged, (n, 1)),
+                                tau1_pi0=np.tile(reco_taup_pizero, (n, 1)),
+                                tau2_charged=np.tile(reco_taun_charged, (n, 1)),
+                                tau2_pi0=np.tile(reco_taun_pizero, (n, 1)),
+                                leptonic_mode=leptonic_mode)
+
+        pred_cart = convert_coordinates_pred(predictions, **pred_conv_kwargs)
+        true_cart = convert_coordinates_pred(true_values[np.newaxis, :], **single_kwargs)[0]
+        map_cart = convert_coordinates_pred(map_value[np.newaxis, :], **single_kwargs)[0] if map_value is not None else None
+
+        cart_features = ['taup_nu_px', 'taup_nu_py', 'taup_nu_pz','taun_nu_px', 'taun_nu_py', 'taun_nu_pz']
+        nu_p_slices = {'taup_nu': (0, 3), 'taun_nu': (3, 6)}
+
+        # plot px, py, pz
+        for i, v in enumerate(cart_features):
+            _plot_pdf(pred_cart[:, i], true_cart[i],
+                      map_cart[i] if map_cart is not None else None,
+                      v, outdir, event_number, bins, clip)
+
+        # plot energy
+        for nu_name, (s, e) in nu_p_slices.items():
+            E_pred = np.sqrt(np.sum(pred_cart[:, s:e]**2, axis=1))
+            E_true = np.sqrt(np.sum(true_cart[s:e]**2))
+            E_map = np.sqrt(np.sum(map_cart[s:e]**2)) if map_cart is not None else None
+            _plot_pdf(E_pred, E_true, E_map, f'{nu_name}_E', outdir, event_number, bins, clip,
+                      xlabel=f'{nu_name}_E [GeV]')
+
+
+
+
 
 def plot_spin_density_matrix(results, dm_category, outdir):
     os.makedirs(outdir, exist_ok=True)
