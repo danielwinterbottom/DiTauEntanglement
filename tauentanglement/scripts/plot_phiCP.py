@@ -238,16 +238,15 @@ def compute_phicp_all(df, option, use_map=True, output_dir='.'):
     elif option == 'recoNu_hybrid':
         tau_prefix = 'map_pred' if use_map else 'pred'
         R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix=tau_prefix, reco_pions=True)
-        #TODO make this more efficient by only running the event loop for DM=10/11 events
+        #TODO make this more efficient by only running the event loop for DM=11 events
         hh_p, hh_m, dm_p_arr, dm_m_arr = _run_hh_loop(df, tau_prefix=tau_prefix, pion_prefix='reco', fix_tau_mass=False)
         r1_arr = np.stack([np.array(R1.x), np.array(R1.y), np.array(R1.z)], axis=1)
         r2_arr = np.stack([np.array(R2.x), np.array(R2.y), np.array(R2.z)], axis=1)
         nan_p = np.isnan(hh_p[:, 0])
         nan_m = np.isnan(hh_m[:, 0])
-        # Replace each leg independently: only swap if that leg is DM=10/11
-        #TODO check this this is really useful for DM=10
-        use_ts_p = ((dm_p_arr == 10) | (dm_p_arr == 11)) & ~nan_p
-        use_ts_m = ((dm_m_arr == 10) | (dm_m_arr == 11)) & ~nan_m
+        # Replace each leg independently: only swap if that leg is DM=11
+        use_ts_p = (dm_p_arr == 11) & ~nan_p
+        use_ts_m = (dm_m_arr == 11) & ~nan_m
         r1_arr[use_ts_p] = hh_p[use_ts_p]
         r2_arr[use_ts_m] = hh_m[use_ts_m]
         R1 = ak.zip({"x": r1_arr[:, 0], "y": r1_arr[:, 1], "z": r1_arr[:, 2]}, with_name="Vector3D")
@@ -361,10 +360,12 @@ def main():
 
     if args.leptonic_mode == 1:
         dm_combs = [[100, 0], [100,1], [100,2], [100,10]]
+        if args.option in ('gen_ts', 'recoNu_ts', 'recoNu_hybrid'):
+            dm_combs += [[100, 11]]
     else: 
         dm_combs = [[0, 0], [0,1], [1,1], [2,2], [1,2], [0,2], [10,10], [0,10], [1,10], [2,10]]
         if args.option in ('gen_ts', 'recoNu_ts', 'recoNu_hybrid'):
-            dm_combs = [[0, 0], [0,1], [1,1], [10,10], [0,10], [1,10], [0, 11], [1,11], [10,11], [11,11], [0,2], [1,2], [2,2], [2,10], [2,11]]
+            dm_combs += [[0, 11], [1,11], [2,11], [10,11], [11,11]]
 
     for dm_taup, dm_taun in dm_combs:
 

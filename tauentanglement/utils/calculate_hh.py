@@ -104,58 +104,12 @@ class Particle:
         return Particle(self._px, self._py, self._pz, self._e, self._pdgid)
 
 
-def _step12_reference(
-    tau: Particle,
-    companion: Particle,
-    reference: Particle,
-) -> Particle:
-    """
-    Apply the same step-1 (boost to tau-tau COM) and step-2 (rotate tau to -Z)
-    transformations used in _prepare_kinematic_for_hh to a reference particle.
-
-    Used to determine the orientation of the production-plane axes in each tau's
-    step-2 frame, without running the full kinematic preparation.
-
-    Parameters
-    ----------
-    tau        : the tau whose phi/theta step-2 rotations to follow
-    companion  : the other tau (needed to compute P_QQ)
-    reference  : the reference direction particle (modified in place is NOT done;
-                 a copy is made and returned)
-
-    Returns
-    -------
-    The reference particle after step-1 boost and step-2 rotations.
-    """
-    P_QQ = Particle(tau.px() + companion.px(),
-                    tau.py() + companion.py(),
-                    tau.pz() + companion.pz(),
-                    tau.e()  + companion.e(), 0)
-
-    tau_c = tau.copy()
-    ref_c = reference.copy()
-
-    # Step 1: boost to COM
-    tau_c.boostToRestFrame(P_QQ.copy())
-    ref_c.boostToRestFrame(P_QQ.copy())
-
-    # Step 2: same phi/theta rotation used on tau daughters
-    phi   = tau_c.getAnglePhi()
-    tau_c.rotateXY(-phi)
-    theta = tau_c.getAngleTheta()
-    tau_c.rotateXZ(math.pi - theta)
-
-    ref_c.rotateXY(-phi)
-    ref_c.rotateXZ(math.pi - theta)
-
-    return ref_c
-
 
 def _prepare_kinematic_for_hh(
     tau: Particle,
     nu_tau: Particle,
     tau_daughters: List[Particle],
-) -> Tuple[float, float, float, float]:
+) -> Tuple[float, float]:
     """
     Transform tau daughters into the frame needed by calculateHH.
 
@@ -166,10 +120,7 @@ def _prepare_kinematic_for_hh(
       4. Rotate so the tau-neutrino daughter is along +Z
 
     tau, nu_tau, and tau_daughters are modified in place.
-    Returns (phi2, theta2, tau_com_pz, tau_com_e) where:
-      - phi2, theta2  are the neutrino-alignment angles needed by calculateHH
-      - tau_com_pz, tau_com_e  are the tau's momentum in the COM frame after
-        step 2 (tau is along +Z at this point), needed to boost HH back to COM.
+    Returns (phi2, theta2): the neutrino-alignment angles needed by calculateHH.
     """
     P_QQ = Particle(tau.px() + nu_tau.px(),
                     tau.py() + nu_tau.py(),
@@ -194,10 +145,6 @@ def _prepare_kinematic_for_hh(
         d.rotateXY(-phi)
         d.rotateXZ(math.pi - theta)
 
-    # Save tau's COM-frame momentum now (px=py=0, tau along +Z)
-    tau_com_pz = tau.pz()
-    tau_com_e  = tau.e()
-
     # Step 3: boost daughters along Z into tau rest frame
     for d in tau_daughters:
         d.boostAlongZ(-tau.pz(), tau.e())
@@ -219,7 +166,7 @@ def _prepare_kinematic_for_hh(
             d.rotateXY(-phi2)
             d.rotateXZ(-theta2)
 
-    return phi2, theta2, tau_com_pz, tau_com_e, phi, theta
+    return phi2, theta2
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +179,6 @@ def getHHVectors(
     tau_minus:       Particle,
     tau_plus_daughters:  List[Particle],
     tau_minus_daughters: List[Particle],
-    frame: str = 'tau_rest',
 ) -> Tuple[List[float], float, List[float], float]:
     """
     Compute polarimetric vectors HH+ and HH- for a ditau event.
@@ -244,24 +190,14 @@ def getHHVectors(
     tau_minus        : tau- (pdgid =  15)
     tau_plus_daughters  : decay products of tau+
     tau_minus_daughters : decay products of tau-
-    frame            : coordinate frame for the returned HH vectors.
-        'tau_rest'  (default) — each HH is in the respective tau rest frame
-                    with Z along the tau flight direction in the tau-tau COM
-                    frame.  Use this for spin reweighting.
-        'com'       — each HH is boosted back to the tau-tau COM frame after
-                    being computed in the tau rest frame.  Use this when you
-                    need both vectors in a single shared frame, e.g. for
-                    computing CP-sensitive acoplanarity angles.
 
     Returns
     -------
-    HHp      : polarimetric 4-vector [hx, hy, hz, ht] for tau+
+    HHp      : polarimetric 4-vector [hx, hy, hz, ht] for tau+ in tau rest frame
     WTamplP  : matrix-element amplitude weight for tau+
-    HHm      : polarimetric 4-vector [hx, hy, hz, ht] for tau-
+    HHm      : polarimetric 4-vector [hx, hy, hz, ht] for tau- in tau rest frame
     WTamplM  : matrix-element amplitude weight for tau-
     """
-    if frame not in ('tau_rest', 'com'):
-        raise ValueError(f"frame must be 'tau_rest' or 'com', got '{frame}'")
 
     results = []
     for tau, companion, daughters in [
@@ -272,16 +208,10 @@ def getHHVectors(
         companion_c = companion.copy()
         daughters_c = [d.copy() for d in daughters]
 
-        phi2, theta2, tau_com_pz, tau_com_e, _phi_s2, _theta_s2 = _prepare_kinematic_for_hh(
+        phi2, theta2 = _prepare_kinematic_for_hh(
             tau_c, companion_c, daughters_c
         )
         HH, wt = calculateHH(tau.pdgid(), daughters_c, phi2, theta2)
-
-        if frame == 'com':
-            # Undo step-3 boost (tau rest → step-2 COM frame).
-            hh_p = Particle(HH[0], HH[1], HH[2], HH[3], 0)
-            hh_p.boostAlongZ(tau_com_pz, tau_com_e)
-            HH = [hh_p.px(), hh_p.py(), hh_p.pz(), hh_p.e()]
 
         results.append((HH, wt))
 
@@ -312,7 +242,6 @@ def getSpinWeightPieces(boson, tau_plus, tau_minus, tau_plus_daughters, tau_minu
 
     HHp, WTamplP, HHm, WTamplM = getHHVectors(
         boson, tau_plus, tau_minus, tau_plus_daughters, tau_minus_daughters,
-        frame='tau_rest'
     )
 
     hp = {'r':  HHp[0], 'n':  HHp[1], 'k':  HHp[2]}
@@ -429,7 +358,6 @@ def computeHiggsCPWeight(boson, tau_plus, tau_minus,
     HHp, _, HHm, _ = getHHVectors(
         boson, tau_plus, tau_minus,
         tau_plus_daughters, tau_minus_daughters,
-        frame='tau_rest'
     )
 
     angle = alpha * math.pi / 90.0
