@@ -9,9 +9,7 @@ import argparse
 import os
 
 import math
-import sys
-sys.path.insert(0, '/Users/dw515/ClaudeCode')
-from calculate_hh import Particle, _prepare_kinematic_for_hh, calculateHH, getHHVectors
+from tauentanglement.utils.calculate_hh import Particle, _prepare_kinematic_for_hh, calculateHH, getHHVectors
 
 from tauentanglement.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
