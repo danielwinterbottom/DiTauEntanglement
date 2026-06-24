@@ -21,8 +21,8 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPEven.parquet',
-'odd': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPOdd.parquet',
+'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet',
+'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet',
 'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
 'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
 'mix': None
@@ -125,7 +125,7 @@ def load_data(prefix='',extra_pt_cut=-1):
     even_df = read(cfg[f'{prefix}even'])
     print(f'EVEN File: {cfg[f"{prefix}even"]}')
     odd_df = read(cfg[f'{prefix}odd'])
-    print(f'ODD File: {cfg[f"{prefix}even"]}')
+    print(f'ODD File: {cfg[f"{prefix}odd"]}')
     # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
         def compute_vis_pt(df, prefix):
