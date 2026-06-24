@@ -134,7 +134,7 @@ if __name__ == "__main__":
         direction="minimize",
         storage=f"sqlite:///{db_path}?timeout=10000",
         load_if_exists=True,
-        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=10)
+        pruner=optuna.pruners.MedianPruner(n_startup_trials=10, n_warmup_steps=9)
     )
     study.optimize(objective, n_trials=args.n_trials, callbacks=[live_plot_callback])
 

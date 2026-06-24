@@ -24,8 +24,9 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
- 'even': '/Users/dw515/ClaudeCode/testfiles/evalJun12_output_results_CPEven_FromLHE.parquet',
- 'odd': '/Users/dw515/ClaudeCode/testfiles/evalJun12_output_results_CPOdd_FromLHE.parquet',
+
+'even': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPEven.parquet',
+'odd': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPOdd.parquet',
 'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
 'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
 'mix': None

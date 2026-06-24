@@ -13,7 +13,6 @@ SetupNN:
               'hidden_size': 256,
               'num_blocks': 3,
               'lr': 0.001,
-              'weight_decay': !!float 1e-05,
               'context_dim': 256,
               'd_model': 128,
               'nhead': 4,
