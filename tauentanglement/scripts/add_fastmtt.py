@@ -245,6 +245,19 @@ def build_visible_leg(df, leg):
     return vis.pt, vis.eta, vis.phi, vis.mass
 
 
+def replace_failed_fastmtt(df):
+    # the constrained fit can fail to find a mass inside the window; fall back to the unconstrained value.
+    mass_constraint = df['FastMTT_mass_constraint']
+    mask = (mass_constraint < constraint_window[0]) | (mass_constraint > constraint_window[1])
+
+    df['FastMTT_mass_constraint'] = np.where(mask, df['FastMTT_mass'], df['FastMTT_mass_constraint'])
+    df['FastMTT_pt_constraint'] = np.where(mask, df['FastMTT_pt'], df['FastMTT_pt_constraint'])
+    df['FastMTT_pt_1_constraint'] = np.where(mask, df['FastMTT_pt_1'], df['FastMTT_pt_1_constraint'])
+    df['FastMTT_pt_2_constraint'] = np.where(mask, df['FastMTT_pt_2'], df['FastMTT_pt_2_constraint'])
+
+    return df
+
+
 def add_fastmtt(df):
     # tt channel only for now: both legs are hadronic (decay_type 2).
     pt_1, eta_1, phi_1, mass1 = build_visible_leg(df, 'taup')
@@ -263,27 +276,32 @@ def add_fastmtt(df):
     metcov_xy_arr = np.full(nevents, met_cov_xy)
     metcov_yy_arr = np.full(nevents, met_cov_yy)
 
-    logger.info("Running FastMTT (constraint=True)")
-    mass_vals, pt_vals, pt1_vals, pt2_vals = compute_fastmtt(
-        nevents,
-        pt_1, eta_1, phi_1, mass1,
-        pt_2, eta_2, phi_2, mass2,
-        met_x, met_y,
-        metcov_xx_arr, metcov_xy_arr, metcov_xy_arr, metcov_yy_arr,
-        decay_type_1, decay_type_2,
-        m_ele, m_muon, m_tau, m_pion,
-        delta, reg_order, True, constraint_setting, constraint_window,
-    )
-    df['FastMTT_mass'] = mass_vals
-    df['FastMTT_pt'] = pt_vals
-    df['FastMTT_pt_1'] = pt1_vals
-    df['FastMTT_pt_2'] = pt2_vals
+    for constraint, suffix in [(False, ''), (True, '_constraint')]:
+        logger.info(f"Running FastMTT (constraint={constraint})")
+        mass_vals, pt_vals, pt1_vals, pt2_vals = compute_fastmtt(
+            nevents,
+            pt_1, eta_1, phi_1, mass1,
+            pt_2, eta_2, phi_2, mass2,
+            met_x, met_y,
+            metcov_xx_arr, metcov_xy_arr, metcov_xy_arr, metcov_yy_arr,
+            decay_type_1, decay_type_2,
+            m_ele, m_muon, m_tau, m_pion,
+            delta, reg_order, constraint, constraint_setting, constraint_window,
+        )
+        df[f'FastMTT_mass{suffix}'] = mass_vals
+        df[f'FastMTT_pt{suffix}'] = pt_vals
+        df[f'FastMTT_pt_1{suffix}'] = pt1_vals
+        df[f'FastMTT_pt_2{suffix}'] = pt2_vals
+
+    df = replace_failed_fastmtt(df)
 
     return df
 
 
 def main():
     args = get_args()
+    if args.output_file == args.input_file:
+        raise ValueError("output_file must differ from input_file!")
 
     parquet_file = pq.ParquetFile(args.input_file)
     n_batches = math.ceil(parquet_file.metadata.num_rows / batch_size)
