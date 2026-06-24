@@ -80,8 +80,8 @@ def compute_phicp_all(df, option, use_map=True):
         P2_dm10 = P2[df['taun_DM'] == 10]
         phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoRun3':
-        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup')
-        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='taun')
+        R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup', use_map=use_map)
+        R2, P2, leg2_is_dp = get_R_P_vectors_all(df, tau_prefix='taun', use_map=use_map)
         phiCPmain = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
         phiCPa1a1 = compute_aco_classic_a1a1(df)
         phiCP = np.where((df['taup_DM'] == 10) & (df['taun_DM'] == 10), phiCPa1a1, phiCPmain)

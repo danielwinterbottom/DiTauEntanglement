@@ -108,10 +108,11 @@ def rotate_to_GJMax(visible_tau, tau):
 
     return ak.where(mask, new_tau, tau)
 
-def estimate_PV_tau_momentum_magnitude(df, tau_prefix):
+def estimate_PV_tau_momentum_magnitude(df, tau_prefix, use_map=True):
     """
     tau prefix is taun or taup
     """
+    predicted_prefix = 'map_pred' if use_map else 'pred'
     # Visible tau
     piOS = ak.zip({"px": df[f"reco_{tau_prefix}_pi1_px"], "py": df[f"reco_{tau_prefix}_pi1_py"], "pz": df[f"reco_{tau_prefix}_pi1_pz"], "E": df[f"reco_{tau_prefix}_pi1_E"]}, with_name="Momentum4D")
     piSS1 = ak.zip({"px": df[f"reco_{tau_prefix}_pi2_px"], "py": df[f"reco_{tau_prefix}_pi2_py"], "pz": df[f"reco_{tau_prefix}_pi2_pz"], "E": df[f"reco_{tau_prefix}_pi2_E"]}, with_name="Momentum4D")
@@ -120,7 +121,7 @@ def estimate_PV_tau_momentum_magnitude(df, tau_prefix):
 
     # Taus estimated from norm flow momentum and SV direction
     pred_tau_name = 'tau_minus' if tau_prefix == 'taun' else 'tau_plus'
-    tau_mag = np.sqrt(df[f"map_pred_{pred_tau_name}_px"]**2 + df[f"map_pred_{pred_tau_name}_py"]**2 + df[f"map_pred_{pred_tau_name}_pz"]**2)
+    tau_mag = np.sqrt(df[f"{predicted_prefix}_{pred_tau_name}_px"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_py"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_pz"]**2)
     sv_mag = np.sqrt(df[f"reco_{tau_prefix}_sv_x"]**2 + df[f"reco_{tau_prefix}_sv_y"]**2 + df[f"reco_{tau_prefix}_sv_z"]**2)
     tau = ak.zip({"px": tau_mag * df[f"reco_{tau_prefix}_sv_x"] / sv_mag, "py": tau_mag * df[f"reco_{tau_prefix}_sv_y"] / sv_mag, "pz": tau_mag * df[f"reco_{tau_prefix}_sv_z"] / sv_mag, "E":  np.sqrt(tau_mag**2 + 1.777**2)}, with_name="Momentum4D")
 
@@ -188,7 +189,7 @@ def tauPairMomentumSolutions(tau1Dir, a1LV1, tau2Dir, a1LV2):
     return tau1PairConstraintLV, tau2PairConstraintLV
 
 
-def get_R_P_vectors_all(df, tau_prefix='tau'):
+def get_R_P_vectors_all(df, tau_prefix='tau', use_map=True):
     """Compute R and P vectors for all events, selecting IP (DM0) or pizero (DM1) for R."""
     P_pion = ak.zip({
         "px": df[f"reco_{tau_prefix}_pi1_px"],
@@ -226,7 +227,7 @@ def get_R_P_vectors_all(df, tau_prefix='tau'):
     }, with_name="Momentum4D")
 
     # tau momentum prediction from the flow (magnitude) and SV-PV direction
-    P_tau, R_PV = estimate_PV_tau_momentum_magnitude(df, tau_prefix)
+    P_tau, R_PV = estimate_PV_tau_momentum_magnitude(df, tau_prefix, use_map=use_map)
     R_PV_4d = ak.zip({"px": R_PV.x, "py": R_PV.y, "pz": R_PV.z, "E": ak.zeros_like(R_PV.x)}, with_name="Momentum4D")
 
     is_leptonic = df[f"{tau_prefix}_DM"].values == 100
