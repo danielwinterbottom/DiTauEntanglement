@@ -146,23 +146,36 @@ def _hh_to_higgs_rf(hh3, tau_part, boson_part):
     return np.array([h.px(), h.py(), h.pz()])
 
 
-def _run_hh_loop(df, n_events=None, tau_prefix='true', pion_prefix='true', fix_tau_mass=False):
+def _run_hh_loop(df, n_events=None, tau_prefix='true', pion_prefix='true', fix_tau_mass=False, event_mask=None):
     """
     Run calculateHH for each event and return Higgs-RF polarimetric vectors.
 
     tau_prefix:  prefix for tau/neutrino 4-momenta ('true', 'map_pred', 'pred')
     pion_prefix: prefix for pion 4-momenta ('true' or 'reco')
+    event_mask:  optional boolean array of length len(df); if given, only events where
+                 event_mask is True are processed. hh_p/hh_m are still returned with
+                 length len(df), with NaN for unprocessed events.
 
     Returns (hh_p, hh_m, dm_p_arr, dm_m_arr) where hh_p/hh_m are (n, 3) float arrays
     with NaN for events where calculateHH failed or the decay mode is unsupported.
     """
-    df_sub = df.iloc[:n_events].reset_index(drop=True) if n_events is not None else df.reset_index(drop=True)
-    n = len(df_sub)
-    dm_p_arr = np.array(df_sub['taup_DM'])
-    dm_m_arr = np.array(df_sub['taun_DM'])
+    df_full = df.iloc[:n_events].reset_index(drop=True) if n_events is not None else df.reset_index(drop=True)
+    n_full = len(df_full)
+    dm_p_arr = np.array(df_full['taup_DM'])
+    dm_m_arr = np.array(df_full['taun_DM'])
 
-    hh_p = np.full((n, 3), np.nan)
-    hh_m = np.full((n, 3), np.nan)
+    hh_p_full = np.full((n_full, 3), np.nan)
+    hh_m_full = np.full((n_full, 3), np.nan)
+
+    if event_mask is not None:
+        event_mask = np.asarray(event_mask, dtype=bool)
+        df_sub = df_full[event_mask].reset_index(drop=True)
+        subset_indices = np.where(event_mask)[0]
+    else:
+        df_sub = df_full
+        subset_indices = np.arange(n_full)
+
+    n = len(df_sub)
 
     tau_p_pdg = -15
     tau_m_pdg =  15
@@ -196,12 +209,13 @@ def _run_hh_loop(df, n_events=None, tau_prefix='true', pion_prefix='true', fix_t
                          row[f'{tau_prefix}_tau_plus_E']   + row[f'{tau_prefix}_tau_minus_E'], 25)
         try:
             HHp_vec, _, HHm_vec, _ = getHHVectors(boson, tau_p_part, tau_m_part, dau_p, dau_m)
-            hh_p[i] = _hh_to_higgs_rf(HHp_vec[:3], tau_p_part, boson)
-            hh_m[i] = _hh_to_higgs_rf(HHm_vec[:3], tau_m_part, boson)
+            full_i = subset_indices[i]
+            hh_p_full[full_i] = _hh_to_higgs_rf(HHp_vec[:3], tau_p_part, boson)
+            hh_m_full[full_i] = _hh_to_higgs_rf(HHm_vec[:3], tau_m_part, boson)
         except Exception:
             pass
 
-    return hh_p, hh_m, dm_p_arr, dm_m_arr
+    return hh_p_full, hh_m_full, dm_p_arr, dm_m_arr
 
 
 def compute_phicp_all(df, option, use_map=True, output_dir='.'):
@@ -238,8 +252,10 @@ def compute_phicp_all(df, option, use_map=True, output_dir='.'):
     elif option == 'recoNu_hybrid':
         tau_prefix = 'map_pred' if use_map else 'pred'
         R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix=tau_prefix, reco_pions=True)
-        #TODO make this more efficient by only running the event loop for DM=11 events
-        hh_p, hh_m, dm_p_arr, dm_m_arr = _run_hh_loop(df, tau_prefix=tau_prefix, pion_prefix='reco', fix_tau_mass=False)
+        dm_p_arr = np.array(df['taup_DM'])
+        dm_m_arr = np.array(df['taun_DM'])
+        needs_ts = (dm_p_arr == 11) | (dm_m_arr == 11)
+        hh_p, hh_m, _, _ = _run_hh_loop(df, tau_prefix=tau_prefix, pion_prefix='reco', fix_tau_mass=False, event_mask=needs_ts)
         r1_arr = np.stack([np.array(R1.x), np.array(R1.y), np.array(R1.z)], axis=1)
         r2_arr = np.stack([np.array(R2.x), np.array(R2.y), np.array(R2.z)], axis=1)
         nan_p = np.isnan(hh_p[:, 0])
