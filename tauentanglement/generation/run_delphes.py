@@ -677,8 +677,6 @@ smearer = TrackAngularSmearer(seed=12345)
 #setup output tree
 
 branches = [
-  'taup_px', 'taup_py', 'taup_pz', 'taup_e',
-  'taun_px', 'taun_py', 'taun_pz', 'taun_e',
   'taup_npi', 'taup_npizero',
   'taun_npi', 'taun_npizero',
   'taup_nele', 'taun_nele',
@@ -721,6 +719,11 @@ for b in branches:
     if not b.startswith('taup_nu') and not b.startswith('taun_nu'):
         branch_vals['reco_' + b] = array('f',[0])
         tree.Branch('reco_' + b,  branch_vals['reco_' + b],  'reco_%s/F' % b)
+
+for bname in ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
+              'taun_px', 'taun_py', 'taun_pz', 'taun_e']:
+    branch_vals[bname] = array('f', [0])
+    tree.Branch(bname, branch_vals[bname], f'{bname}/F')
 
 if not args.skip_tauspinner:
     ts_alphas = args.tauspinner_alphas
