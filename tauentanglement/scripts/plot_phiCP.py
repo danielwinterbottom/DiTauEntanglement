@@ -21,11 +21,14 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet',
-'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet',
-'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
-'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
-'mix': None
+'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPEven.parquet',
+'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPOdd.parquet',
+'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPMix.parquet',
+'sl_even': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPEven.parquet',
+'sl_odd': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPOdd.parquet',
+'sl_mix': None,
+# 'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet', # has fastmtt added
+# 'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet', # has fastmtt added
 },
     'gen': {
         'label': 'Generator Neutrino',
@@ -75,9 +78,6 @@ def compute_phicp_all(df, option, use_map=True):
     elif option == 'recoNu':
         tau_prefix = 'map_pred' if use_map else 'pred'
         R1, P1, R2, P2 = get_ditau_polarimetric(df, tau_prefix=tau_prefix, reco_pions=True)
-        # print R2's and P2's only for dm=10
-        R2_dm10 = R2[df['taun_DM'] == 10]
-        P2_dm10 = P2[df['taun_DM'] == 10]
         phiCP = compute_aco_polarimetric(R1, P1, R2, P2)
     elif option == 'recoRun3':
         R1, P1, leg1_is_dp = get_R_P_vectors_all(df, tau_prefix='taup', use_map=use_map)
@@ -121,11 +121,13 @@ def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_error
 def load_data(prefix='',extra_pt_cut=-1):
     cfg = options['files']
     read = pd.read_parquet
-    mix_df = read(cfg['mix']) if cfg.get('mix') is not None else None
+    mix_df = read(cfg[f'{prefix}mix']) if cfg.get(f'{prefix}mix') is not None else None
     even_df = read(cfg[f'{prefix}even'])
     print(f'EVEN File: {cfg[f"{prefix}even"]}')
     odd_df = read(cfg[f'{prefix}odd'])
     print(f'ODD File: {cfg[f"{prefix}odd"]}')
+    if mix_df is not None:
+        print(f'MIX File: {cfg[f"{prefix}mix"]}')
     # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
         def compute_vis_pt(df, prefix):
@@ -205,7 +207,6 @@ def main():
         odd_counts  = plot_phicp_histogram(ax, odd,  bin_edges, 'phiCP', 'CP-odd',  'blue',  hide)
         if mix_df is not None:
             mix = mix_df[dm_mask(mix_df)]
-            mix = mix[single_prong_mask(mix)]
             plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
