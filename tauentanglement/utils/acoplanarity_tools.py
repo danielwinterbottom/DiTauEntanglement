@@ -136,7 +136,7 @@ def estimate_PV_tau_momentum_magnitude(df, tau_prefix, use_map=True):
         tau = pt_direction_to_momentum4d(fastmtt_pt, sv_direction, 1.777)
     else:
         # fallback on predicted momentum magnitude
-        print("Warning: FastMTT pT column not found, using predicted momentum magnitude instead!")
+        print(f"Warning: FastMTT pT column FastMTT_pt_{tau_prefix}_constraint not found, using predicted momentum magnitude instead!")
         pred_tau_name = 'tau_minus' if tau_prefix == 'taun' else 'tau_plus'
         tau_mag = np.sqrt(df[f"{predicted_prefix}_{pred_tau_name}_px"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_py"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_pz"]**2)
         sv_mag = np.sqrt(df[f"reco_{tau_prefix}_sv_x"]**2 + df[f"reco_{tau_prefix}_sv_y"]**2 + df[f"reco_{tau_prefix}_sv_z"]**2)

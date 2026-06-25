@@ -440,12 +440,8 @@ def main():
         if has_fastmtt_constraint:
             results_df['FastMTT_mass_constraint'] = fastmtt_mass_constraint
             results_df['FastMTT_pt_constraint'] = fastmtt_pt_constraint
-            if leptonic_mode == 0:
-                results_df['FastMTT_pt_taup_constraint'] = fastmtt_pt_1_constraint
-                results_df['FastMTT_pt_taun_constraint'] = fastmtt_pt_2_constraint
-            elif leptonic_mode == 1:
-                results_df['FastMTT_pt_1_constraint'] = fastmtt_pt_1_constraint
-                results_df['FastMTT_pt_2_constraint'] = fastmtt_pt_2_constraint
+            results_df['FastMTT_pt_taup_constraint'] = fastmtt_pt_1_constraint
+            results_df['FastMTT_pt_taun_constraint'] = fastmtt_pt_2_constraint
             del fastmtt_mass_constraint, fastmtt_pt_constraint, fastmtt_pt_1_constraint, fastmtt_pt_2_constraint
 
         # delete everything that has been concatinated into results_df to save memory
