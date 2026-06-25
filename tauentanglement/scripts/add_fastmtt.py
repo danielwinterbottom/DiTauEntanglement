@@ -233,6 +233,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="Add FastMTT mass/pt predictions to a ditau dataframe (parquet)")
     parser.add_argument('--input_file', type=str, required=True, help="Input parquet file.")
     parser.add_argument('--output_file', type=str, required=True, help="Output parquet file (must differ from input_file).")
+    parser.add_argument('--channel', type=str, required=True, choices=['tt', 'lt'], help="tt: both legs hadronic (taup/taun columns). lt: tau1 leptonic, tau2 hadronic (tau1/tau2 columns).")
     return parser.parse_args()
 
 
@@ -243,6 +244,23 @@ def build_visible_leg(df, leg):
     e = (df[f'reco_{leg}_charged_e'] + df[f'reco_{leg}_pizero1_e']).to_numpy()
     vis = vector.array({'px': px, 'py': py, 'pz': pz, 'E': e})
     return vis.pt, vis.eta, vis.phi, vis.mass
+
+
+def build_leptonic_leg(df, leg):
+    px = df[f'reco_{leg}_lep_px'].to_numpy()
+    py = df[f'reco_{leg}_lep_py'].to_numpy()
+    pz = df[f'reco_{leg}_lep_pz'].to_numpy()
+    e = df[f'reco_{leg}_lep_e'].to_numpy()
+    vis = vector.array({'px': px, 'py': py, 'pz': pz, 'E': e})
+    return vis.pt, vis.eta, vis.phi, vis.mass
+
+
+def get_leptonic_decay_type(df, leg):
+    # decay_type: 0 ==> electron, 1 ==> muon
+    is_muon = df[f'reco_{leg}_ismuon'].to_numpy().astype(bool)
+    decay_type = np.zeros(len(df), dtype=np.uint8)
+    decay_type[is_muon] = 1
+    return decay_type
 
 
 def replace_failed_fastmtt(df):
@@ -258,17 +276,24 @@ def replace_failed_fastmtt(df):
     return df
 
 
-def add_fastmtt(df):
-    # tt channel only for now: both legs are hadronic (decay_type 2).
-    pt_1, eta_1, phi_1, mass1 = build_visible_leg(df, 'taup')
-    pt_2, eta_2, phi_2, mass2 = build_visible_leg(df, 'taun')
+def add_fastmtt(df, channel):
+    nevents = len(df)
+
+    if channel == 'tt':
+        # both legs hadronic.
+        pt_1, eta_1, phi_1, mass1 = build_visible_leg(df, 'taup')
+        pt_2, eta_2, phi_2, mass2 = build_visible_leg(df, 'taun')
+        decay_type_1 = np.full(nevents, 2, dtype=np.uint8)
+        decay_type_2 = np.full(nevents, 2, dtype=np.uint8)
+    else:  # lt
+        # tau1 is always leptonic (electron or muon), tau2 always hadronic.
+        pt_1, eta_1, phi_1, mass1 = build_leptonic_leg(df, 'tau1')
+        decay_type_1 = get_leptonic_decay_type(df, 'tau1')
+        pt_2, eta_2, phi_2, mass2 = build_visible_leg(df, 'tau2')
+        decay_type_2 = np.full(nevents, 2, dtype=np.uint8)
 
     met_x = df['reco_met_px'].to_numpy()
     met_y = df['reco_met_py'].to_numpy()
-
-    nevents = len(df)
-    decay_type_1 = np.full(nevents, 2, dtype=np.uint8)
-    decay_type_2 = np.full(nevents, 2, dtype=np.uint8)
 
     m_ele, m_muon, m_tau, m_pion = 0.51100e-3, 0.10566, 1.77685, 0.13957
 
@@ -309,7 +334,7 @@ def main():
     writer = None
     for record_batch in tqdm(parquet_file.iter_batches(batch_size=batch_size), total=n_batches, desc="FastMTT"):
         df = record_batch.to_pandas()
-        df = add_fastmtt(df)
+        df = add_fastmtt(df, args.channel)
         table = pa.Table.from_pandas(df, preserve_index=False)
         if writer is None:
             writer = pq.ParquetWriter(args.output_file, table.schema)
