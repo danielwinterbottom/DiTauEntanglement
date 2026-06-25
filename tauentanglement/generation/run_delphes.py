@@ -677,6 +677,8 @@ smearer = TrackAngularSmearer(seed=12345)
 #setup output tree
 
 branches = [
+  'taup_px', 'taup_py', 'taup_pz', 'taup_e',
+  'taun_px', 'taun_py', 'taun_pz', 'taun_e',
   'taup_npi', 'taup_npizero',
   'taun_npi', 'taun_npizero',
   'taup_nele', 'taun_nele',
@@ -849,6 +851,15 @@ for iev in range(reader.GetEntries()):
     # define visible taus for use later on
     taup_vis = taup.P4() - taup_neutrinos_sum
     taun_vis = taun.P4() - taun_neutrinos_sum
+
+    branch_vals['taup_px'][0] = taup.P4().Px()
+    branch_vals['taup_py'][0] = taup.P4().Py()
+    branch_vals['taup_pz'][0] = taup.P4().Pz()
+    branch_vals['taup_e'][0]  = taup.P4().E()
+    branch_vals['taun_px'][0] = taun.P4().Px()
+    branch_vals['taun_py'][0] = taun.P4().Py()
+    branch_vals['taun_pz'][0] = taun.P4().Pz()
+    branch_vals['taun_e'][0]  = taun.P4().E()
 
     branch_vals['taup_npi'][0] = len(taup_pis)
     branch_vals['taup_npizero'][0] = len(taup_gammas)//2 # 2 gammas per pi0 - round down if odd number of gammas
