@@ -253,7 +253,7 @@ def getSpinWeightPieces(boson, tau_plus, tau_minus, tau_plus_daughters, tau_minu
         pieces[f'hm_{a}'] = hm[a]
     for a in _AXES:
         for b in _AXES:
-            pieces[f'hp{a}_hm{b}'] = hp[a] * hm[b]
+            pieces[f'hp_{a}_hm_{b}'] = hp[a] * hm[b]
 
     return pieces
 
@@ -282,7 +282,7 @@ def computeSpinWeight(pieces, C=None, Bp=None, Bm=None):
     if C:
         for a in _AXES:
             for b in _AXES:
-                wt += C.get((a, b), 0.0) * pieces[f'hp{a}_hm{b}']
+                wt += C.get((a, b), 0.0) * pieces[f'hp_{a}_hm_{b}']
     return wt
 
 
