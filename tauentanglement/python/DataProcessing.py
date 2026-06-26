@@ -198,6 +198,32 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
 
     df = tree.arrays(config['Features']['dataframe_variables'], library="pd")
 
+    # Optionally load TauSpinner weights, polarimetric vectors, and undecayed tau
+    # 4-vectors if they were produced by run_delphes.py --tauspinner.
+    _AXES = ('n', 'r', 'k')
+    _optional_cols = (
+        [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
+        [f'wt_hp_{a}' for a in _AXES] +
+        [f'wt_hm_{a}' for a in _AXES] +
+        [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
+        ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+         'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
+        ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
+         'taun_px', 'taun_py', 'taun_pz', 'taun_e']
+    )
+    tree_keys = set(tree.keys())
+    cols_to_load = [c for c in _optional_cols if c in tree_keys]
+    if cols_to_load:
+        extra = tree.arrays(cols_to_load, library="pd")
+        # Rename undecayed tau 4-vectors to avoid confusion with tau leptons
+        # reconstructed from decay products.
+        rename = {f'{tau}_{comp}': f'undecayed_{tau}_{comp}'
+                  for tau in ['taup', 'taun']
+                  for comp in ['px', 'py', 'pz', 'e']
+                  if f'{tau}_{comp}' in extra.columns}
+        extra = extra.rename(columns=rename)
+        df = pd.concat([df, extra], axis=1)
+
     ## select only DM 0 and 1
     # removing this since we want to train on other decay modes as well
     #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
