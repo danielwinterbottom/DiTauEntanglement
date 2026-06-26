@@ -555,6 +555,23 @@ def main():
                     del map_pred_Bplus, map_pred_Bminus, map_pred_C, map_pred_con, map_pred_m12
             del dm_masks
 
+        # Pass through optional columns from the input dataframe if present
+        _AXES = ('n', 'r', 'k')
+        _passthrough_cols = (
+            [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
+            [f'wt_hp_{a}' for a in _AXES] +
+            [f'wt_hm_{a}' for a in _AXES] +
+            [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
+            ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+             'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
+            [f'undecayed_{tau}_{comp}'
+             for tau in ['taup', 'taun']
+             for comp in ['px', 'py', 'pz', 'e']]
+        )
+        cols_to_pass = [c for c in _passthrough_cols if c in test_df.columns]
+        if cols_to_pass:
+            results_df = pd.concat([results_df, test_df[cols_to_pass].reset_index(drop=True)], axis=1)
+
         # write the results dataframe to a parquet file
         results_df.to_parquet(f"{output_dir}/{data_config['test_output_name']}.parquet")
     
