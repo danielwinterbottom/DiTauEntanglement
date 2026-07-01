@@ -13,6 +13,7 @@ parser.add_argument("--run_calibration", action="store_true", help="Run calibrat
 parser.add_argument("--sig-file", default="../outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_UnCorr.parquet")
 parser.add_argument("--bkg-file", default="../outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_ZToTauTau.parquet")
 parser.add_argument("--no-replace", action="store_true", help="Sample toys without replacement (non-overlapping chunks). Limits N_toys to pool_size/N_sig_events.")
+parser.add_argument("--n-toys", type=int, default=1000, help="Number of toys to generate. If --no-replace is set, this will be limited to pool_size/N_sig_events.")
 args = parser.parse_args()
 
 
@@ -474,7 +475,7 @@ print("m12:", m12)
 
 #now to get the errors:
 # we will loop over t1 and take chunks of events (sampling a poisson with mean = N_events), then fit each toy, compute concurrence, m12 etc and use these toys to get the errors on the measured quantities
-N_toys = 1000
+N_toys = args.n_toys
 con_toys = []
 m12_toys = []
 Cnn_toys = []
