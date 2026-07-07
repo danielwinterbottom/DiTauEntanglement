@@ -1,6 +1,6 @@
 import numpy as np
 import ROOT
-
+ 
 def ldot(a, b):
     """
     Minkowski dot product (+,-,-,-)

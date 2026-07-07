@@ -8,6 +8,7 @@ import argparse
 from array import array
 import numpy as np
 from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ
+from tauentanglement.utils.calculate_hh import Particle, computeHiggsCPWeight, getSpinWeightPieces, getHHVectors
 
 def TraceTauMother(part, particles, verbose=False):
     """
@@ -555,6 +556,81 @@ def smear_PV(pv_3vec):
 
     return smeared_pv_3vec
 
+# Terminal PDG IDs for tau decay products passed to the spin weight calculation.
+# Intermediate resonances (rho, a1, etc.) are not included — the recursion
+# continues through them until one of these particle types is reached.
+_TS_DAUGHTER_PDGIDS = {22, 111, 211, 321, 130, 310, 11, 12, 13, 14, 16}
+
+def GetTauSpinnerDaughters(part, particles):
+    """
+    Recursively collect the decay products of `part` that are needed for
+    spin weight calculations.
+
+    Traverses the decay tree and collects particles with abs(PID) in
+    {22, 111, 211, 321, 130, 310, 11, 12, 13, 14, 16}. For any other
+    particle the recursion continues into its daughters.
+
+    Parameters
+    ----------
+    part      : Delphes GenParticle (the tau, or any particle in its decay chain)
+    particles : the full Delphes Particle branch for this event
+
+    Returns
+    -------
+    Flat list of Delphes GenParticle objects.
+    """
+    daughters = []
+    uid = part.GetUniqueID()
+    for i in range(particles.GetEntries()):
+        p = particles.At(i)
+        is_daughter = (
+            (p.M1 >= 0 and particles.At(p.M1).GetUniqueID() == uid) or
+            (p.M2 >= 0 and particles.At(p.M2).GetUniqueID() == uid)
+        )
+        if not is_daughter:
+            continue
+        if abs(p.PID) in _TS_DAUGHTER_PDGIDS:
+            daughters.append(p)
+        else:
+            daughters.extend(GetTauSpinnerDaughters(p, particles))
+    return daughters
+
+
+def _hh_to_higgs_rf(hh3, tau_part, boson_part):
+    """
+    Convert a TauSpinner HH polarimetric vector to Higgs-rest-frame Cartesian
+    coordinates, matching the frame used by get_ditau_polarimetric.
+
+    TauSpinner computes HH in a rotated frame where the tau points to -Z.
+    This function undoes that rotation using the tau's polar angles in the Higgs RF.
+    """
+    tau_c = tau_part.copy()
+    bos_c = boson_part.copy()
+    tau_c.boostToRestFrame(bos_c)
+    phi   = tau_c.getAnglePhi()
+    tau_c.rotateXY(-phi)
+    theta = tau_c.getAngleTheta()
+    h = Particle(hh3[0], hh3[1], hh3[2], 0.0, 0)
+    h.rotateXZ(theta - math.pi)
+    h.rotateXY(phi)
+    return h.px(), h.py(), h.pz()
+
+
+def BuildTauSpinnerDaughters(tau_part, particles):
+    """
+    Build the list of decay-product Particle objects for a single tau, for use
+    with computeHiggsCPWeight / getSpinWeightPieces.
+
+    PDG IDs are taken directly from the generator record (already signed:
+    pi- = -211, pi+ = 211, etc.). Returns None if no daughters are found.
+    """
+    gen_daughters = GetTauSpinnerDaughters(tau_part, particles)
+    if len(gen_daughters) == 0:
+        return None
+    return [Particle(d.P4().Px(), d.P4().Py(), d.P4().Pz(), d.P4().E(), d.PID)
+            for d in gen_daughters]
+
+
 def SortPions(pions, tau_charge):
     # for 3 prong taus sort the pions based on charge and pT
     # the first pion is the highest pT pion of opposite charge to the tau, the second pion is the highest pT pion of same charge as the tau, and the third pion is the lowest pT pion of same charge as the tau
@@ -574,6 +650,10 @@ def SortPions(pions, tau_charge):
 parser = argparse.ArgumentParser()
 parser.add_argument("--output" ,'-o', help="Name of output file")
 parser.add_argument("--input" ,'-i', help="Name of input file")
+parser.add_argument("--skip-tauspinner", action="store_true", help="Skip TauSpinner CP weight computation")
+parser.add_argument("--tauspinner-alphas", nargs='+', type=float, default=[0, 45, 90],
+                    help="CP mixing angles (degrees) for which to compute TauSpinner weights (default: 0 45 90)")
+parser.add_argument("--boson-pdgid", type=int, default=25, help="PDG ID of the mother boson (25=Higgs, 23=Z)")
 args = parser.parse_args()
 
 # Adjust this path if needed:
@@ -640,6 +720,32 @@ for b in branches:
         branch_vals['reco_' + b] = array('f',[0])
         tree.Branch('reco_' + b,  branch_vals['reco_' + b],  'reco_%s/F' % b)
 
+for bname in ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
+              'taun_px', 'taun_py', 'taun_pz', 'taun_e']:
+    branch_vals[bname] = array('f', [0])
+    tree.Branch(bname, branch_vals[bname], f'{bname}/F')
+
+if not args.skip_tauspinner:
+    ts_alphas = args.tauspinner_alphas
+    for alpha in ts_alphas:
+        bname = f'tauspinner_wt_alpha{int(alpha)}'
+        branch_vals[bname] = array('f', [0])
+        tree.Branch(bname, branch_vals[bname], f'{bname}/F')
+    _AXES = ('n', 'r', 'k')
+    ts_piece_names = (
+        [f'wt_hp_{a}' for a in _AXES] +
+        [f'wt_hm_{a}' for a in _AXES] +
+        [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES]
+    )
+    for bname in ts_piece_names:
+        branch_vals[bname] = array('f', [0])
+        tree.Branch(bname, branch_vals[bname], f'{bname}/F')
+    for tau in ['taup', 'taun']:
+        for comp in ['x', 'y', 'z']:
+            bname = f'ts_hh_{tau}_{comp}'
+            branch_vals[bname] = array('f', [0])
+            tree.Branch(bname, branch_vals[bname], f'{bname}/F')
+
 for iev in range(reader.GetEntries()):
 
     # initialize the branch values to zero
@@ -667,7 +773,7 @@ for iev in range(reader.GetEntries()):
                 tau1_mother, tau1_mother_pdgid = TraceTauMother(tau1, particles, verbose=False)
                 tau2_mother, tau2_mother_pdgid = TraceTauMother(tau2, particles, verbose=False)
                 if tau1_mother == tau2_mother:
-                    tau_pairs.append((tau1, tau2, tau1_mother_pdgid))
+                    tau_pairs.append((tau1, tau2, tau1_mother_pdgid, tau1_mother))
 
 
     if len(tau_pairs) == 0:
@@ -679,9 +785,10 @@ for iev in range(reader.GetEntries()):
         tau_pairs.sort(key=lambda x: (x[2] != 25, x[2] != 23, x[2] != 22, -(x[0].PT + x[1].PT))) # sort by mother PDGID preference and then sum of pT
     best_pair = tau_pairs[0]
 
-    # get taup and taun 
+    # get taup and taun
     taup = best_pair[0] if best_pair[0].Charge > 0 else best_pair[1]
     taun = best_pair[1] if best_pair[0].Charge > 0 else best_pair[0]
+    boson_gen = particles.At(best_pair[3])
 
     taup_daughter = GetStableDaughters(taup, particles)
     taun_daughter = GetStableDaughters(taun, particles)
@@ -747,6 +854,15 @@ for iev in range(reader.GetEntries()):
     # define visible taus for use later on
     taup_vis = taup.P4() - taup_neutrinos_sum
     taun_vis = taun.P4() - taun_neutrinos_sum
+
+    branch_vals['taup_px'][0] = taup.P4().Px()
+    branch_vals['taup_py'][0] = taup.P4().Py()
+    branch_vals['taup_pz'][0] = taup.P4().Pz()
+    branch_vals['taup_e'][0]  = taup.P4().E()
+    branch_vals['taun_px'][0] = taun.P4().Px()
+    branch_vals['taun_py'][0] = taun.P4().Py()
+    branch_vals['taun_pz'][0] = taun.P4().Pz()
+    branch_vals['taun_e'][0]  = taun.P4().E()
 
     branch_vals['taup_npi'][0] = len(taup_pis)
     branch_vals['taup_npizero'][0] = len(taup_gammas)//2 # 2 gammas per pi0 - round down if odd number of gammas
@@ -1204,6 +1320,49 @@ for iev in range(reader.GetEntries()):
     #store reco MET
     branch_vals['reco_met_px'][0] = MET.At(0).MET * math.cos(MET.At(0).Phi)
     branch_vals['reco_met_py'][0] = MET.At(0).MET * math.sin(MET.At(0).Phi)
+
+    if not args.skip_tauspinner:
+        # CP weights default to 1 (no reweighting); pieces and polarimetric vectors default to 0
+        for alpha in ts_alphas:
+            branch_vals[f'tauspinner_wt_alpha{int(alpha)}'][0] = 1.0
+        for bname in ts_piece_names:
+            branch_vals[bname][0] = 0.0
+        for tau in ['taup', 'taun']:
+            for comp in ['x', 'y', 'z']:
+                branch_vals[f'ts_hh_{tau}_{comp}'][0] = 0.0
+
+        dau_p = BuildTauSpinnerDaughters(taup, particles)
+        dau_m = BuildTauSpinnerDaughters(taun, particles)
+
+        if dau_p is not None and dau_m is not None:
+            taup_part = Particle(taup.P4().Px(), taup.P4().Py(), taup.P4().Pz(), taup.P4().E(), -15)
+            taun_part = Particle(taun.P4().Px(), taun.P4().Py(), taun.P4().Pz(), taun.P4().E(),  15)
+            # Use the generator-level boson 4-vector directly rather than summing
+            # the tau momenta, so that FSR off the taus is handled correctly.
+            boson_part = Particle(boson_gen.P4().Px(), boson_gen.P4().Py(),
+                                  boson_gen.P4().Pz(), boson_gen.P4().E(), boson_gen.PID)
+            for alpha in ts_alphas:
+                try:
+                    wt = computeHiggsCPWeight(boson_part, taup_part, taun_part, dau_p, dau_m, alpha)
+                    branch_vals[f'tauspinner_wt_alpha{int(alpha)}'][0] = wt
+                except Exception:
+                    pass
+            try:
+                HHp, _, HHm, _ = getHHVectors(boson_part, taup_part, taun_part, dau_p, dau_m)
+                hh_p_rf = _hh_to_higgs_rf(HHp[:3], taup_part, boson_part)
+                hh_m_rf = _hh_to_higgs_rf(HHm[:3], taun_part, boson_part)
+                branch_vals['ts_hh_taup_x'][0], branch_vals['ts_hh_taup_y'][0], branch_vals['ts_hh_taup_z'][0] = hh_p_rf
+                branch_vals['ts_hh_taun_x'][0], branch_vals['ts_hh_taun_y'][0], branch_vals['ts_hh_taun_z'][0] = hh_m_rf
+
+                pieces = getSpinWeightPieces(boson_part, taup_part, taun_part, dau_p, dau_m)
+                for a in _AXES:
+                    branch_vals[f'wt_hp_{a}'][0] = pieces[f'hp_{a}']
+                    branch_vals[f'wt_hm_{a}'][0] = pieces[f'hm_{a}']
+                for a in _AXES:
+                    for b in _AXES:
+                        branch_vals[f'wt_hp_{a}_hm_{b}'][0] = pieces[f'hp_{a}_hm_{b}']
+            except Exception:
+                pass
 
     tree.Fill()
 
