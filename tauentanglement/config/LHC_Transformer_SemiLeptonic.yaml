@@ -1,24 +1,23 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8
+  model_name: model_LHC_TransformerFlow_SemiLeptonic_100e_June24_TRIAL2
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 25
+  n_epochs: 100
   hyperparams:  { # for NuFlow with transformer conditioning
-              'batch_size': 8192,
-              'num_layers': 6,
-              'num_bins': 16,
+              'batch_size': 4096,
+              'num_layers': 9,
+              'num_bins': 20,
               'tail_bound': 4.0,
               'hidden_size': 256,
-              'num_blocks': 3,
-              'lr': 0.001,
-              'weight_decay': !!float 1e-05,
-              'context_dim': 256,
-              'd_model': 128,
-              'nhead': 4,
-              'num_transformer_layers': 3,
-              'dropout': 0.2}
+              'num_blocks': 1,
+              'lr': 0.0005,
+              'context_dim': 64,
+              'd_model': 256,
+              'nhead': 2,
+              'num_transformer_layers': 4,
+              'dropout': 0.4}
   MLP_hyperparams: { # for MLP baseline
               'batch_size': 8192,
               'num_blocks': 6,

@@ -378,6 +378,14 @@ def main():
                 reco_taup_iselectron = np.zeros((len(test_df), 1))
                 reco_taun_iselectron = np.zeros((len(test_df), 1))
     
+        # store the mass constraint if exists
+        has_fastmtt_constraint = 'FastMTT_mass_constraint' in test_df.columns
+        if has_fastmtt_constraint:
+            fastmtt_mass_constraint = test_df['FastMTT_mass_constraint'].values
+            fastmtt_pt_constraint = test_df['FastMTT_pt_constraint'].values
+            fastmtt_pt_1_constraint = test_df['FastMTT_pt_1_constraint'].values
+            fastmtt_pt_2_constraint = test_df['FastMTT_pt_2_constraint'].values
+
         del test_df
 
         # collect true and predicted nus, true and predicted taus, and pi's into pandas dataframe, label the columns
@@ -428,7 +436,14 @@ def main():
         results_df['pred_boson_mass'] = np.sqrt(np.maximum(
             (pred_taus[:,0]+pred_taus[:,4])**2 - (pred_taus[:,1]+pred_taus[:,5])**2
             - (pred_taus[:,2]+pred_taus[:,6])**2 - (pred_taus[:,3]+pred_taus[:,7])**2, 0))
-        
+
+        if has_fastmtt_constraint:
+            results_df['FastMTT_mass_constraint'] = fastmtt_mass_constraint
+            results_df['FastMTT_pt_constraint'] = fastmtt_pt_constraint
+            results_df['FastMTT_pt_taup_constraint'] = fastmtt_pt_1_constraint
+            results_df['FastMTT_pt_taun_constraint'] = fastmtt_pt_2_constraint
+            del fastmtt_mass_constraint, fastmtt_pt_constraint, fastmtt_pt_1_constraint, fastmtt_pt_2_constraint
+
         # delete everything that has been concatinated into results_df to save memory
         del true_values, predictions, true_taus, pred_taus, true_taun_haspizero, true_taup_haspizero, true_taup_ishadronic, true_taun_ishadronic, true_taup_npizero, true_taun_npizero, true_taup_is3prong, true_taun_is3prong, true_taup_ismuon, true_taun_ismuon, true_taup_iselectron, true_taun_iselectron, true_taup_pi, true_taup_pizero, true_taun_pi, true_taun_pizero, true_taun_pi_ip, true_taup_pi_ip, true_taup_charged, true_taun_charged, true_taup_charged_ip, true_taun_charged_ip, true_taup_sv, true_taun_sv, true_taup_pi2, true_taun_pi2, true_taup_pi3, true_taun_pi3
 
