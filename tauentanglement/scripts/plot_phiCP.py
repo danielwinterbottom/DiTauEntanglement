@@ -24,9 +24,11 @@ options = {
 'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPEven.parquet',
 'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPOdd.parquet',
 'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPMix.parquet',
+'Zprime': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_Zprime.parquet',
 'sl_even': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPEven.parquet',
 'sl_odd': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPOdd.parquet',
 'sl_mix': None,
+'sl_Zprime': None,
 # 'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet', # has fastmtt added
 # 'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet', # has fastmtt added
 },
@@ -122,12 +124,15 @@ def load_data(prefix='',extra_pt_cut=-1):
     cfg = options['files']
     read = pd.read_parquet
     mix_df = read(cfg[f'{prefix}mix']) if cfg.get(f'{prefix}mix') is not None else None
+    zprime_df = read(cfg[f'{prefix}Zprime']) if cfg.get(f'{prefix}Zprime') is not None else None
     even_df = read(cfg[f'{prefix}even'])
     print(f'EVEN File: {cfg[f"{prefix}even"]}')
     odd_df = read(cfg[f'{prefix}odd'])
     print(f'ODD File: {cfg[f"{prefix}odd"]}')
     if mix_df is not None:
         print(f'MIX File: {cfg[f"{prefix}mix"]}')
+    if zprime_df is not None:
+        print(f'ZPRIME File: {cfg[f"{prefix}Zprime"]}')
     # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
         def compute_vis_pt(df, prefix):
@@ -145,8 +150,11 @@ def load_data(prefix='',extra_pt_cut=-1):
         if mix_df is not None:
             mix_df['vis_pt'] = compute_vis_pt(mix_df, prefix)
             mix_df = mix_df[mix_df['vis_pt'] > extra_pt_cut]
-    return even_df, odd_df, mix_df
-    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df
+        if zprime_df is not None:
+            zprime_df['vis_pt'] = compute_vis_pt(zprime_df, prefix)
+            zprime_df = zprime_df[zprime_df['vis_pt'] > extra_pt_cut]
+    return even_df, odd_df, mix_df, zprime_df
+    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df, zprime_df
 
 
 def main():
@@ -174,7 +182,7 @@ def main():
     os.makedirs(f"{args.output_dir}/logs", exist_ok=True)
     os.makedirs(f"{args.output_dir}/{args.option}", exist_ok=True)
 
-    even_df, odd_df, mix_df = load_data(prefix='sl_' if args.leptonic_mode == 1 else '')
+    even_df, odd_df, mix_df, zprime_df = load_data(prefix='sl_' if args.leptonic_mode == 1 else '')
 
 
     use_map = not args.useMLP
@@ -186,6 +194,9 @@ def main():
     if mix_df is not None:
         mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
         mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map)
+    if zprime_df is not None:
+        zprime_df = add_DM(zprime_df, dm_prefix=dm_pfx)
+        zprime_df = compute_phicp_all(zprime_df, args.option, use_map=use_map)
 
     if args.leptonic_mode == 1:
         dm_combs = [[100, 0], [100,1], [100,2], [100,10]]
@@ -208,6 +219,9 @@ def main():
         if mix_df is not None:
             mix = mix_df[dm_mask(mix_df)]
             plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
+        if zprime_df is not None:
+            zprime = zprime_df[dm_mask(zprime_df)]
+            plot_phicp_histogram(ax, zprime, bin_edges, 'phiCP', 'Zprime', 'black', hide)
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
 
