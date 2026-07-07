@@ -21,6 +21,7 @@ def flow_map_predict(
     n_steps=200,
     lr=1e-2,
     return_log_prob=False,
+    verbose=False,
 ):
     """
     Compute MAP (maximum log-probability) predictions from a normalizing flow.
@@ -49,10 +50,19 @@ def flow_map_predict(
                                 num_draws stochastic samples (encoded back to z-space).
                                 Handles multimodal posteriors: sampling finds the right basin,
                                 gradient descent finds the exact mode within it.
+        'minuit'              — same z-space change-of-variables objective as 'gradient', but
+                                optimised with Minuit's MIGRAD instead of Adam. Not vectorised
+                                over the batch, so events are processed one at a time; much
+                                slower than the gradient methods but a more reliable benchmark
+                                for the true MAP.
     n_steps : int
         Number of Adam steps. Only used by gradient methods.
     lr : float
         Adam learning rate. Only used by gradient methods.
+    verbose : bool
+        If True, show a running average of time-per-event and iterations-per-event in the
+        progress bar, updated as more events are processed (so the average keeps refining
+        rather than the running total).
 
     Returns
     -------
@@ -70,21 +80,48 @@ def flow_map_predict(
     all_best_samples = []
     all_best_log_probs = [] if return_log_prob else None
 
+    # running totals for the verbose progress-bar averages; averaged over events
+    # processed so far, so they keep refining as more events are processed
+    _total_time = 0.0
+    _total_iters = 0
+    _total_events = 0
+    _total_log_p = 0.0
+
+    def _update_postfix(pbar, dt, iters, n_events, log_p_sum):
+        nonlocal _total_time, _total_iters, _total_events, _total_log_p
+        _total_time += dt
+        _total_iters += iters
+        _total_events += n_events
+        _total_log_p += log_p_sum
+        if verbose:
+            pbar.set_postfix({
+                'avg_s/event': f"{_total_time / _total_events:.4f}",
+                'avg_iters/event': f"{_total_iters / _total_events:.1f}",
+                'avg_log_p': f"{_total_log_p / _total_events:.3f}",
+            })
+
     if method == 'latent_zero':
         # this doesn't work very well, but might as well leave it in
         latent_dim = model.flow._distribution._shape[0]
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (latent_zero)"):
+        pbar = tqdm(range(0, B, chunk_size), desc="Processing chunks (latent_zero)")
+        for start in pbar:
+            t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
             z_zero = torch.zeros(C, latent_dim, device=X_chunk.device)
             with torch.no_grad():
                 x_map, _ = model.decode(z_zero, context=X_chunk)
+                cond_embed_chunk = model.condition_net(X_chunk)
+                log_p = model.flow.log_prob(inputs=x_map, context=cond_embed_chunk)
             all_best_samples.append(x_map.cpu())
+            _update_postfix(pbar, time.time() - t0, C, C, log_p.sum().item())  # single decode pass per event
 
     elif method == 'stochastic':
         # sample from the pdf
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (stochastic)"):
+        pbar = tqdm(range(0, B, chunk_size), desc="Processing chunks (stochastic)")
+        for start in pbar:
+            t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
@@ -95,16 +132,19 @@ def flow_map_predict(
                 )
             best_idx = torch.argmax(log_probs, dim=1)              # [C]
             best_samples_chunk = samples_norm_chunk[torch.arange(C), best_idx]  # [C, F]
+            best_log_p_sum = log_probs[torch.arange(C), best_idx].sum().item()
             # free the large [C, num_draws, F] tensor before appending to avoid two chunks in memory at once
             del samples_norm_chunk, log_probs, best_idx
             all_best_samples.append(best_samples_chunk.cpu())
+            _update_postfix(pbar, time.time() - t0, C * num_draws, C, best_log_p_sum)
 
     elif method == 'gradient':
         # optimisation of the MAP estimate in z-space
         latent_dim = model.flow._distribution._shape[0]
 
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient)"):
-            #t0 = time.time()
+        pbar = tqdm(range(0, B, chunk_size), desc="Processing chunks (gradient)")
+        for start in pbar:
+            t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
@@ -150,13 +190,15 @@ def flow_map_predict(
                 x_map, _ = model.flow._transform.inverse(z.detach(), context=cond_embed_chunk)
             #print(f"x_map[0]={x_map[0].cpu().numpy()}")
             all_best_samples.append(x_map.cpu())
+            _update_postfix(pbar, time.time() - t0, C * n_steps, C, log_p.detach().sum().item())
 
     elif method == 'gradient_forward':
 
         latent_dim = model.flow._distribution._shape[0]
 
-        for start in tqdm(range(0, B, chunk_size), desc="Processing chunks (forward gradient)"):
-            #t0 = time.time()
+        pbar = tqdm(range(0, B, chunk_size), desc="Processing chunks (forward gradient)")
+        for start in pbar:
+            t0 = time.time()
             end = min(start + chunk_size, B)
             X_chunk = X[start:end]
             C = X_chunk.shape[0]
@@ -199,9 +241,48 @@ def flow_map_predict(
             #print(f"Time taken for maximizing log p {t1 - t0:.2f} s")
             #print(f"Initial mean log p: {initial_log_p:.6f}, Final mean log p: {final_log_p:.6f}, Gain: {final_log_p - initial_log_p:.6f}")
             all_best_samples.append(x.detach().cpu())
+            _update_postfix(pbar, time.time() - t0, C * n_steps, C, log_p.detach().sum().item())
+
+    elif method == 'minuit':
+        # Minuit MAP: optimise z via MIGRAD using the same change-of-variables
+        # identity as method='gradient' (log p = log p_Z(z) - log|det J_decode|).
+        # Minuit isn't vectorised over a batch, so events are processed one at a time.
+        latent_dim = model.flow._distribution._shape[0]
+
+        pbar = tqdm(range(B), desc="Processing events (minuit)")
+        for i in pbar:
+            t0 = time.time()
+            X_i = X[i:i + 1]
+
+            with torch.no_grad():
+                cond_embed_i = model.condition_net(X_i)
+
+            z_init_np = np.zeros(latent_dim)
+
+            def neg_log_p(z_params):
+                z = torch.as_tensor(z_params, dtype=X_i.dtype, device=X_i.device).unsqueeze(0)
+                with torch.no_grad():
+                    _, logabsdet = model.flow._transform.inverse(z, context=cond_embed_i)
+                    log_pz = -0.5 * (z ** 2).sum(dim=-1)
+                    log_p = log_pz - logabsdet
+                return -log_p.item()
+
+            m = Minuit(neg_log_p, z_init_np)
+            m.errordef = Minuit.LIKELIHOOD
+            m.migrad()
+
+            z_map = torch.tensor(m.values[:], dtype=X_i.dtype, device=X_i.device).unsqueeze(0)
+            with torch.no_grad():
+                x_map, _ = model.flow._transform.inverse(z_map, context=cond_embed_i)
+            all_best_samples.append(x_map.cpu())
+
+            if return_log_prob:
+                all_best_log_probs.append(torch.tensor([-m.fval]))
+
+            _update_postfix(pbar, time.time() - t0, m.nfcn, 1, -m.fval)  # m.nfcn = number of MIGRAD function calls; m.fval = -log_p at the minimum
 
     else:
-        raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', or 'gradient_warmstart'.")
+        raise ValueError(f"Unknown method '{method}'. Choose 'stochastic', 'latent_zero', 'gradient', 'gradient_forward', or 'minuit'.")
 
     samples_norm_alt = torch.cat(all_best_samples, dim=0)
 
