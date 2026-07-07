@@ -8,6 +8,15 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid valu
 vector.register_awkward()
 from tauentanglement.utils.PolarimetricA1 import PolarimetricA1_vectorised
 
+def pt_direction_to_momentum4d(pt, direction, mass):
+    # get p vector from pT and direction vector (cartesian)
+    pt_dir = np.sqrt(direction.x**2 + direction.y**2)
+    px = pt * direction.x / pt_dir
+    py = pt * direction.y / pt_dir
+    pz = pt * direction.z / pt_dir
+    E = np.sqrt(px**2 + py**2 + pz**2 + mass**2)
+    return ak.zip({"px": px, "py": py, "pz": pz, "E": E}, with_name="Momentum4D")
+
 def spatial(v, return_E=False):
     p3 = ak.zip({"x": v.px, "y": v.py, "z": v.pz}, with_name="Vector3D")
     if return_E:
@@ -113,10 +122,11 @@ def rotate_to_GJMax(visible_tau, tau):
 
     return ak.where(mask, new_tau, tau)
 
-def estimate_PV_tau_momentum_magnitude(df, tau_prefix):
+def estimate_PV_tau_momentum_magnitude(df, tau_prefix, use_map=True):
     """
     tau prefix is taun or taup
     """
+    predicted_prefix = 'map_pred' if use_map else 'pred'
     # Visible tau
     piOS = ak.zip({"px": df[f"reco_{tau_prefix}_pi1_px"], "py": df[f"reco_{tau_prefix}_pi1_py"], "pz": df[f"reco_{tau_prefix}_pi1_pz"], "E": df[f"reco_{tau_prefix}_pi1_E"]}, with_name="Momentum4D")
     piSS1 = ak.zip({"px": df[f"reco_{tau_prefix}_pi2_px"], "py": df[f"reco_{tau_prefix}_pi2_py"], "pz": df[f"reco_{tau_prefix}_pi2_pz"], "E": df[f"reco_{tau_prefix}_pi2_E"]}, with_name="Momentum4D")
@@ -124,10 +134,18 @@ def estimate_PV_tau_momentum_magnitude(df, tau_prefix):
     vis_tau = piOS + piSS1 + piSS2
 
     # Taus estimated from norm flow momentum and SV direction
-    pred_tau_name = 'tau_minus' if tau_prefix == 'taun' else 'tau_plus'
-    tau_mag = np.sqrt(df[f"map_pred_{pred_tau_name}_px"]**2 + df[f"map_pred_{pred_tau_name}_py"]**2 + df[f"map_pred_{pred_tau_name}_pz"]**2)
-    sv_mag = np.sqrt(df[f"reco_{tau_prefix}_sv_x"]**2 + df[f"reco_{tau_prefix}_sv_y"]**2 + df[f"reco_{tau_prefix}_sv_z"]**2)
-    tau = ak.zip({"px": tau_mag * df[f"reco_{tau_prefix}_sv_x"] / sv_mag, "py": tau_mag * df[f"reco_{tau_prefix}_sv_y"] / sv_mag, "pz": tau_mag * df[f"reco_{tau_prefix}_sv_z"] / sv_mag, "E":  np.sqrt(tau_mag**2 + 1.777**2)}, with_name="Momentum4D")
+    if f"FastMTT_pt_{tau_prefix}_constraint" in df.columns:
+        # use fastMTT
+        sv_direction = ak.zip({"x": df[f"reco_{tau_prefix}_sv_x"], "y": df[f"reco_{tau_prefix}_sv_y"], "z": df[f"reco_{tau_prefix}_sv_z"]}, with_name="Vector3D")
+        fastmtt_pt = df[f"FastMTT_pt_{tau_prefix}_constraint"]
+        tau = pt_direction_to_momentum4d(fastmtt_pt, sv_direction, 1.777)
+    else:
+        # fallback on predicted momentum magnitude
+        print(f"Warning: FastMTT pT column FastMTT_pt_{tau_prefix}_constraint not found, using predicted momentum magnitude instead!")
+        pred_tau_name = 'tau_minus' if tau_prefix == 'taun' else 'tau_plus'
+        tau_mag = np.sqrt(df[f"{predicted_prefix}_{pred_tau_name}_px"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_py"]**2 + df[f"{predicted_prefix}_{pred_tau_name}_pz"]**2)
+        sv_mag = np.sqrt(df[f"reco_{tau_prefix}_sv_x"]**2 + df[f"reco_{tau_prefix}_sv_y"]**2 + df[f"reco_{tau_prefix}_sv_z"]**2)
+        tau = ak.zip({"px": tau_mag * df[f"reco_{tau_prefix}_sv_x"] / sv_mag, "py": tau_mag * df[f"reco_{tau_prefix}_sv_y"] / sv_mag, "pz": tau_mag * df[f"reco_{tau_prefix}_sv_z"] / sv_mag, "E":  np.sqrt(tau_mag**2 + 1.777**2)}, with_name="Momentum4D")
 
     # Rotate to maximally allowed GJ angle
     tau = rotate_to_GJMax(vis_tau, tau)
@@ -193,7 +211,7 @@ def tauPairMomentumSolutions(tau1Dir, a1LV1, tau2Dir, a1LV2):
     return tau1PairConstraintLV, tau2PairConstraintLV
 
 
-def get_R_P_vectors_all(df, tau_prefix='tau'):
+def get_R_P_vectors_all(df, tau_prefix='tau', use_map=True):
     """Compute R and P vectors for all events, selecting IP (DM0) or pizero (DM1) for R."""
     P_pion = ak.zip({
         "px": df[f"reco_{tau_prefix}_pi1_px"],
@@ -231,7 +249,7 @@ def get_R_P_vectors_all(df, tau_prefix='tau'):
     }, with_name="Momentum4D")
 
     # tau momentum prediction from the flow (magnitude) and SV-PV direction
-    P_tau, R_PV = estimate_PV_tau_momentum_magnitude(df, tau_prefix)
+    P_tau, R_PV = estimate_PV_tau_momentum_magnitude(df, tau_prefix, use_map=use_map)
     R_PV_4d = ak.zip({"px": R_PV.x, "py": R_PV.y, "pz": R_PV.z, "E": ak.zeros_like(R_PV.x)}, with_name="Momentum4D")
 
     is_leptonic = df[f"{tau_prefix}_DM"].values == 100

@@ -1,39 +1,29 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2
+  model_name: model_LHC_TransformerBaseline_Hadronic_100e_July6
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
   n_epochs: 100
-  hyperparams:  { # for NuFlow with transformer conditioning
+  TransformerBaseline_hyperparams: { # for transformer encoder + MSE regression head (no flow)
               'batch_size': 4096,
-              'num_layers': 9,
-              'num_bins': 20,
-              'tail_bound': 4.0,
-              'hidden_size': 256,
-              'num_blocks': 1,
-              'lr': 0.0005,
               'context_dim': 64,
               'd_model': 256,
               'nhead': 2,
               'num_transformer_layers': 4,
-              'dropout': 0.4}
-  MLP_hyperparams: { # for MLP baseline
-              'batch_size': 8192,
-              'num_blocks': 6,
-              'hidden_size': 512,
+              'dropout': 0.4,
               'lr': 0.0005}
-  use_transformer: True
+  use_transformer: True  # tells DataProcessing to use transformer-style data labelling
   map_method: gradient
   map_num_draws: 100
-
+  chunk_size: 20000
 
 Data:
   datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1', 'ppToHToTauTau_AllDM_CPEven_May22_ext2', 'ppToHToTauTau_AllDM_CPOdd_May22_ext2','ppToHToTauTau_AllDM_CPEven_May22_ext3', 'ppToHToTauTau_AllDM_CPOdd_May22_ext3', 'ppToHToTauTau_DM0and1_CPEven_May22','ppToHToTauTau_DM0and1_CPOdd_May22', 'ppToHToTauTau_DM0and1_CPEven_May22_ext1', 'ppToHToTauTau_DM0and1_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
   output_dir: 'prepared_LHC_data'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
-  test_dataset:  ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPMix_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer_incFastMTT.parquet', 'prepared_LHC_data_fortesting/ppToZPrimeToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer_incFastMTT.parquet'] #['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet']
-  test_output_name: ['output_results_CPMix', 'output_results_Zprime'] #['output_results_CPEven', 'output_results_CPOdd']
+  test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet']
+  test_output_name: ['output_results_CPEven', 'output_results_CPOdd']
   leptonic_mode: 0 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
