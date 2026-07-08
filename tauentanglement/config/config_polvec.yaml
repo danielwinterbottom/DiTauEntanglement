@@ -29,7 +29,8 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25_ext1']
+  #datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25','ppToHToTauTau_AllDM_UnCorr_Jun25_ext1','ppToHToTauTau_AllDM_UnCorr_Jun25_ext2']
+  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25_ext2']
   output_dir: 'prepared_LHC_data_polvectraining'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   #test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_0_transformer.parquet','prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPMix_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZPrimeToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet'] # list of paths to the test datasets
