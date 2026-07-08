@@ -10,6 +10,35 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+def _unpack_batch(batch, device):
+    """RegressionDataset yields (X, y) normally, or (X, y, w) when a per-event
+    training weight was configured (see get_train_val_test_datasets). Handle both."""
+    if len(batch) == 3:
+        X, y, w = batch
+        w = w.to(device)
+    else:
+        X, y = batch
+        w = None
+    return X.to(device), y.to(device), w
+
+
+def _compute_loss(model, X, y, w, useMLP, mlp_loss_fn):
+    """Weighted or unweighted loss, for either the flow (NLL) or MLP (MSE) baseline.
+    Weighted loss is a weighted mean (sum(w*loss_i)/sum(w)), i.e. the weights rescale
+    each event's contribution rather than acting like extra/fewer effective events."""
+    if not useMLP:
+        log_p = model.log_prob(inputs=y, context=X)
+        if w is not None:
+            return -(w * log_p).sum() / w.sum()
+        return -log_p.mean()
+    else:
+        predictions = model(X)
+        if w is not None:
+            per_event_loss = ((predictions - y) ** 2).mean(dim=1)
+            return (w * per_event_loss).sum() / w.sum()
+        return mlp_loss_fn(predictions, y)
+
+
 def get_device():
     """Select the best available compute device: CUDA GPU, Apple Silicon GPU (MPS), or CPU."""
     if torch.cuda.is_available():
@@ -193,15 +222,10 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
     for epoch in range(start_epoch + 1, num_epochs + 1):
         running_loss=0
         mlp_loss_fn = nn.MSELoss()
-        for batch, (X, y) in enumerate(train_dataloader):
-            X, y = X.to(device), y.to(device)
+        for batch, batch_data in enumerate(train_dataloader):
+            X, y, w = _unpack_batch(batch_data, device)
             optimizer.zero_grad()
-            if not useMLP:
-                loss = -model.log_prob(inputs=y, context=X).mean()
-            else:
-                # for MLP use MSE loss
-                predictions = model(X)
-                loss = mlp_loss_fn(predictions, y)
+            loss = _compute_loss(model, X, y, w, useMLP, mlp_loss_fn)
             loss.backward()
             # Lucas experimented here
             # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -224,15 +248,11 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             n_batches = len(test_dataloader)
             sum_train_loss = 0
             with torch.no_grad():
-                for i, (X_train, y_train) in enumerate(train_dataloader):
+                for i, batch_data in enumerate(train_dataloader):
                     if i >= n_batches:
                         break
-                    X_train, y_train = X_train.to(device), y_train.to(device)
-                    if not useMLP:
-                        train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
-                    else:
-                        predictions = model(X_train)
-                        train_loss = mlp_loss_fn(predictions, y_train)
+                    X_train, y_train, w_train = _unpack_batch(batch_data, device)
+                    train_loss = _compute_loss(model, X_train, y_train, w_train, useMLP, mlp_loss_fn)
                     sum_train_loss += train_loss.item()
             train_loss = sum_train_loss / n_batches
 
@@ -241,13 +261,9 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         # validation phase
         val_running_loss = 0
         with torch.no_grad():
-            for X_val, y_val in test_dataloader:
-                X_val, y_val = X_val.to(device), y_val.to(device)
-                if not useMLP:
-                    val_loss = -model.log_prob(inputs=y_val, context=X_val).mean()
-                else:
-                    predictions = model(X_val)
-                    val_loss = mlp_loss_fn(predictions, y_val)
+            for batch_data in test_dataloader:
+                X_val, y_val, w_val = _unpack_batch(batch_data, device)
+                val_loss = _compute_loss(model, X_val, y_val, w_val, useMLP, mlp_loss_fn)
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)
