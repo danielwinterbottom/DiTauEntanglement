@@ -4,7 +4,7 @@ SetupNN:
   model_name: model_LHC_TransformerFlow_PolVecDirect_Jul08
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 1
+  n_epochs: 25
   hyperparams:  { # for NuFlow with transformer conditioning
               'batch_size': 4096,
               'num_layers': 9,
@@ -29,7 +29,7 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25']
+  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25_ext1']
   output_dir: 'prepared_LHC_data_polvectraining'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   #test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_0_transformer.parquet','prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPMix_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZPrimeToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet'] # list of paths to the test datasets
@@ -136,5 +136,7 @@ Data:
                     'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
                     'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k']}
   available_files: {
-                    'ppToHToTauTau_AllDM_UnCorr_Jun25': '/Users/dw515/ClaudeCode/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25/reco_events.root',  
+                    'ppToHToTauTau_AllDM_UnCorr_Jun25': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25/reco_events.root',  
+                    'ppToHToTauTau_AllDM_UnCorr_Jun25_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25_ext1/reco_events.root',  
+                    'ppToHToTauTau_AllDM_UnCorr_Jun25_ext2': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25_ext2/reco_events.root',  
                     }
