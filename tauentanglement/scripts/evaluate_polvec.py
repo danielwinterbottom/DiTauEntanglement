@@ -149,6 +149,7 @@ def main():
     print(f">> Using device: {device}")
 
     output_dir = f"outputs_{nn_config['model_name']}"
+    output_plots_dir = f"{output_dir}/plots"    
     outdir = os.path.join(output_dir, 'plots_eval_polvec')
     os.makedirs(outdir, exist_ok=True)
 
@@ -173,13 +174,18 @@ def main():
     # --- load model ---
     model = load_model(nn_config['hyperparams'], input_features, output_features,
                         useTransformer=nn_config.get('use_transformer', True), leptonic_mode=leptonic_mode)
-    model_path = os.path.join(output_dir, f"{nn_config['model_name']}.pth")
-    print(f">> Loading model weights from {model_path}")
-    try:
+
+    model_path = f'{output_plots_dir}/best_model.pth'
+    print(f"Using model {nn_config['model_name']}")
+    print(f"Loading model from {model_path}...")
+    if not os.path.exists(model_path):  # check if model exists, if not take partial model
+        model_path = f'{output_plots_dir}/partial_model.pth'
+    try:  # load model and optimizer
         model.load_state_dict(torch.load(model_path))
-    except Exception:
+    except:
+        print(f"Loading model from {model_path} failed. Trying to load from CPU.")
         model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-    model.float().to(device)
+    print(">> Successfully loaded model")
     model.eval()
 
     # --- MAP prediction, in the model's native (training) coordinate space ---
@@ -222,7 +228,7 @@ def main():
         pred_vals = [pred_p[:, 0], pred_p[:, 1], pred_p[:, 2], pred_E]
         plot_true_vs_pred_2d(
             true_vals, pred_vals, [f'{tau}_px', f'{tau}_py', f'{tau}_pz', f'{tau}_E'],
-            f'Tau 4-vector: {tau}', os.path.join(outdir, f'tau4vec_{tau}.png'),
+            f'Tau 4-vector: {tau}', os.path.join(outdir, f'tau4vec_{tau}.pdf'),
             args.num_bins, sym_range='auto',
         )
 
@@ -236,7 +242,7 @@ def main():
             [true_h[:, 0], true_h[:, 1], true_h[:, 2]],
             [pred_h_unit[:, 0], pred_h_unit[:, 1], pred_h_unit[:, 2]],
             [f'ts_hh_{tau}_x', f'ts_hh_{tau}_y', f'ts_hh_{tau}_z'],
-            f'Polarimetric vector: {tau}', os.path.join(outdir, f'polarimetric_{tau}.png'),
+            f'Polarimetric vector: {tau}', os.path.join(outdir, f'polarimetric_{tau}.pdf'),
             args.num_bins, sym_range=(-1, 1),
         )
 
@@ -246,7 +252,7 @@ def main():
         ax.set_xlabel(f'angle(true, pred) [deg] -- {tau}')
         ax.set_ylabel('events')
         fig.tight_layout()
-        fig.savefig(os.path.join(outdir, f'polarimetric_angle_{tau}.png'), dpi=130)
+        fig.savefig(os.path.join(outdir, f'polarimetric_angle_{tau}.pdf'), dpi=130)
         plt.close(fig)
 
     # === 3. phiCP ===
@@ -277,7 +283,7 @@ def main():
     ax.set_ylabel('a.u.')
     ax.legend()
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, 'phiCP.png'), dpi=130)
+    fig.savefig(os.path.join(outdir, 'phiCP.pdf'), dpi=130)
     plt.close(fig)
 
     # === 4. entanglement / spin-correlation cos variables ===
