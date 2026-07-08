@@ -282,3 +282,81 @@ def ConvertFromOrthonormalNRK_Predictions(
     df = df[ordered_columns]
     # return as numpy array
     return df.values
+
+
+def ConvertFromOrthonormalNRK_Predictions_PolVec(
+    predictions,
+    reco_taup_charged,
+    reco_taup_pizero,
+    reco_taun_charged,
+    reco_taun_pizero,
+    eps: float = 1e-12,
+):
+    """
+    Inverse onorm -> Cartesian transform for the polvec model's 12 outputs:
+    ts_hh_taup/taun (polarimetric unit vectors) + undecayed_taup/taun (tau momenta),
+    each projected onto the per-tau visible-momentum (n,r,k) basis (see
+    ConvertToOrthonormalNRK / _build_nrk_basis_from_visible_tau).
+
+    Parameters
+    ----------
+    predictions : np.ndarray, shape [N, 12]
+        Columns in the order of output_features['onorm'] in config_polvec.yaml:
+        ts_hh_taup_{n,r,k}, ts_hh_taun_{n,r,k}, undecayed_taup_{n,r,k}, undecayed_taun_{n,r,k}
+    reco_taup_charged, reco_taup_pizero, reco_taun_charged, reco_taun_pizero : np.ndarray, shape [N, 3]
+        Visible tau (px,py,pz) momentum components used to build the same basis as at
+        training time (must match the charged/pi0 vectors used there).
+
+    Returns
+    -------
+    np.ndarray, shape [N, 12]: ts_hh_taup_{x,y,z}, ts_hh_taun_{x,y,z},
+    undecayed_taup_{px,py,pz}, undecayed_taun_{px,py,pz}
+    """
+    column_names = [
+        'ts_hh_taup_n', 'ts_hh_taup_r', 'ts_hh_taup_k',
+        'ts_hh_taun_n', 'ts_hh_taun_r', 'ts_hh_taun_k',
+        'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
+        'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
+    ]
+    visible_column_names = (
+        [f'reco_taup_charged_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taup_pizero1_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taun_charged_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taun_pizero1_{c}' for c in ['px', 'py', 'pz']]
+    )
+    visible_data = np.concatenate(
+        [reco_taup_charged, reco_taup_pizero, reco_taun_charged, reco_taun_pizero], axis=1
+    )
+    df = pd.DataFrame(
+        np.concatenate([predictions, visible_data], axis=1),
+        columns=column_names + visible_column_names,
+    )
+
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='ts_hh_taup_',
+        charged_prefix='reco_taup_charged_', pi0_prefix='reco_taup_pizero1_',
+        drop_nrk=True, eps=eps, suffixes=('x', 'y', 'z'),
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='ts_hh_taun_',
+        charged_prefix='reco_taun_charged_', pi0_prefix='reco_taun_pizero1_',
+        drop_nrk=True, eps=eps, suffixes=('x', 'y', 'z'),
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='undecayed_taup_',
+        charged_prefix='reco_taup_charged_', pi0_prefix='reco_taup_pizero1_',
+        drop_nrk=True, eps=eps,
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='undecayed_taun_',
+        charged_prefix='reco_taun_charged_', pi0_prefix='reco_taun_pizero1_',
+        drop_nrk=True, eps=eps,
+    )
+
+    ordered_columns = [
+        'ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+        'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z',
+        'undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz',
+        'undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz',
+    ]
+    return df[ordered_columns].values
