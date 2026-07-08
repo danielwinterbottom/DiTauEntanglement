@@ -77,6 +77,20 @@ if args.add_zprime:
 
 variables = [
     {
+        'name': 'cosk_plus',
+        'expr': lambda df: df['map_pred_cosk_plus'].values,
+        'xlabel': r'$\cos\theta^+_k$',
+        'range': (-1, 1),
+        'fname': 'cosk_plus',
+    },
+    {
+        'name': 'cosk_minus',
+        'expr': lambda df: df['map_pred_cosk_minus'].values,
+        'xlabel': r'$\cos\theta^-_k$',
+        'range': (-1, 1),
+        'fname': 'cosk_minus',
+    },
+    {
         'name': 'kk',
         'expr': lambda df: df['map_pred_cosk_plus'].values * df['map_pred_cosk_minus'].values,
         'xlabel': r'$\cos\theta^+_k \cdot \cos\theta^-_k$',

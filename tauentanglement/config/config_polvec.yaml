@@ -34,12 +34,13 @@ Data:
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   #test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_0_transformer.parquet','prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPEven_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPOdd_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPMix_May22_ext6_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZPrimeToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet'] # list of paths to the test datasets
   #test_output_name: ['output_results_UnCorr', 'output_results_CPEven', 'output_results_CPOdd','output_results_CPMix','output_results_ZToTauTau','output_results_ZPrimeToTauTau'] # list of names for the test output files
-  test_dataset: ['prepared_LHC_data_fortesting/ppToHToTauTau_AllDM_CPMix_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet', 'prepared_LHC_data_fortesting/ppToZPrimeToTauTau_AllDM_May22_fixedgen/test_dataframe__leptonic_mode_0_transformer.parquet'] # list of paths to the test datasets
-  test_output_name: ['output_results_CPMix','output_results_ZToTauTau','output_results_ZPrimeToTauTau']
+  test_dataset: 'prepared_LHC_data_polvectraining/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__transformer.parquet'  # held-out test split saved during this model's own training data-prep (correct schema: ts_hh_*/undecayed_*/tauspinner weights)
+  test_output_name: 'output_results_UnCorr'
   leptonic_mode: -1 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
   coordinates: onorm  # options: standard, polar, onorm
+  training_weight_columns: ['tauspinner_wt_alpha0', 'tauspinner_wt_alpha90']  # optional: per-event training weight = sum of these columns (e.g. train on an even CP-even + CP-odd mixture). Omit/comment out for unweighted (all events weight 1).
   train_fraction: 0.85  # fraction of the dataset to use for training
   val_fraction: 0.10 # fraction of the dataset to use for validation
   test_fraction: 0.05 # fraction of the dataset to use for testing

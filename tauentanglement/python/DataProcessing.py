@@ -10,7 +10,8 @@ class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features,
                  input_mean=None, input_std=None,
                  output_mean=None, output_std=None,
-                 normalize_inputs=True, normalize_outputs=False, eps=1e-8):
+                 normalize_inputs=True, normalize_outputs=False, eps=1e-8,
+                 weights=None):
         """
         A regression dataset that can standardize features using provided means/stds.
 
@@ -31,6 +32,11 @@ class RegressionDataset(Dataset):
             Whether to apply standardization.
         eps : float
             Small value to prevent division by zero.
+        weights : torch.Tensor or None
+            Optional per-event training weight, shape [N]. If given, __getitem__
+            returns (X, y, w) triples instead of (X, y) pairs -- see
+            get_train_val_test_datasets/train_model for how these are combined
+            from TauSpinner weight columns and used in the loss.
         """
         X = torch.tensor(dataframe[input_features].values, dtype=torch.float32)
         y = torch.tensor(dataframe[output_features].values, dtype=torch.float32)
@@ -38,6 +44,7 @@ class RegressionDataset(Dataset):
         self.normalize_inputs = normalize_inputs
         self.normalize_outputs = normalize_outputs
         self.eps = eps
+        self.weights = weights
 
         # ---- Input normalization ----
         if normalize_inputs:
@@ -74,6 +81,8 @@ class RegressionDataset(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
+        if self.weights is not None:
+            return self.X[idx], self.y[idx], self.weights[idx]
         return self.X[idx], self.y[idx]
 
     def destandardize_outputs(self, y_norm):
@@ -435,6 +444,15 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
     output_features = config['Features']['output_features'][config['coordinates']]
 
+    # optional per-event training weight: sum of one or more TauSpinner weight
+    # columns (e.g. ['tauspinner_wt_alpha0', 'tauspinner_wt_alpha90'] to train on
+    # an even mixture of CP-even and CP-odd weighted events). None/absent = no
+    # weighting (all events weight 1, same as before this option existed).
+    training_weight_columns = config.get('training_weight_columns', None)
+    keep_columns = input_features + output_features
+    if training_weight_columns:
+        keep_columns = keep_columns + [c for c in training_weight_columns if c not in keep_columns]
+
     train_df = None
     val_df = None
 
@@ -545,8 +563,8 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
         #print size of dataframe in GB before dropping columns
         print(f">> Size of train dataframe before dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
         print(f">> Size of val dataframe before dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
-        train_df_ = train_df_[input_features + output_features]
-        val_df_ = val_df_[input_features + output_features] 
+        train_df_ = train_df_[keep_columns]
+        val_df_ = val_df_[keep_columns]
         # print size of dataframe in GB after dropping columns
         print(f">> Size of train dataframe after dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
         print(f">> Size of val dataframe after dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")   
@@ -571,13 +589,25 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
     print('>> Number of output features:', len(output_features))
     print('Output features:', output_features)
 
+    # optional per-event training weight = sum of the configured TauSpinner weight columns
+    if training_weight_columns:
+        train_weights = torch.tensor(train_df[training_weight_columns].sum(axis=1).values, dtype=torch.float32)
+        val_weights = torch.tensor(val_df[training_weight_columns].sum(axis=1).values, dtype=torch.float32)
+        print(f">> Using training weight = sum of columns {training_weight_columns} "
+              f"(train mean={train_weights.mean().item():.4f}, val mean={val_weights.mean().item():.4f})")
+    else:
+        train_weights = None
+        val_weights = None
+
     # define datasets and normalize inputs and outputs
-    train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True)
+    train_dataset = RegressionDataset(train_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
+                                       weights=train_weights)
     del train_df
     in_mean, in_std = train_dataset.input_mean, train_dataset.input_std
     out_mean, out_std = train_dataset.output_mean, train_dataset.output_std
     val_dataset = RegressionDataset(val_df, input_features, output_features, normalize_inputs=True, normalize_outputs=True,
-                                      input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
+                                      input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std,
+                                      weights=val_weights)
     del val_df
 
     return train_dataset, val_dataset, input_features, output_features
