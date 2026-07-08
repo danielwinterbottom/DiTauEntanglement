@@ -5,7 +5,7 @@ import yaml
 import os
 import uproot
 import numpy as np
-from tauentanglement.python.NN_Tools import load_model
+from tauentanglement.python.NN_Tools import load_model, get_device
 from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.utils.coordinate_conversions import ConvertPredictionsToCartesian, ConvertFromOrthonormalNRK_Predictions
 from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     nn_config = config['SetupNN']
 
     # set gpu or cpu
-    device = torch.device("cuda:0" if torch.cuda.is_available() and not args.useCPU else "cpu")
+    device = torch.device('cpu') if args.useCPU else get_device()
 
     # load test dataset
     if len(data_config['datasets']) > 1:
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     # move X_test and model to device
     X_test, _ = test_dataset[:]
     X_test = X_test.to(device)
-    model = model.to(device)
+    model = model.float().to(device)  # nflows' StandardNormal buffer is float64; MPS needs float32
 
     if args.useMLP:
         # for MLP we just do a forward pass

@@ -5,7 +5,7 @@ import yaml
 import os
 import uproot
 import numpy as np
-from tauentanglement.python.NN_Tools import load_model
+from tauentanglement.python.NN_Tools import load_model, get_device
 from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.utils.coordinate_conversions import convert_coordinates_pred
 from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
@@ -37,7 +37,7 @@ def main():
     else: prefix = ''
 
     # set gpu or cpu
-    device = torch.device("cuda:0" if torch.cuda.is_available() and not args.useCPU else "cpu")
+    device = torch.device('cpu') if args.useCPU else get_device()
 
     output_dir = f"outputs_{nn_config['model_name']}"
     output_plots_dir = f"{output_dir}/plots"
@@ -188,7 +188,7 @@ def main():
         X_test, _ = test_dataset[:]
         del _
         X_test = X_test.to(device)
-        model = model.to(device)
+        model = model.float().to(device)  # nflows' StandardNormal buffer is float64; MPS needs float32
     
         samples_map = None
         sample_chunk_size = nn_config.get('chunk_size', 50000 if device.type == 'cpu' else 100000)

@@ -10,6 +10,15 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+def get_device():
+    """Select the best available compute device: CUDA GPU, Apple Silicon GPU (MPS), or CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
 def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
     if useMLP:
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
@@ -136,7 +145,7 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
     initial_history = None
 
     if reload:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = get_device()
         partial_model_path = f'{output_plots_dir}/partial_model.pth'
         if os.path.exists(partial_model_path):
             model_path = partial_model_path
@@ -173,7 +182,9 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
     save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None,
     start_epoch=0, initial_history=None):
-    model.to(device)
+    # nflows' StandardNormal distribution registers a float64 buffer (_log_z)
+    # internally; MPS doesn't support float64, so cast to float32 before moving device.
+    model.float().to(device)
     history = initial_history if initial_history is not None else {"train_loss": [], "val_loss": []}
     best_val_loss = min(history["val_loss"]) if history["val_loss"] else float("inf")
 

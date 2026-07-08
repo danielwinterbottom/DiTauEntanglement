@@ -2,7 +2,7 @@ import torch
 import pandas as pd
 import argparse
 from tauentanglement.python.DataProcessing import get_train_val_test_datasets
-from tauentanglement.python.NN_Tools import setup_model_and_training, train_model
+from tauentanglement.python.NN_Tools import setup_model_and_training, train_model, get_device
 import yaml
 import os
 import numpy as np
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     shutil.copy(config_file, f"{output_dir}/config.yaml")
 
     # gpu or cpu
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = get_device()
 
     ## Get train and validation datasets
 

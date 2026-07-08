@@ -64,12 +64,12 @@ def ConvertPredictionsToCartesian(predictions, output_features):
     # return as numpy array
     return predictions_df.values
 
-def _get_vec(df, pref: str) -> np.ndarray:
-    """Return (N,3) array from columns {pref}px, {pref}py, {pref}pz."""
+def _get_vec(df, pref: str, suffixes=("px", "py", "pz")) -> np.ndarray:
+    """Return (N,3) array from columns {pref}{suffixes[0]}, {pref}{suffixes[1]}, {pref}{suffixes[2]}."""
     return np.stack(
-        [df[f"{pref}px"].to_numpy(),
-         df[f"{pref}py"].to_numpy(),
-         df[f"{pref}pz"].to_numpy()],
+        [df[f"{pref}{suffixes[0]}"].to_numpy(),
+         df[f"{pref}{suffixes[1]}"].to_numpy(),
+         df[f"{pref}{suffixes[2]}"].to_numpy()],
         axis=1
     ).astype(float)
 
@@ -137,12 +137,13 @@ def ConvertToOrthonormalNRK(
     drop_xyz: bool = True,
     eps: float = 1e-12,
     keep_basis: bool = False,
+    suffixes=("px", "py", "pz"),
 ):
     if out_prefix is None:
         out_prefix = prefix_to_convert
 
     n, r, k = _build_nrk_basis_from_visible_tau(df, charged_prefix, pi0_prefix, eps=eps)
-    v = _get_vec(df, prefix_to_convert)
+    v = _get_vec(df, prefix_to_convert, suffixes=suffixes)
 
     df[f"{out_prefix}n"] = np.sum(v * n, axis=1)
     df[f"{out_prefix}r"] = np.sum(v * r, axis=1)
@@ -155,7 +156,7 @@ def ConvertToOrthonormalNRK(
             df[f"{out_prefix}k{comp}"] = k[:, i]
 
     if drop_xyz:
-        df = df.drop(columns=[f"{prefix_to_convert}px", f"{prefix_to_convert}py", f"{prefix_to_convert}pz"])
+        df = df.drop(columns=[f"{prefix_to_convert}{suffixes[0]}", f"{prefix_to_convert}{suffixes[1]}", f"{prefix_to_convert}{suffixes[2]}"])
 
     return df
 
@@ -165,9 +166,10 @@ def ConvertFromOrthonormalNRK(
     prefix_to_convert: str,  # expects {prefix}n,{prefix}r,{prefix}k
     charged_prefix: str,
     pi0_prefix: str,
-    out_prefix = None,  # writes {out}px,{out}py,{out}pz
+    out_prefix = None,  # writes {out}{suffixes[0]},{out}{suffixes[1]},{out}{suffixes[2]}
     drop_nrk: bool = False,
     eps: float = 1e-12,
+    suffixes=("px", "py", "pz"),
 ):
     if out_prefix is None:
         out_prefix = prefix_to_convert
@@ -180,9 +182,9 @@ def ConvertFromOrthonormalNRK(
 
     v = vn * n + vr * r + vk * k
 
-    df[f"{out_prefix}px"] = v[:, 0]
-    df[f"{out_prefix}py"] = v[:, 1]
-    df[f"{out_prefix}pz"] = v[:, 2]
+    df[f"{out_prefix}{suffixes[0]}"] = v[:, 0]
+    df[f"{out_prefix}{suffixes[1]}"] = v[:, 1]
+    df[f"{out_prefix}{suffixes[2]}"] = v[:, 2]
 
     if drop_nrk:
         df = df.drop(columns=[f"{prefix_to_convert}n", f"{prefix_to_convert}r", f"{prefix_to_convert}k"])

@@ -24,16 +24,13 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPEven.parquet',
-'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPOdd.parquet',
-'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPMix.parquet',
-'Zprime': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_Zprime.parquet',
-'sl_even': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPEven.parquet',
-'sl_odd': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPOdd.parquet',
-'sl_mix': None,
-'sl_Zprime': None,
-# 'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet', # has fastmtt added
-# 'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet', # has fastmtt added
+'even': '/Users/dw515/ClaudeCode/testfiles/output_results_CPEven.parquet',
+'odd': '/Users/dw515/ClaudeCode/testfiles/output_results_CPOdd.parquet',
+#'even': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPEven.parquet',
+#'odd': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPOdd.parquet',
+'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
+'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
+'mix': None
 },
     'gen': {
         'label': 'Generator Neutrino',

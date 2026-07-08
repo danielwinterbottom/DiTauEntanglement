@@ -336,6 +336,52 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
             keep_basis=True,
         )
 
+        # polarimetric vectors + full tau momenta (polvec training outputs), projected
+        # onto the same per-tau visible-momentum (n,r,k) basis as the neutrino above.
+        # Basis vectors are already stored via the taup_nu_/taun_nu_ conversions above,
+        # so keep_basis=False here to avoid redundant duplicate columns.
+        if 'ts_hh_taup_x' in df.columns:
+            df = ConvertToOrthonormalNRK(
+                df,
+                prefix_to_convert='ts_hh_taup_',
+                charged_prefix=f"{prefix}taup_{charged_name}_",
+                pi0_prefix=f"{prefix}taup_pizero1_",
+                out_prefix=None,
+                drop_xyz=False,
+                keep_basis=False,
+                suffixes=("x", "y", "z"),
+            )
+            df = ConvertToOrthonormalNRK(
+                df,
+                prefix_to_convert='ts_hh_taun_',
+                charged_prefix=f"{prefix}taun_{charged_name}_",
+                pi0_prefix=f"{prefix}taun_pizero1_",
+                out_prefix=None,
+                drop_xyz=False,
+                keep_basis=False,
+                suffixes=("x", "y", "z"),
+            )
+
+        if 'undecayed_taup_px' in df.columns:
+            df = ConvertToOrthonormalNRK(
+                df,
+                prefix_to_convert='undecayed_taup_',
+                charged_prefix=f"{prefix}taup_{charged_name}_",
+                pi0_prefix=f"{prefix}taup_pizero1_",
+                out_prefix=None,
+                drop_xyz=False,
+                keep_basis=False,
+            )
+            df = ConvertToOrthonormalNRK(
+                df,
+                prefix_to_convert='undecayed_taun_',
+                charged_prefix=f"{prefix}taun_{charged_name}_",
+                pi0_prefix=f"{prefix}taun_pizero1_",
+                out_prefix=None,
+                drop_xyz=False,
+                keep_basis=False,
+            )
+
         df.to_parquet(os.path.join(config['output_dir'], key, f'full_onorm_dataframe.parquet'))
 
     else:  # no conversion

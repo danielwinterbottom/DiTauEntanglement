@@ -76,6 +76,17 @@ class ParticleTransformerCondition(nn.Module):
       [tau1_lep, tau1_lep_ip, tau2_pi1, tau2_ip, tau2_pi2,
        tau2_pi3, tau2_pi0, MET, tau2_sv]
       tau2 pi2/pi3/sv masked when is_3prong=0; tau2_pi0 masked when haspizero=0.
+
+    Mode -1 (any mix of hadronic/leptonic per tau, no filtering/relabeling
+    applied upstream, 17 tokens):
+      [taup_pi1, taun_pi1, taup_ip, taun_ip, taup_pi2, taun_pi2,
+       taup_pi3, taun_pi3, taup_pi0, taun_pi0, MET, taup_sv, taun_sv,
+       taup_lep, taun_lep, taup_lep_ip, taun_lep_ip]
+      Per-tau, exactly one of {pi1+ip, lep+lep_ip} is present per event,
+      selected by that tau's own reco_ishadronic flag (independently for
+      taup and taun, since either/both/neither may be leptonic).
+      pi2/pi3/sv masked when is_3prong=0; pi0 masked when haspizero=0
+      (on top of the hadronic/leptonic mask).
     """
 
     # mode 0 feature names
@@ -102,6 +113,12 @@ class ParticleTransformerCondition(nn.Module):
     _tau2_pizero_feats = ['reco_tau2_pizero1_px', 'reco_tau2_pizero1_py', 'reco_tau2_pizero1_pz', 'reco_tau2_pizero1_e']
     _tau2_sv_feats = ['reco_tau2_sv_x', 'reco_tau2_sv_y', 'reco_tau2_sv_z']
 
+    # mode -1 feature names (taup/taun, either may be leptonic or hadronic)
+    _taup_lep_feats = ['reco_taup_lep_px', 'reco_taup_lep_py', 'reco_taup_lep_pz', 'reco_taup_lep_e']
+    _taup_lep_ip_feats = ['reco_taup_lep_ipx', 'reco_taup_lep_ipy', 'reco_taup_lep_ipz']
+    _taun_lep_feats = ['reco_taun_lep_px', 'reco_taun_lep_py', 'reco_taun_lep_pz', 'reco_taun_lep_e']
+    _taun_lep_ip_feats = ['reco_taun_lep_ipx', 'reco_taun_lep_ipy', 'reco_taun_lep_ipz']
+
     _met_feats = ['reco_met_px', 'reco_met_py']
 
     def __init__(self, input_features, leptonic_mode, context_dim=256, d_model=64, nhead=4, num_layers=3, dropout=0.0):
@@ -116,6 +133,7 @@ class ParticleTransformerCondition(nn.Module):
         self.ip_proj = nn.Linear(3, d_model)   # impact parameter / SV 3-vector
         self.met_proj = nn.Linear(2, d_model)
         self.sv_proj = nn.Linear(3, d_model)
+        self.lep_proj = nn.Linear(5, d_model)  # lep 4-momentum + ismuon flag
 
         if leptonic_mode == 0:
             print(">> Using Hadronic Training Embedding")
@@ -150,8 +168,36 @@ class ParticleTransformerCondition(nn.Module):
             self.tau2_sv_idx = [feat_idx[f] for f in self._tau2_sv_feats]
             self.tau2_haspizero_idx = feat_idx['reco_tau2_haspizero']
             self.tau2_is3prong_idx = feat_idx['reco_tau2_is3prong']
-            self.lep_proj = nn.Linear(5, d_model)  # lep 4-momentum + ismuon flag
             self.type_emb = nn.Embedding(9, d_model)
+
+        elif leptonic_mode == -1:
+            print(">> Using Mixed Hadronic/Leptonic Training Embedding")
+            self.taup_pi1_idx = [feat_idx[f] for f in self._taup_pi1_feats]
+            self.taun_pi1_idx = [feat_idx[f] for f in self._taun_pi1_feats]
+            self.taup_charged_ip_idx = [feat_idx[f] for f in self._taup_charged_ip_feats]
+            self.taun_charged_ip_idx = [feat_idx[f] for f in self._taun_charged_ip_feats]
+            self.taup_pi2_idx = [feat_idx[f] for f in self._taup_pi2_feats]
+            self.taun_pi2_idx = [feat_idx[f] for f in self._taun_pi2_feats]
+            self.taup_pi3_idx = [feat_idx[f] for f in self._taup_pi3_feats]
+            self.taun_pi3_idx = [feat_idx[f] for f in self._taun_pi3_feats]
+            self.taup_pizero_idx = [feat_idx[f] for f in self._taup_pizero_feats]
+            self.taun_pizero_idx = [feat_idx[f] for f in self._taun_pizero_feats]
+            self.taup_sv_idx = [feat_idx[f] for f in self._taup_sv_feats]
+            self.taun_sv_idx = [feat_idx[f] for f in self._taun_sv_feats]
+            self.taup_haspizero_idx = feat_idx['reco_taup_haspizero']
+            self.taun_haspizero_idx = feat_idx['reco_taun_haspizero']
+            self.taup_is3prong_idx = feat_idx['reco_taup_is3prong']
+            self.taun_is3prong_idx = feat_idx['reco_taun_is3prong']
+            self.taup_ishadronic_idx = feat_idx['reco_taup_ishadronic']
+            self.taun_ishadronic_idx = feat_idx['reco_taun_ishadronic']
+
+            self.taup_lep_idx = [feat_idx[f] for f in self._taup_lep_feats]
+            self.taun_lep_idx = [feat_idx[f] for f in self._taun_lep_feats]
+            self.taup_lep_ip_idx = [feat_idx[f] for f in self._taup_lep_ip_feats]
+            self.taun_lep_ip_idx = [feat_idx[f] for f in self._taun_lep_ip_feats]
+            self.taup_ismuon_idx = feat_idx['reco_taup_ismuon']
+            self.taun_ismuon_idx = feat_idx['reco_taun_ismuon']
+            self.type_emb = nn.Embedding(17, d_model)
         else:
             raise ValueError(f"Unsupported leptonic_mode: {leptonic_mode}")
 
@@ -218,6 +264,59 @@ class ParticleTransformerCondition(nn.Module):
             pad_mask[:, 5] = ~x[:, self.tau2_is3prong_idx].bool() # tau2 pi3
             pad_mask[:, 6] = ~x[:, self.tau2_haspizero_idx].bool()  # tau2 pi0
             pad_mask[:, 8] = ~x[:, self.tau2_is3prong_idx].bool()  # tau2 SV
+
+        elif self.leptonic_mode == -1:
+            type_embs = self.type_emb(torch.arange(17, device=device))
+            taup_had = x[:, self.taup_ishadronic_idx].bool()
+            taun_had = x[:, self.taun_ishadronic_idx].bool()
+
+            taup_lep_input = torch.cat(
+                [x[:, self.taup_lep_idx], x[:, self.taup_ismuon_idx].unsqueeze(-1)], dim=-1
+            )
+            taun_lep_input = torch.cat(
+                [x[:, self.taun_lep_idx], x[:, self.taun_ismuon_idx].unsqueeze(-1)], dim=-1
+            )
+
+            tokens = torch.stack([
+                self.pi_proj(x[:, self.taup_pi1_idx]) + type_embs[0],
+                self.pi_proj(x[:, self.taun_pi1_idx]) + type_embs[1],
+                self.ip_proj(x[:, self.taup_charged_ip_idx]) + type_embs[2],
+                self.ip_proj(x[:, self.taun_charged_ip_idx]) + type_embs[3],
+                self.pi_proj(x[:, self.taup_pi2_idx]) + type_embs[4],
+                self.pi_proj(x[:, self.taun_pi2_idx]) + type_embs[5],
+                self.pi_proj(x[:, self.taup_pi3_idx]) + type_embs[6],
+                self.pi_proj(x[:, self.taun_pi3_idx]) + type_embs[7],
+                self.pi_proj(x[:, self.taup_pizero_idx]) + type_embs[8],
+                self.pi_proj(x[:, self.taun_pizero_idx]) + type_embs[9],
+                self.met_proj(x[:, self.met_idx]) + type_embs[10],
+                self.sv_proj(x[:, self.taup_sv_idx]) + type_embs[11],
+                self.sv_proj(x[:, self.taun_sv_idx]) + type_embs[12],
+                self.lep_proj(taup_lep_input) + type_embs[13],
+                self.lep_proj(taun_lep_input) + type_embs[14],
+                self.ip_proj(x[:, self.taup_lep_ip_idx]) + type_embs[15],
+                self.ip_proj(x[:, self.taun_lep_ip_idx]) + type_embs[16],
+            ], dim=1)
+
+            # Mask undefined columns. True = ignore token. Hadronic-only tokens
+            # (pi1/pi2/pi3/pi0/sv/charged_ip) are masked per-tau when that tau
+            # is leptonic; lep/lep_ip tokens are masked per-tau when hadronic.
+            pad_mask = torch.zeros(B, 17, dtype=torch.bool, device=device)
+            pad_mask[:, 0] = ~taup_had  # taup pi1
+            pad_mask[:, 1] = ~taun_had  # taun pi1
+            pad_mask[:, 2] = ~taup_had  # taup charged IP
+            pad_mask[:, 3] = ~taun_had  # taun charged IP
+            pad_mask[:, 4] = ~taup_had | ~x[:, self.taup_is3prong_idx].bool()  # taup pi2
+            pad_mask[:, 5] = ~taun_had | ~x[:, self.taun_is3prong_idx].bool()  # taun pi2
+            pad_mask[:, 6] = ~taup_had | ~x[:, self.taup_is3prong_idx].bool()  # taup pi3
+            pad_mask[:, 7] = ~taun_had | ~x[:, self.taun_is3prong_idx].bool()  # taun pi3
+            pad_mask[:, 8] = ~taup_had | ~x[:, self.taup_haspizero_idx].bool()  # taup pi0
+            pad_mask[:, 9] = ~taun_had | ~x[:, self.taun_haspizero_idx].bool()  # taun pi0
+            pad_mask[:, 11] = ~taup_had | ~x[:, self.taup_is3prong_idx].bool()  # taup SV
+            pad_mask[:, 12] = ~taun_had | ~x[:, self.taun_is3prong_idx].bool()  # taun SV
+            pad_mask[:, 13] = taup_had  # taup lep
+            pad_mask[:, 14] = taun_had  # taun lep
+            pad_mask[:, 15] = taup_had  # taup lep IP
+            pad_mask[:, 16] = taun_had  # taun lep IP
 
         out = self.transformer(tokens, src_key_padding_mask=pad_mask)
 
