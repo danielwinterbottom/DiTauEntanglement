@@ -351,6 +351,85 @@ def main():
             fig.savefig(os.path.join(outdir, f'polarimetric_angle_{tau}.pdf'), dpi=130)
             plt.close(fig)
 
+        # === 2b. phi periodicity/seam diagnostics (onorm_angular only) ===
+        # phi is trained as a plain unconstrained regression target (see the
+        # ConvertNRKToAngular/periodicity discussion) -- there's no built-in
+        # knowledge that phi=0 and phi=2*pi are the same point. If that hurts
+        # the model, it should show up as elevated prediction error specifically
+        # for events whose true phi lands near the 0/2*pi seam, not spread
+        # uniformly across phi. These plots/columns are the direct test of that.
+        phi_diag_cols = None
+        if coordinates == 'onorm_angular':
+            print(">> Computing phi periodicity/seam diagnostics...")
+            phi_diag_outdir = os.path.join(outdir, 'phi_periodicity')
+            os.makedirs(phi_diag_outdir, exist_ok=True)
+            phi_diag_cols = {}
+            n_phi_bins = args.num_bins
+            for tau in ['taup', 'taun']:
+                true_phi = df[f'ts_hh_{tau}_phi'].values
+                pred_phi = pred_native_df[f'ts_hh_{tau}_phi'].values
+                raw_dphi = pred_phi - true_phi
+                # correct minimal angular difference, wrapped into [-pi, pi)
+                wrapped_dphi = (raw_dphi + np.pi) % (2 * np.pi) - np.pi
+                needed_wrap = np.abs(raw_dphi) > np.pi
+
+                phi_diag_cols[f'{tau}_phi_dphi_raw'] = raw_dphi
+                phi_diag_cols[f'{tau}_phi_dphi_wrapped'] = wrapped_dphi
+                phi_diag_cols[f'{tau}_phi_needed_wrap'] = needed_wrap
+
+                frac_wrap = needed_wrap.mean()
+                print(f"  {tau}: fraction of events where the naive (unwrapped) "
+                      f"delta_phi was off by a full wrap: {100 * frac_wrap:.3f}%")
+
+                # 1) raw vs wrapped delta_phi overlay -- if these differ meaningfully,
+                # naive (non-periodic-aware) error metrics would be misleading.
+                fig, ax = plt.subplots(figsize=(6, 5))
+                bins = np.linspace(-2 * np.pi, 2 * np.pi, args.num_bins + 1)
+                ax.hist(raw_dphi, bins=bins, histtype='step', linewidth=1.5, label='raw (unwrapped)')
+                ax.hist(wrapped_dphi, bins=bins, histtype='step', linewidth=1.5, label='wrapped to [-pi,pi)')
+                ax.set_xlabel(f'pred_phi - true_phi [rad] -- {tau}')
+                ax.set_ylabel('events')
+                ax.legend()
+                ax.text(0.05, 0.95, f'needed wrap: {100 * frac_wrap:.2f}%', transform=ax.transAxes,
+                        verticalalignment='top', fontweight='bold', fontsize=9)
+                fig.tight_layout()
+                fig.savefig(os.path.join(phi_diag_outdir, f'dphi_raw_vs_wrapped_{tau}.pdf'), dpi=130)
+                plt.close(fig)
+
+                # 2) profile: mean |wrapped dphi| vs true_phi -- the direct test of
+                # whether error is elevated specifically near the seam (true_phi near
+                # 0 or 2*pi) compared to the bulk (e.g. near pi).
+                phi_bins = np.linspace(0, 2 * np.pi, n_phi_bins + 1)
+                bin_idx = np.clip(np.digitize(np.mod(true_phi, 2 * np.pi), phi_bins) - 1, 0, n_phi_bins - 1)
+                bin_centers = 0.5 * (phi_bins[:-1] + phi_bins[1:])
+                mean_abs_err = np.full(n_phi_bins, np.nan)
+                for b in range(n_phi_bins):
+                    mask = bin_idx == b
+                    if mask.sum() > 0:
+                        mean_abs_err[b] = np.mean(np.abs(wrapped_dphi[mask]))
+
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.plot(bin_centers, mean_abs_err, marker='o', linewidth=1.5)
+                ax.axvspan(0, phi_bins[1], color='red', alpha=0.1, label='seam (phi~0 / phi~2*pi)')
+                ax.axvspan(phi_bins[-2], 2 * np.pi, color='red', alpha=0.1)
+                ax.set_xlabel(f'true_phi [rad] -- {tau}')
+                ax.set_ylabel('mean |wrapped delta_phi| [rad]')
+                ax.legend()
+                fig.tight_layout()
+                fig.savefig(os.path.join(phi_diag_outdir, f'dphi_vs_truephi_profile_{tau}.pdf'), dpi=130)
+                plt.close(fig)
+
+                # single-number summary: error in the seam bins (first + last) vs the
+                # bulk (all other bins) -- a ratio >> 1 indicates a real periodicity
+                # problem; a ratio ~1 means the model handles the seam no worse than
+                # anywhere else in phi.
+                seam_err = np.nanmean([mean_abs_err[0], mean_abs_err[-1]])
+                bulk_err = np.nanmean(mean_abs_err[1:-1])
+                if bulk_err > 0:
+                    print(f"  {tau}: mean |wrapped dphi| in seam bins = {seam_err:.4f} rad, "
+                          f"bulk bins = {bulk_err:.4f} rad, ratio = {seam_err / bulk_err:.2f}")
+            print(f">> Saved phi periodicity diagnostic plots to {phi_diag_outdir}")
+
         # === 3. phiCP ===
         print(">> Computing phiCP (true vs predicted)...")
         def get_phiCP(cart_df, E_taup, E_taun):
@@ -548,6 +627,9 @@ def main():
         # can be recomputed/inspected downstream from the output tree directly.
         if ent_df is not None:
             results_df = pd.concat([results_df, ent_df.reset_index(drop=True)], axis=1)
+
+        if phi_diag_cols is not None:
+            results_df = pd.concat([results_df, pd.DataFrame(phi_diag_cols).reset_index(drop=True)], axis=1)
 
         # native onorm/onorm_angular-space values (true + predicted), i.e. before
         # ConvertFromOrthonormalNRK_Predictions_PolVec[_Angular] undoes the per-tau
