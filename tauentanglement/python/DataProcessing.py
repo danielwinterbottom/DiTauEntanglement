@@ -2,6 +2,8 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import uproot
+import pyarrow as pa
+import pyarrow.parquet as pq
 import numpy as np
 import os
 from tauentanglement.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK
@@ -198,62 +200,28 @@ class MorphDataset(Dataset):
         return y_norm * self.output_std.to(device) + self.output_mean.to(device)
 
 
-def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=True):
+def _output_path_for_coordinates(config, key):
+    if config['coordinates'] == 'polar':
+        fname = 'full_polar_dataframe.parquet'
+    elif config['coordinates'] == 'onorm':
+        fname = 'full_onorm_dataframe.parquet'
+    else:
+        fname = 'full_dataframe.parquet'
+    return os.path.join(config['output_dir'], key, fname)
 
-    print("Converting from ROOT to Parquet...")
 
-    # Explicitly close the uproot file handle once we're done reading from it --
-    # tree.arrays() eagerly materializes everything into pandas below, so df/extra
-    # don't depend on the file staying open. Without this, the file's internal
-    # read/decompression buffers can linger until Python's GC gets around to
-    # collecting the tree object, which is what made memory usage balloon when
-    # processing multiple input files in one process (each file's buffers stuck
-    # around on top of the previous one's instead of being freed immediately).
-    with uproot.open(input_file_name) as f:
-        tree = f[config['tree_name']]
-
-        df = tree.arrays(config['Features']['dataframe_variables'], library="pd")
-
-        # Optionally load TauSpinner weights, polarimetric vectors, and undecayed tau
-        # 4-vectors if they were produced by run_delphes.py --tauspinner.
-        _AXES = ('n', 'r', 'k')
-        _optional_cols = (
-            [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
-            [f'wt_hp_{a}' for a in _AXES] +
-            [f'wt_hm_{a}' for a in _AXES] +
-            [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
-            ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
-             'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
-            ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
-             'taun_px', 'taun_py', 'taun_pz', 'taun_e']
-        )
-        tree_keys = set(tree.keys())
-        cols_to_load = [c for c in _optional_cols if c in tree_keys]
-        if cols_to_load:
-            extra = tree.arrays(cols_to_load, library="pd")
-            # Rename undecayed tau 4-vectors to avoid confusion with tau leptons
-            # reconstructed from decay products.
-            rename = {f'{tau}_{comp}': f'undecayed_{tau}_{comp}'
-                      for tau in ['taup', 'taun']
-                      for comp in ['px', 'py', 'pz', 'e']
-                      if f'{tau}_{comp}' in extra.columns}
-            extra = extra.rename(columns=rename)
-            df = pd.concat([df, extra], axis=1)
-
-    ## select only DM 0 and 1
-    # removing this since we want to train on other decay modes as well
-    #df = df[(df['taup_npi'] == 1) & (df['taup_npizero'] < 2)]
-    #df = df[(df['taun_npi'] == 1) & (df['taun_npizero'] < 2)]
-    # use only hadronic taus for now (plan to do seperate training for leptonic taus in the future)
-
+def _process_chunk(df, config, collider, use_reco, prefix, charged_name, has_ts_hh, has_undecayed, has_reco_flags):
+    """Everything convert_root_to_parquet used to do to the whole dataframe at
+    once (row filtering, decay-mode boolean flags, collider-specific columns,
+    coordinate conversion) -- applied per-chunk so convert_root_to_parquet can
+    stream through the tree instead of holding it all in memory at once."""
     if use_reco:
         # require at least 1 pi, elec or muon for each tau
         df = df[(df['reco_taup_npi']+df['reco_taup_nmu']+df['reco_taup_nele'] > 0) & (df['reco_taun_npi']+df['reco_taun_nmu']+df['reco_taun_nele'] > 0)]
-
         # apply vis pT cut as well
         df = df[(df['reco_taup_vis_pT'] > 20) & (df['reco_taun_vis_pT'] > 20)]
 
-    # now we add some booleans to the dataframe with information about the type of the tau decay 
+    # now we add some booleans to the dataframe with information about the type of the tau decay
     df['taup_haspizero'] = (df['taup_npizero'] > 0).astype(float)
     df['taun_haspizero'] = (df['taun_npizero'] > 0).astype(float)
     df['taup_is3prong'] = (df['taup_npi'] > 1).astype(float)
@@ -268,7 +236,7 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
     df['taun_ishadronic'] = (df['taun_npi']> 0).astype(float)
 
     # do the same for reco if it exists
-    if 'reco_taup_npizero' in df.columns:
+    if has_reco_flags:
         df['reco_taup_haspizero'] = (df['reco_taup_npizero'] > 0).astype(float)
         df['reco_taun_haspizero'] = (df['reco_taun_npizero'] > 0).astype(float)
         df['reco_taup_is3prong'] = (df['reco_taup_npi'] > 1).astype(float)
@@ -297,124 +265,159 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
         df['met_px'] = df['taup_nu_px'] + df['taun_nu_px']
         df['met_py'] = df['taup_nu_py'] + df['taun_nu_py']
 
-    if config['coordinates'] == 'polar':  # option to convert to polar coordinates
-
-        # convert outputs
+    if config['coordinates'] == 'polar':  # option to convert to polar coordinates
         df = ConvertToPolar(df, 'taup_nu_p')
         df = ConvertToPolar(df, 'taun_nu_p')
 
-        ## uncomment to convert inputs as well
-        #df = ConvertToPolar(df, 'reco_taup_pi1_p')
-        #df = ConvertToPolar(df, 'reco_taup_pizero1_p')
-        #df = ConvertToPolar(df, 'reco_taun_pi1_p')
-        #df = ConvertToPolar(df, 'reco_taun_pizero1_p')
-        #df = ConvertToPolar(df, 'reco_taup_nu_p')
-        #df = ConvertToPolar(df, 'reco_taun_nu_p ')
-        #df = ConvertToPolar(df, 'reco_alt_taup_nu_p')
-        #df = ConvertToPolar(df, 'reco_alt_taun_nu_p')
-        #df = ConvertToPolar(df, 'reco_taup_pi1_ip')
-        #df = ConvertToPolar(df, 'reco_taun_pi1_ip')
-        #df = ConvertToPolar(df, 'dmin_')
-
-        df.to_parquet(os.path.join(config['output_dir'], key, f'full_polar_dataframe.parquet'))
-
     elif config['coordinates'] == 'onorm':  # option to convert to orthonormal basis
-
-        if not use_reco: prefix= ""
-        else: prefix = "reco_"
-
-        print ("Converting to orthonormal basis"+f" using prefix {prefix} for visible tau vectors" if use_reco else " using gen-level visible tau vectors")
-
-        # convert outputs
-        # check if charged exists on dataframe and use this if so, if not use pi1
-        if 'taup_charged_e' in df.columns:
-            charged_name = "charged"
-        else:            charged_name = "pi1"
-
-        print(f"Using {charged_name} as the charged component for the onorm basis")
-
         df = ConvertToOrthonormalNRK(
-            df,
-            prefix_to_convert='taup_nu_',
-            charged_prefix=f"{prefix}taup_{charged_name}_",
-            pi0_prefix=f"{prefix}taup_pizero1_",
-            out_prefix=None,
-            drop_xyz=False,
-            keep_basis=True,
+            df, prefix_to_convert='taup_nu_',
+            charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
+            out_prefix=None, drop_xyz=False, keep_basis=True,
         )
         df = ConvertToOrthonormalNRK(
-            df,
-            prefix_to_convert='taun_nu_',
-            charged_prefix=f"{prefix}taun_{charged_name}_",
-            pi0_prefix=f"{prefix}taun_pizero1_",
-            out_prefix=None,
-            drop_xyz=False,
-            keep_basis=True,
+            df, prefix_to_convert='taun_nu_',
+            charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
+            out_prefix=None, drop_xyz=False, keep_basis=True,
         )
 
         # polarimetric vectors + full tau momenta (polvec training outputs), projected
         # onto the same per-tau visible-momentum (n,r,k) basis as the neutrino above.
         # Basis vectors are already stored via the taup_nu_/taun_nu_ conversions above,
         # so keep_basis=False here to avoid redundant duplicate columns.
-        if 'ts_hh_taup_x' in df.columns:
+        if has_ts_hh:
             df = ConvertToOrthonormalNRK(
-                df,
-                prefix_to_convert='ts_hh_taup_',
-                charged_prefix=f"{prefix}taup_{charged_name}_",
-                pi0_prefix=f"{prefix}taup_pizero1_",
-                out_prefix=None,
-                drop_xyz=False,
-                keep_basis=False,
-                suffixes=("x", "y", "z"),
+                df, prefix_to_convert='ts_hh_taup_',
+                charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
+                out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
             )
             df = ConvertToOrthonormalNRK(
-                df,
-                prefix_to_convert='ts_hh_taun_',
-                charged_prefix=f"{prefix}taun_{charged_name}_",
-                pi0_prefix=f"{prefix}taun_pizero1_",
-                out_prefix=None,
-                drop_xyz=False,
-                keep_basis=False,
-                suffixes=("x", "y", "z"),
+                df, prefix_to_convert='ts_hh_taun_',
+                charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
+                out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
             )
 
-        if 'undecayed_taup_px' in df.columns:
+        if has_undecayed:
             df = ConvertToOrthonormalNRK(
-                df,
-                prefix_to_convert='undecayed_taup_',
-                charged_prefix=f"{prefix}taup_{charged_name}_",
-                pi0_prefix=f"{prefix}taup_pizero1_",
-                out_prefix=None,
-                drop_xyz=False,
-                keep_basis=False,
+                df, prefix_to_convert='undecayed_taup_',
+                charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
+                out_prefix=None, drop_xyz=False, keep_basis=False,
             )
             df = ConvertToOrthonormalNRK(
-                df,
-                prefix_to_convert='undecayed_taun_',
-                charged_prefix=f"{prefix}taun_{charged_name}_",
-                pi0_prefix=f"{prefix}taun_pizero1_",
-                out_prefix=None,
-                drop_xyz=False,
-                keep_basis=False,
+                df, prefix_to_convert='undecayed_taun_',
+                charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
+                out_prefix=None, drop_xyz=False, keep_basis=False,
             )
 
-        df.to_parquet(os.path.join(config['output_dir'], key, f'full_onorm_dataframe.parquet'))
+    return df.reset_index(drop=True)
 
-    else:  # no conversion
-        df.to_parquet(os.path.join(config['output_dir'], key, f'full_dataframe.parquet'))
 
-    print(f">> Dataframe {key} converted and saved to {config['output_dir']}/{key}")
-    print('Columns in the saved dataframe:', df.columns.tolist())
-    return df
+def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=True, chunk_size=None):
+    """
+    Streams the ROOT tree in chunks (uproot.iterate) rather than loading the
+    whole thing into one pandas DataFrame -- for a many-GB file, reading it in
+    one go via tree.arrays() is a hard floor on peak memory no matter how well
+    process-level isolation between datasets is done (see prepare_inputs.py).
+    Each chunk goes through the exact same processing as before and is appended
+    directly to the output parquet file via a streaming ParquetWriter.
+
+    chunk_size : int or None
+        Number of events to read/process per chunk. Defaults to
+        config['conversion_chunk_size'] if set, else 1,000,000.
+    """
+
+    print("Converting from ROOT to Parquet...")
+    if chunk_size is None:
+        chunk_size = config.get('conversion_chunk_size', 1_000_000)
+
+    output_path = _output_path_for_coordinates(config, key)
+
+    # Optionally load TauSpinner weights, polarimetric vectors, and undecayed tau
+    # 4-vectors if they were produced by run_delphes.py --tauspinner.
+    _AXES = ('n', 'r', 'k')
+    _optional_cols = (
+        [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
+        [f'wt_hp_{a}' for a in _AXES] +
+        [f'wt_hm_{a}' for a in _AXES] +
+        [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
+        ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+         'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
+        ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
+         'taun_px', 'taun_py', 'taun_pz', 'taun_e']
+    )
+
+    writer = None
+    n_events_total = 0
+    columns_written = None
+
+    # Explicitly close the uproot file handle once we're done reading from it.
+    # Without this, the file's internal read/decompression buffers can linger
+    # until Python's GC gets around to collecting the tree object, which is
+    # what made memory usage balloon when processing multiple input files in
+    # one process (each file's buffers stuck around on top of the previous
+    # one's instead of being freed immediately).
+    with uproot.open(input_file_name) as f:
+        tree = f[config['tree_name']]
+        tree_keys = set(tree.keys())
+
+        main_cols = list(config['Features']['dataframe_variables'])
+        optional_cols = [c for c in _optional_cols if c in tree_keys]
+        all_cols = list(dict.fromkeys(main_cols + optional_cols))  # dedupe, keep order
+
+        # these are all fixed properties of the file/config, not of any one
+        # chunk, so determine them once up front from the branch list
+        has_ts_hh = 'ts_hh_taup_x' in optional_cols
+        has_undecayed = 'taup_px' in optional_cols
+        charged_name = "charged" if 'taup_charged_e' in all_cols else "pi1"
+        prefix = "reco_" if use_reco else ""
+        has_reco_flags = 'reco_taup_npizero' in all_cols
+
+        rename = {f'{tau}_{comp}': f'undecayed_{tau}_{comp}'
+                  for tau in ['taup', 'taun']
+                  for comp in ['px', 'py', 'pz', 'e']
+                  if f'{tau}_{comp}' in optional_cols}
+
+        if config['coordinates'] == 'onorm':
+            print("Converting to orthonormal basis" + (f" using prefix {prefix} for visible tau vectors" if use_reco else " using gen-level visible tau vectors"))
+            print(f"Using {charged_name} as the charged component for the onorm basis")
+
+        print(f">> Reading {len(all_cols)} branches in chunks of {chunk_size} events...")
+        for chunk in tree.iterate(all_cols, step_size=chunk_size, library="pd"):
+            if rename:
+                chunk = chunk.rename(columns=rename)
+
+            chunk = _process_chunk(
+                chunk, config, collider, use_reco, prefix, charged_name,
+                has_ts_hh, has_undecayed, has_reco_flags,
+            )
+            if len(chunk) == 0:
+                continue
+
+            table = pa.Table.from_pandas(chunk, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(output_path, table.schema)
+                columns_written = chunk.columns.tolist()
+            else:
+                table = table.cast(writer.schema)  # guard against dtype drift between chunks
+            writer.write_table(table)
+            n_events_total += len(chunk)
+            print(f"  ...processed {n_events_total} events so far", flush=True)
+
+    if writer is not None:
+        writer.close()
+
+    print(f">> Dataframe {key} converted and saved to {output_path} ({n_events_total} events)")
+    if columns_written is not None:
+        print('Columns in the saved dataframe:', columns_written)
 
 def convert_semileptonic_df(df):
     # restructure semileptonic dataframe to give the leptonic tau as "tau1" and the hadronic one as "tau2"
-    # instead of taup and taun 
+    # instead of taup and taun
     # check if taup is leptonic and taun is hadronic and if so relabel taup->tau1 and taun->tau2
 
     df_lep_tau1 = df[((df['taup_isleptonic'] == 1) & (df['taun_ishadronic'] == 1))].copy()
     df_lep_tau1 = df_lep_tau1.rename(columns=lambda x: x.replace('taup_', 'tau1_').replace('taun_', 'tau2_'))
-    # store the charge of the leptonic tau in a separate column 
+    # store the charge of the leptonic tau in a separate column
     df_lep_tau1['tau1_charge'] = np.ones(len(df_lep_tau1))
     df_lep_tau1['tau2_charge'] = -1*np.ones(len(df_lep_tau1))
 
@@ -430,8 +433,8 @@ def convert_semileptonic_df(df):
     # shuffle the dataframe
     df_out = df_out.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    return df_out    
-    
+    return df_out
+
 
 def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False):
 
@@ -439,7 +442,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
     one_prong_only = config.get('one_prong_only', False)  # option to select only one prong decays for training
     match_n_prongs = config.get('match_n_prongs', False)  # option to select only one prong decays for training
     inc_three_prongs = config.get('inc_three_prongs', False)  # option to select only events with at least 1 3-prong tau
-    transformer = config.get('use_transformer', False)  # option to use transformer for conditioning
+    transformer = config.get('use_transformer', False)  # option to use transformer for conditioning
 
     # check if key is not a list, if not add it to a list
     if not isinstance(keys, list):
@@ -477,7 +480,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
     for k in keys:
 
-        # dataset names
+        # dataset names
         train_df_path = os.path.join(config['output_dir'], k, f'train_dataframe_{extra_name}.parquet')
         val_df_path = os.path.join(config['output_dir'], k, f'val_dataframe_{extra_name}.parquet')
         test_df_path = os.path.join(config['output_dir'], k, f'test_dataframe_{extra_name}.parquet')
@@ -574,7 +577,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
         val_df_ = val_df_[keep_columns]
         # print size of dataframe in GB after dropping columns
         print(f">> Size of train dataframe after dropping columns: {train_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
-        print(f">> Size of val dataframe after dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")   
+        print(f">> Size of val dataframe after dropping columns: {val_df_.memory_usage(deep=True).sum() / 1e9:.2f} GB")
 
         if train_df is None:
             train_df = train_df_
@@ -587,7 +590,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
     if shuffle:
         train_df = train_df.sample(frac=1, random_state=42).reset_index(drop=True)
-        val_df = val_df.sample(frac=1, random_state=42).reset_index(drop=True)     
+        val_df = val_df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     print(f"Number of events in training dataframe: {len(train_df)}, validation dataframe: {len(val_df)}")
     print('Columns in training dataframe:', train_df.columns.tolist())
@@ -651,4 +654,3 @@ def get_test_dataset(config, norm_data, oneprong=False, threeprong=False):
                                       input_mean=in_mean, input_std=in_std, output_mean=out_mean, output_std=out_std)
 
     return test_dataset, test_df, input_features, output_features
-
