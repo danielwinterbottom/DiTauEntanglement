@@ -34,7 +34,10 @@ import matplotlib.pyplot as plt
 from tauentanglement.python.DataProcessing import RegressionDataset, get_test_dataset
 from tauentanglement.python.NN_Tools import load_model, get_device
 from tauentanglement.python.Evaluation_Tools import flow_map_predict, plot_spin_density_matrix
-from tauentanglement.utils.coordinate_conversions import ConvertFromOrthonormalNRK_Predictions_PolVec
+from tauentanglement.utils.coordinate_conversions import (
+    ConvertFromOrthonormalNRK_Predictions_PolVec,
+    ConvertFromOrthonormalNRK_Predictions_PolVec_Angular,
+)
 from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars, boost, boost_vector
 from tauentanglement.utils.acoplanarity_tools import compute_aco_polarimetric
 
@@ -50,6 +53,12 @@ CARTESIAN_OUTPUT_ORDER = [
 ONORM_OUTPUT_ORDER = [
     'ts_hh_taup_n', 'ts_hh_taup_r', 'ts_hh_taup_k',
     'ts_hh_taun_n', 'ts_hh_taun_r', 'ts_hh_taun_k',
+    'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
+    'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
+]
+ANGULAR_OUTPUT_ORDER = [
+    'ts_hh_taup_costheta', 'ts_hh_taup_phi',
+    'ts_hh_taun_costheta', 'ts_hh_taun_phi',
     'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
     'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
 ]
@@ -279,10 +288,19 @@ def main():
                 reco_taun_pizero=df[['reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values,
             )
             pred_cart_df = pd.DataFrame(pred_cart, columns=CARTESIAN_OUTPUT_ORDER)
+        elif coordinates == 'onorm_angular':
+            pred_cart = ConvertFromOrthonormalNRK_Predictions_PolVec_Angular(
+                pred_native_df[ANGULAR_OUTPUT_ORDER].values,
+                reco_taup_charged=df[['reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz']].values,
+                reco_taup_pizero=df[['reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values,
+                reco_taun_charged=df[['reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz']].values,
+                reco_taun_pizero=df[['reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values,
+            )
+            pred_cart_df = pd.DataFrame(pred_cart, columns=CARTESIAN_OUTPUT_ORDER)
         elif coordinates == 'standard':
             pred_cart_df = pred_native_df[CARTESIAN_OUTPUT_ORDER].reset_index(drop=True)
         else:
-            raise ValueError(f"coordinates='{coordinates}' not supported by this script (only 'standard'/'onorm')")
+            raise ValueError(f"coordinates='{coordinates}' not supported by this script (only 'standard'/'onorm'/'onorm_angular')")
 
         true_cart_df = df[CARTESIAN_OUTPUT_ORDER].reset_index(drop=True)
 
@@ -320,7 +338,11 @@ def main():
                 args.num_bins, sym_range=(-1, 1),
             )
 
-            ang_sep = np.degrees(np.arccos(np.clip(np.sum(true_h * pred_h_unit, axis=1), -1, 1)))
+            # true_h isn't always exactly unit-length (see calculate_hh.py's rare
+            # ~0.1-0.5% numerical-singularity tail), so it must be normalized here
+            # too -- otherwise the dot product isn't cos(angle) and the clip(-1,1)
+            # silently masks the distortion instead of computing the true angle.
+            ang_sep = np.degrees(np.arccos(np.clip(np.sum(unit(true_h) * pred_h_unit, axis=1), -1, 1)))
             fig, ax = plt.subplots(figsize=(6, 5))
             ax.hist(ang_sep, bins=args.num_bins, histtype='step', linewidth=1.5)
             ax.set_xlabel(f'angle(true, pred) [deg] -- {tau}')
@@ -438,17 +460,38 @@ def main():
         # compares the model's predictions against its own training-target
         # definition, not the fully "canonical" spin-density-matrix basis.
         ent_df = None
-        if coordinates == 'onorm':
+        if coordinates in ('onorm', 'onorm_angular'):
             print(">> Computing entanglement/spin-correlation variables...")
             # .values throughout: df may have a non-contiguous index (e.g. after
             # get_test_dataset's oneprong/threeprong filtering, which doesn't reset
             # it), while pred_native_df always has a fresh 0..N-1 index -- mixing
             # Series with different indices in one dict would silently misalign rows.
+            #
+            # Truth always comes from the raw (n,r,k) projections (kept as a
+            # passthrough column even in onorm_angular mode -- see
+            # ConvertNRKToAngular's drop_nrk=False in DataProcessing.py), NOT from
+            # decoding costheta/phi, since that would silently force truth onto
+            # the unit sphere and hide the real (if rare) |h|!=1 deviations in the
+            # data -- see calculate_hh.py. The prediction, by contrast, only ever
+            # exists as (costheta, phi) in onorm_angular mode (that's the model's
+            # actual output), so it has to be decoded.
+            true_n_p, true_r_p, true_k_p = df['ts_hh_taup_n'].values, df['ts_hh_taup_r'].values, df['ts_hh_taup_k'].values
+            true_n_m, true_r_m, true_k_m = df['ts_hh_taun_n'].values, df['ts_hh_taun_r'].values, df['ts_hh_taun_k'].values
+            if coordinates == 'onorm':
+                pred_n_p, pred_r_p, pred_k_p = pred_native_df['ts_hh_taup_n'].values, pred_native_df['ts_hh_taup_r'].values, pred_native_df['ts_hh_taup_k'].values
+                pred_n_m, pred_r_m, pred_k_m = pred_native_df['ts_hh_taun_n'].values, pred_native_df['ts_hh_taun_r'].values, pred_native_df['ts_hh_taun_k'].values
+            else:  # onorm_angular: model only outputs (costheta, phi) -> decode to (n, r, k)
+                def _angular_to_nrk(costheta, phi):
+                    sintheta = np.sqrt(np.clip(1.0 - costheta ** 2, 0.0, None))
+                    return sintheta * np.cos(phi), sintheta * np.sin(phi), costheta
+                pred_n_p, pred_r_p, pred_k_p = _angular_to_nrk(pred_native_df['ts_hh_taup_costheta'].values, pred_native_df['ts_hh_taup_phi'].values)
+                pred_n_m, pred_r_m, pred_k_m = _angular_to_nrk(pred_native_df['ts_hh_taun_costheta'].values, pred_native_df['ts_hh_taun_phi'].values)
+
             ent_df = pd.DataFrame({
-                'true_cosn_plus': df['ts_hh_taup_n'].values, 'true_cosr_plus': df['ts_hh_taup_r'].values, 'true_cosk_plus': df['ts_hh_taup_k'].values,
-                'true_cosn_minus': df['ts_hh_taun_n'].values, 'true_cosr_minus': df['ts_hh_taun_r'].values, 'true_cosk_minus': df['ts_hh_taun_k'].values,
-                'pred_cosn_plus': pred_native_df['ts_hh_taup_n'].values, 'pred_cosr_plus': pred_native_df['ts_hh_taup_r'].values, 'pred_cosk_plus': pred_native_df['ts_hh_taup_k'].values,
-                'pred_cosn_minus': pred_native_df['ts_hh_taun_n'].values, 'pred_cosr_minus': pred_native_df['ts_hh_taun_r'].values, 'pred_cosk_minus': pred_native_df['ts_hh_taun_k'].values,
+                'true_cosn_plus': true_n_p, 'true_cosr_plus': true_r_p, 'true_cosk_plus': true_k_p,
+                'true_cosn_minus': true_n_m, 'true_cosr_minus': true_r_m, 'true_cosk_minus': true_k_m,
+                'pred_cosn_plus': pred_n_p, 'pred_cosr_plus': pred_r_p, 'pred_cosk_plus': pred_k_p,
+                'pred_cosn_minus': pred_n_m, 'pred_cosr_minus': pred_r_m, 'pred_cosk_minus': pred_k_m,
             })
             true_vars = compute_spin_density_vars(ent_df, prefix='true_')
             pred_vars = compute_spin_density_vars(ent_df, prefix='pred_')
@@ -456,7 +499,7 @@ def main():
             print('Pred  (B+, B-, C, concurrence, m12):', pred_vars)
             plot_spin_density_matrix({'true': true_vars, 'pred': pred_vars}, dm_category='polvec_quicktest', outdir=outdir)
         else:
-            print(">> Skipping entanglement-matrix plot (only implemented for coordinates='onorm').")
+            print(">> Skipping entanglement-matrix plot (only implemented for coordinates='onorm'/'onorm_angular').")
 
         # === 5. save results (incl. TauSpinner weights) to parquet ===
         print(">> Saving results dataframe (with TauSpinner weights passed through)...")
@@ -506,13 +549,25 @@ def main():
         if ent_df is not None:
             results_df = pd.concat([results_df, ent_df.reset_index(drop=True)], axis=1)
 
-        # native onorm-space values (true + predicted), i.e. before
-        # ConvertFromOrthonormalNRK_Predictions_PolVec undoes the per-tau
+        # native onorm/onorm_angular-space values (true + predicted), i.e. before
+        # ConvertFromOrthonormalNRK_Predictions_PolVec[_Angular] undoes the per-tau
         # visible-momentum (n,r,k) basis back to Cartesian.
         if coordinates == 'onorm':
             for col in ONORM_OUTPUT_ORDER:
                 results_df[f'true_{col}'] = df[col].values
                 results_df[f'pred_{col}'] = pred_native_df[col].values
+        elif coordinates == 'onorm_angular':
+            for col in ANGULAR_OUTPUT_ORDER:
+                results_df[f'true_{col}'] = df[col].values
+                results_df[f'pred_{col}'] = pred_native_df[col].values
+            # |h| before it was forced to a unit vector during data prep (see
+            # ConvertNRKToAngular) -- a rare (~0.1-0.5%) heavy-tailed deviation
+            # from 1 traced to numerical singularities in calculate_hh.py, not
+            # a physics effect. Passed through so bad events (|h| far from 1)
+            # can be identified/cut in downstream analysis of this results file.
+            for norm_col in ['ts_hh_taup_norm', 'ts_hh_taun_norm']:
+                if norm_col in df.columns:
+                    results_df[f'true_{norm_col}'] = df[norm_col].values
 
         # pass through TauSpinner weights (and any spin-correlation weight pieces) if present
         _AXES = ('n', 'r', 'k')
