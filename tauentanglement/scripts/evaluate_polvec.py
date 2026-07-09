@@ -116,15 +116,20 @@ def plot_true_vs_pred_2d(true_vals, pred_vals, labels, suptitle, outpath, num_bi
 def add_DM(df, dm_prefix='reco'):
     """Per-tau decay-mode code, same categorisation/convention as plot_phiCP.py's
     add_DM: 0=1-prong no pi0, 1=1-prong+1pi0, 2=1-prong+2pi0, 10=3-prong, 11=3-prong+pi0,
-    100=leptonic, -1=unmatched. Returns (dm_taup, dm_taun) arrays."""
+    100=leptonic, -1=unmatched. Returns (dm_taup, dm_taun) arrays.
+
+    dm_prefix='reco' reads reco_taup_ishadronic etc. (reco-level); dm_prefix=''
+    reads the bare taup_ishadronic etc. (gen-level -- gen columns have no prefix
+    in this dataframe convention, unlike reco which is explicitly 'reco_'-prefixed)."""
+    col_prefix = f'{dm_prefix}_' if dm_prefix else ''
     dm = {}
     for tau in ['taup', 'taun']:
-        is_lep = df[f'{dm_prefix}_{tau}_ishadronic'].values == 0
-        is_dm0 = (df[f'{dm_prefix}_{tau}_npizero'].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'].values == 0) & (~is_lep)
-        is_dm1 = (df[f'{dm_prefix}_{tau}_npizero'].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'].values == 0) & (~is_lep)
-        is_dm2 = ((df[f'{dm_prefix}_{tau}_npizero'].values == 1) | (df[f'{dm_prefix}_{tau}_npizero'].values == 2)) & (df[f'{dm_prefix}_{tau}_is3prong'].values == 0) & (~is_lep)
-        is_dm10 = (df[f'{dm_prefix}_{tau}_npizero'].values == 0) & (df[f'{dm_prefix}_{tau}_is3prong'].values == 1) & (~is_lep)
-        is_dm11 = (df[f'{dm_prefix}_{tau}_npizero'].values == 1) & (df[f'{dm_prefix}_{tau}_is3prong'].values == 1) & (~is_lep)
+        is_lep = df[f'{col_prefix}{tau}_ishadronic'].values == 0
+        is_dm0 = (df[f'{col_prefix}{tau}_npizero'].values == 0) & (df[f'{col_prefix}{tau}_is3prong'].values == 0) & (~is_lep)
+        is_dm1 = (df[f'{col_prefix}{tau}_npizero'].values == 1) & (df[f'{col_prefix}{tau}_is3prong'].values == 0) & (~is_lep)
+        is_dm2 = ((df[f'{col_prefix}{tau}_npizero'].values == 1) | (df[f'{col_prefix}{tau}_npizero'].values == 2)) & (df[f'{col_prefix}{tau}_is3prong'].values == 0) & (~is_lep)
+        is_dm10 = (df[f'{col_prefix}{tau}_npizero'].values == 0) & (df[f'{col_prefix}{tau}_is3prong'].values == 1) & (~is_lep)
+        is_dm11 = (df[f'{col_prefix}{tau}_npizero'].values == 1) & (df[f'{col_prefix}{tau}_is3prong'].values == 1) & (~is_lep)
         dm[tau] = np.where(is_dm0, 0,
                     np.where(is_dm1, 1,
                         np.where(is_dm2, 2,
@@ -281,6 +286,10 @@ def main():
 
         true_cart_df = df[CARTESIAN_OUTPUT_ORDER].reset_index(drop=True)
 
+        # decay mode (gen and reco), for the per-DM phiCP plots below and saved to results_df
+        gen_dm_taup, gen_dm_taun = add_DM(df, dm_prefix='')
+        reco_dm_taup, reco_dm_taun = add_DM(df, dm_prefix='reco')
+
         # === 1. tau 4-vector comparison ===
         print(">> Plotting tau 4-vector comparisons...")
         for tau in ['taup', 'taun']:
@@ -369,7 +378,7 @@ def main():
         # === 3b. phiCP per decay-mode combination (same style as plot_phiCP.py) ===
         if have_weights:
             print(">> Plotting phiCP per decay-mode combination...")
-            dm_taup, dm_taun = add_DM(df, dm_prefix='reco')
+            dm_taup, dm_taun = reco_dm_taup, reco_dm_taun
             dm_combs = [
                 [0, 0], [0, 1], [1, 1], [2, 2], [1, 2], [0, 2], [10, 10], [0, 10], [1, 10], [2, 10],
                 [0, 11], [1, 11], [2, 11], [10, 11], [11, 11],
@@ -428,13 +437,18 @@ def main():
         # true-tau-direction basis of kinematic_helpers.compute_spin_angles -- this
         # compares the model's predictions against its own training-target
         # definition, not the fully "canonical" spin-density-matrix basis.
+        ent_df = None
         if coordinates == 'onorm':
             print(">> Computing entanglement/spin-correlation variables...")
+            # .values throughout: df may have a non-contiguous index (e.g. after
+            # get_test_dataset's oneprong/threeprong filtering, which doesn't reset
+            # it), while pred_native_df always has a fresh 0..N-1 index -- mixing
+            # Series with different indices in one dict would silently misalign rows.
             ent_df = pd.DataFrame({
-                'true_cosn_plus': df['ts_hh_taup_n'], 'true_cosr_plus': df['ts_hh_taup_r'], 'true_cosk_plus': df['ts_hh_taup_k'],
-                'true_cosn_minus': df['ts_hh_taun_n'], 'true_cosr_minus': df['ts_hh_taun_r'], 'true_cosk_minus': df['ts_hh_taun_k'],
-                'pred_cosn_plus': pred_native_df['ts_hh_taup_n'], 'pred_cosr_plus': pred_native_df['ts_hh_taup_r'], 'pred_cosk_plus': pred_native_df['ts_hh_taup_k'],
-                'pred_cosn_minus': pred_native_df['ts_hh_taun_n'], 'pred_cosr_minus': pred_native_df['ts_hh_taun_r'], 'pred_cosk_minus': pred_native_df['ts_hh_taun_k'],
+                'true_cosn_plus': df['ts_hh_taup_n'].values, 'true_cosr_plus': df['ts_hh_taup_r'].values, 'true_cosk_plus': df['ts_hh_taup_k'].values,
+                'true_cosn_minus': df['ts_hh_taun_n'].values, 'true_cosr_minus': df['ts_hh_taun_r'].values, 'true_cosk_minus': df['ts_hh_taun_k'].values,
+                'pred_cosn_plus': pred_native_df['ts_hh_taup_n'].values, 'pred_cosr_plus': pred_native_df['ts_hh_taup_r'].values, 'pred_cosk_plus': pred_native_df['ts_hh_taup_k'].values,
+                'pred_cosn_minus': pred_native_df['ts_hh_taun_n'].values, 'pred_cosr_minus': pred_native_df['ts_hh_taun_r'].values, 'pred_cosk_minus': pred_native_df['ts_hh_taun_k'].values,
             })
             true_vars = compute_spin_density_vars(ent_df, prefix='true_')
             pred_vars = compute_spin_density_vars(ent_df, prefix='pred_')
@@ -480,7 +494,25 @@ def main():
             'pred_ts_hh_taun_z': pred_h_taun_unit[:, 2],
             'true_phiCP': true_phiCP,
             'pred_phiCP': pred_phiCP,
+            'gen_taup_DM': gen_dm_taup,
+            'gen_taun_DM': gen_dm_taun,
+            'reco_taup_DM': reco_dm_taup,
+            'reco_taun_DM': reco_dm_taun,
         })
+
+        # cos_n/r/k projections (true + predicted) that the entanglement/spin-density
+        # matrix (compute_spin_density_vars) is built from -- saved so the C_ij matrix
+        # can be recomputed/inspected downstream from the output tree directly.
+        if ent_df is not None:
+            results_df = pd.concat([results_df, ent_df.reset_index(drop=True)], axis=1)
+
+        # native onorm-space values (true + predicted), i.e. before
+        # ConvertFromOrthonormalNRK_Predictions_PolVec undoes the per-tau
+        # visible-momentum (n,r,k) basis back to Cartesian.
+        if coordinates == 'onorm':
+            for col in ONORM_OUTPUT_ORDER:
+                results_df[f'true_{col}'] = df[col].values
+                results_df[f'pred_{col}'] = pred_native_df[col].values
 
         # pass through TauSpinner weights (and any spin-correlation weight pieces) if present
         _AXES = ('n', 'r', 'k')
