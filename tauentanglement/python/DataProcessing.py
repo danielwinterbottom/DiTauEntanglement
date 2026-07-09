@@ -382,7 +382,9 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
             print(f"Using {charged_name} as the charged component for the onorm basis")
 
         print(f">> Reading {len(all_cols)} branches in chunks of {chunk_size} events...")
+        n_events_read = 0
         for chunk in tree.iterate(all_cols, step_size=chunk_size, library="pd"):
+            n_events_read += len(chunk)
             if rename:
                 chunk = chunk.rename(columns=rename)
 
@@ -390,19 +392,22 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
                 chunk, config, collider, use_reco, prefix, charged_name,
                 has_ts_hh, has_undecayed, has_reco_flags,
             )
-            if len(chunk) == 0:
-                continue
+            if len(chunk) > 0:
+                table = pa.Table.from_pandas(chunk, preserve_index=False)
+                if writer is None:
+                    writer = pq.ParquetWriter(output_path, table.schema)
+                    columns_written = chunk.columns.tolist()
+                else:
+                    table = table.cast(writer.schema)  # guard against dtype drift between chunks
+                writer.write_table(table)
+                n_events_total += len(chunk)
 
-            table = pa.Table.from_pandas(chunk, preserve_index=False)
-            if writer is None:
-                writer = pq.ParquetWriter(output_path, table.schema)
-                columns_written = chunk.columns.tolist()
-            else:
-                table = table.cast(writer.schema)  # guard against dtype drift between chunks
-            writer.write_table(table)
-            n_events_total += len(chunk)
-            print(f"  ...processed {n_events_total} events so far", flush=True)
+            # \r + no newline overwrites the previous status line instead of
+            # scrolling the terminal with one line per chunk
+            print(f"\r  ...read {n_events_read} events, kept {n_events_total} after cuts"
+                  + " " * 10, end="", flush=True)
 
+    print()  # move off the status line before the final summary
     if writer is not None:
         writer.close()
 
