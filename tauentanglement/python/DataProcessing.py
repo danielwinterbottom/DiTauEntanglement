@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import numpy as np
 import os
-from tauentanglement.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK
+from tauentanglement.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK, ConvertNRKToAngular
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features,
@@ -205,6 +205,8 @@ def _output_path_for_coordinates(config, key):
         fname = 'full_polar_dataframe.parquet'
     elif config['coordinates'] == 'onorm':
         fname = 'full_onorm_dataframe.parquet'
+    elif config['coordinates'] == 'onorm_angular':
+        fname = 'full_onorm_angular_dataframe.parquet'
     else:
         fname = 'full_dataframe.parquet'
     return os.path.join(config['output_dir'], key, fname)
@@ -269,7 +271,7 @@ def _process_chunk(df, config, collider, use_reco, prefix, charged_name, has_ts_
         df = ConvertToPolar(df, 'taup_nu_p')
         df = ConvertToPolar(df, 'taun_nu_p')
 
-    elif config['coordinates'] == 'onorm':  # option to convert to orthonormal basis
+    elif config['coordinates'] in ('onorm', 'onorm_angular'):  # option to convert to orthonormal basis
         df = ConvertToOrthonormalNRK(
             df, prefix_to_convert='taup_nu_',
             charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
@@ -296,6 +298,19 @@ def _process_chunk(df, config, collider, use_reco, prefix, charged_name, has_ts_
                 charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
                 out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
             )
+
+            # ts_hh_taup/taun are (nominally) unit vectors, so their (n,r,k)
+            # triplet carries a redundant degree of freedom -- collapse to the
+            # 2 genuine ones (costheta, phi) for the onorm_angular training
+            # target (see ConvertNRKToAngular for why this matters for
+            # flow-based training). drop_nrk=False keeps the raw (n,r,k) too
+            # (not used for training, same treatment as x,y,z above) so
+            # downstream physics validation (e.g. the entanglement/spin-density
+            # variables in evaluate_polvec.py) can use the true, unnormalized
+            # projections rather than the direction-only training target.
+            if config['coordinates'] == 'onorm_angular':
+                df = ConvertNRKToAngular(df, prefix='ts_hh_taup_', drop_nrk=False)
+                df = ConvertNRKToAngular(df, prefix='ts_hh_taun_', drop_nrk=False)
 
         if has_undecayed:
             df = ConvertToOrthonormalNRK(
@@ -504,6 +519,8 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
             elif config['coordinates'] == 'onorm':
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
+            elif config['coordinates'] == 'onorm_angular':
+                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_angular_dataframe.parquet'))
             # add a column to identify the dataset
             df['dataset'] = k
 

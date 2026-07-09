@@ -192,6 +192,62 @@ def ConvertFromOrthonormalNRK(
     return df
 
 
+def ConvertNRKToAngular(df, prefix, drop_nrk=True, norm_col_suffix="norm", eps=1e-12):
+    """
+    Collapse a (nominally unit-length) vector's (n,r,k) onorm components into
+    its 2 genuine direction degrees of freedom: costheta = k-component of the
+    *normalized* direction (k is the polar axis, chosen because it's built
+    from the visible-tau flight direction) and phi = the azimuthal angle in
+    the n-r plane. Unlike the raw (n,r,k) triplet, these 2 numbers have no
+    hidden n^2+r^2+k^2=1 constraint between them, which is otherwise a
+    degenerate (measure-zero) target for a density model like a normalizing
+    flow to learn.
+
+    In practice this vector isn't always exactly unit-length -- e.g. the
+    ts_hh_taup/taun polarimetric vectors have a rare (~0.1-0.5% of events),
+    heavy-tailed deviation from |h|=1 traced to numerical singularities in
+    calculate_hh.py's per-channel kinematic formulas, not a physics effect.
+    Rather than silently baking that deviation into costheta (which would
+    make it wrong specifically for events near the poles, where the missing
+    normalization is most amplified), this function explicitly normalizes
+    before splitting into angles, and separately stores the raw
+    pre-normalization magnitude in a `{prefix}{norm_col_suffix}` column
+    (not used for training) so events with a bad magnitude can be identified
+    and cut downstream without that information being lost at prep time.
+    """
+    n = df[f"{prefix}n"].to_numpy(dtype=float)
+    r = df[f"{prefix}r"].to_numpy(dtype=float)
+    k = df[f"{prefix}k"].to_numpy(dtype=float)
+
+    norm = np.sqrt(n ** 2 + r ** 2 + k ** 2)
+    safe_norm = np.where(norm > eps, norm, 1.0)
+
+    df[f"{prefix}costheta"] = k / safe_norm
+    df[f"{prefix}phi"] = np.arctan2(r, n)  # ratio r/n is unaffected by the overall scale
+    df[f"{prefix}{norm_col_suffix}"] = norm
+
+    if drop_nrk:
+        df = df.drop(columns=[f"{prefix}n", f"{prefix}r", f"{prefix}k"])
+
+    return df
+
+
+def ConvertAngularToNRK(df, prefix, drop_angular=True):
+    """Inverse of ConvertNRKToAngular: (costheta, phi) -> (n, r, k)."""
+    costheta = df[f"{prefix}costheta"].to_numpy(dtype=float)
+    phi = df[f"{prefix}phi"].to_numpy(dtype=float)
+
+    sintheta = np.sqrt(np.clip(1.0 - costheta ** 2, 0.0, None))
+    df[f"{prefix}n"] = sintheta * np.cos(phi)
+    df[f"{prefix}r"] = sintheta * np.sin(phi)
+    df[f"{prefix}k"] = costheta
+
+    if drop_angular:
+        df = df.drop(columns=[f"{prefix}costheta", f"{prefix}phi"])
+
+    return df
+
+
 def convert_coordinates_pred(arr, coordinates, output_features, tau1_charged, tau1_pi0, tau2_charged, tau2_pi0, leptonic_mode=0):
     if coordinates == 'polar':
         if leptonic_mode !=0:
@@ -331,6 +387,89 @@ def ConvertFromOrthonormalNRK_Predictions_PolVec(
         np.concatenate([predictions, visible_data], axis=1),
         columns=column_names + visible_column_names,
     )
+
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='ts_hh_taup_',
+        charged_prefix='reco_taup_charged_', pi0_prefix='reco_taup_pizero1_',
+        drop_nrk=True, eps=eps, suffixes=('x', 'y', 'z'),
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='ts_hh_taun_',
+        charged_prefix='reco_taun_charged_', pi0_prefix='reco_taun_pizero1_',
+        drop_nrk=True, eps=eps, suffixes=('x', 'y', 'z'),
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='undecayed_taup_',
+        charged_prefix='reco_taup_charged_', pi0_prefix='reco_taup_pizero1_',
+        drop_nrk=True, eps=eps,
+    )
+    df = ConvertFromOrthonormalNRK(
+        df, prefix_to_convert='undecayed_taun_',
+        charged_prefix='reco_taun_charged_', pi0_prefix='reco_taun_pizero1_',
+        drop_nrk=True, eps=eps,
+    )
+
+    ordered_columns = [
+        'ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+        'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z',
+        'undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz',
+        'undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz',
+    ]
+    return df[ordered_columns].values
+
+
+def ConvertFromOrthonormalNRK_Predictions_PolVec_Angular(
+    predictions,
+    reco_taup_charged,
+    reco_taup_pizero,
+    reco_taun_charged,
+    reco_taun_pizero,
+    eps: float = 1e-12,
+):
+    """
+    Inverse onorm_angular -> Cartesian transform for the polvec model's 10
+    outputs: ts_hh_taup/taun (polarimetric unit vectors), each parameterized
+    by (costheta, phi) instead of the raw (n,r,k) triplet, plus
+    undecayed_taup/taun (tau momenta) as full (n,r,k) triplets -- see
+    ConvertNRKToAngular / ConvertToOrthonormalNRK.
+
+    Parameters
+    ----------
+    predictions : np.ndarray, shape [N, 10]
+        Columns in the order of output_features['onorm_angular'] in
+        config_polvec.yaml: ts_hh_taup_{costheta,phi}, ts_hh_taun_{costheta,phi},
+        undecayed_taup_{n,r,k}, undecayed_taun_{n,r,k}
+    reco_taup_charged, reco_taup_pizero, reco_taun_charged, reco_taun_pizero : np.ndarray, shape [N, 3]
+        Visible tau (px,py,pz) momentum components used to build the same basis as at
+        training time (must match the charged/pi0 vectors used there).
+
+    Returns
+    -------
+    np.ndarray, shape [N, 12]: ts_hh_taup_{x,y,z}, ts_hh_taun_{x,y,z},
+    undecayed_taup_{px,py,pz}, undecayed_taun_{px,py,pz}
+    """
+    column_names = [
+        'ts_hh_taup_costheta', 'ts_hh_taup_phi',
+        'ts_hh_taun_costheta', 'ts_hh_taun_phi',
+        'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
+        'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
+    ]
+    visible_column_names = (
+        [f'reco_taup_charged_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taup_pizero1_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taun_charged_{c}' for c in ['px', 'py', 'pz']] +
+        [f'reco_taun_pizero1_{c}' for c in ['px', 'py', 'pz']]
+    )
+    visible_data = np.concatenate(
+        [reco_taup_charged, reco_taup_pizero, reco_taun_charged, reco_taun_pizero], axis=1
+    )
+    df = pd.DataFrame(
+        np.concatenate([predictions, visible_data], axis=1),
+        columns=column_names + visible_column_names,
+    )
+
+    df = ConvertAngularToNRK(df, prefix='ts_hh_taup_', drop_angular=True)
+    df = ConvertAngularToNRK(df, prefix='ts_hh_taun_', drop_angular=True)
 
     df = ConvertFromOrthonormalNRK(
         df, prefix_to_convert='ts_hh_taup_',
