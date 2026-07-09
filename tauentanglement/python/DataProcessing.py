@@ -202,36 +202,43 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
 
     print("Converting from ROOT to Parquet...")
 
-    tree = uproot.open(input_file_name)[config['tree_name']]
-    # print(f">> Opened tree in file {input_file_name}")
+    # Explicitly close the uproot file handle once we're done reading from it --
+    # tree.arrays() eagerly materializes everything into pandas below, so df/extra
+    # don't depend on the file staying open. Without this, the file's internal
+    # read/decompression buffers can linger until Python's GC gets around to
+    # collecting the tree object, which is what made memory usage balloon when
+    # processing multiple input files in one process (each file's buffers stuck
+    # around on top of the previous one's instead of being freed immediately).
+    with uproot.open(input_file_name) as f:
+        tree = f[config['tree_name']]
 
-    df = tree.arrays(config['Features']['dataframe_variables'], library="pd")
+        df = tree.arrays(config['Features']['dataframe_variables'], library="pd")
 
-    # Optionally load TauSpinner weights, polarimetric vectors, and undecayed tau
-    # 4-vectors if they were produced by run_delphes.py --tauspinner.
-    _AXES = ('n', 'r', 'k')
-    _optional_cols = (
-        [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
-        [f'wt_hp_{a}' for a in _AXES] +
-        [f'wt_hm_{a}' for a in _AXES] +
-        [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
-        ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
-         'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
-        ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
-         'taun_px', 'taun_py', 'taun_pz', 'taun_e']
-    )
-    tree_keys = set(tree.keys())
-    cols_to_load = [c for c in _optional_cols if c in tree_keys]
-    if cols_to_load:
-        extra = tree.arrays(cols_to_load, library="pd")
-        # Rename undecayed tau 4-vectors to avoid confusion with tau leptons
-        # reconstructed from decay products.
-        rename = {f'{tau}_{comp}': f'undecayed_{tau}_{comp}'
-                  for tau in ['taup', 'taun']
-                  for comp in ['px', 'py', 'pz', 'e']
-                  if f'{tau}_{comp}' in extra.columns}
-        extra = extra.rename(columns=rename)
-        df = pd.concat([df, extra], axis=1)
+        # Optionally load TauSpinner weights, polarimetric vectors, and undecayed tau
+        # 4-vectors if they were produced by run_delphes.py --tauspinner.
+        _AXES = ('n', 'r', 'k')
+        _optional_cols = (
+            [f'tauspinner_wt_alpha{a}' for a in [0, 45, 90]] +
+            [f'wt_hp_{a}' for a in _AXES] +
+            [f'wt_hm_{a}' for a in _AXES] +
+            [f'wt_hp_{a}_hm_{b}' for a in _AXES for b in _AXES] +
+            ['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
+             'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z'] +
+            ['taup_px', 'taup_py', 'taup_pz', 'taup_e',
+             'taun_px', 'taun_py', 'taun_pz', 'taun_e']
+        )
+        tree_keys = set(tree.keys())
+        cols_to_load = [c for c in _optional_cols if c in tree_keys]
+        if cols_to_load:
+            extra = tree.arrays(cols_to_load, library="pd")
+            # Rename undecayed tau 4-vectors to avoid confusion with tau leptons
+            # reconstructed from decay products.
+            rename = {f'{tau}_{comp}': f'undecayed_{tau}_{comp}'
+                      for tau in ['taup', 'taun']
+                      for comp in ['px', 'py', 'pz', 'e']
+                      if f'{tau}_{comp}' in extra.columns}
+            extra = extra.rename(columns=rename)
+            df = pd.concat([df, extra], axis=1)
 
     ## select only DM 0 and 1
     # removing this since we want to train on other decay modes as well
