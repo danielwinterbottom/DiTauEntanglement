@@ -571,6 +571,13 @@ def main():
                 'true_cosn_minus': true_n_m, 'true_cosr_minus': true_r_m, 'true_cosk_minus': true_k_m,
                 'pred_cosn_plus': pred_n_p, 'pred_cosr_plus': pred_r_p, 'pred_cosk_plus': pred_k_p,
                 'pred_cosn_minus': pred_n_m, 'pred_cosr_minus': pred_r_m, 'pred_cosk_minus': pred_k_m,
+                # same values again under the raw ts_hh_taup/taun_{n,r,k} naming
+                # (the cosX_plus/minus naming above is just what
+                # compute_spin_density_vars expects as input)
+                'true_ts_hh_taup_n': true_n_p, 'true_ts_hh_taup_r': true_r_p, 'true_ts_hh_taup_k': true_k_p,
+                'true_ts_hh_taun_n': true_n_m, 'true_ts_hh_taun_r': true_r_m, 'true_ts_hh_taun_k': true_k_m,
+                'pred_ts_hh_taup_n': pred_n_p, 'pred_ts_hh_taup_r': pred_r_p, 'pred_ts_hh_taup_k': pred_k_p,
+                'pred_ts_hh_taun_n': pred_n_m, 'pred_ts_hh_taun_r': pred_r_m, 'pred_ts_hh_taun_k': pred_k_m,
             })
             true_vars = compute_spin_density_vars(ent_df, prefix='true_')
             pred_vars = compute_spin_density_vars(ent_df, prefix='pred_')
