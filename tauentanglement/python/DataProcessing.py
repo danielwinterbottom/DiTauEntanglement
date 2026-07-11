@@ -513,12 +513,27 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
             test_df_ = pd.read_parquet(test_df_path)
 
         else:
+            def _read_onorm_dataframe():
+                # full_onorm_angular_dataframe.parquet is a strict superset of
+                # full_onorm_dataframe.parquet's columns (see ConvertNRKToAngular's
+                # drop_nrk=False -- it keeps the raw n,r,k alongside costheta/phi/norm),
+                # so if data was only prepared with coordinates=onorm_angular, fall
+                # back to reading that instead of requiring a separate onorm-only
+                # conversion run.
+                onorm_path = os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet')
+                if os.path.exists(onorm_path):
+                    return pd.read_parquet(onorm_path)
+                angular_path = os.path.join(config['output_dir'], k, 'full_onorm_angular_dataframe.parquet')
+                print(f">> {onorm_path} not found, falling back to {angular_path} "
+                      "(onorm_angular's columns are a superset of onorm's).")
+                return pd.read_parquet(angular_path)
+
             if config['coordinates'] == 'standard':
-                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
+                df = _read_onorm_dataframe()
             elif config['coordinates'] == 'polar':
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_polar_dataframe.parquet'))
             elif config['coordinates'] == 'onorm':
-                df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_dataframe.parquet'))
+                df = _read_onorm_dataframe()
             elif config['coordinates'] == 'onorm_angular':
                 df = pd.read_parquet(os.path.join(config['output_dir'], k, 'full_onorm_angular_dataframe.parquet'))
             # add a column to identify the dataset
