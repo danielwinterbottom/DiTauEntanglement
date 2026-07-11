@@ -419,6 +419,23 @@ def main():
                 fig.savefig(os.path.join(phi_diag_outdir, f'dphi_vs_truephi_profile_{tau}.pdf'), dpi=130)
                 plt.close(fig)
 
+                # 3) true_phi distribution, using the same bin edges as the profile above --
+                # checks whether a non-flat error profile is just tracking non-uniform
+                # training/test statistics in phi (fewer/more events in some bins) rather
+                # than a genuine periodicity or hard-to-predict-region effect.
+                counts, _ = np.histogram(np.mod(true_phi, 2 * np.pi), bins=phi_bins)
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.bar(bin_centers, counts, width=(phi_bins[1] - phi_bins[0]), align='center',
+                       color='steelblue', alpha=0.7)
+                ax.axvspan(0, phi_bins[1], color='red', alpha=0.1, label='seam (phi~0 / phi~2*pi)')
+                ax.axvspan(phi_bins[-2], 2 * np.pi, color='red', alpha=0.1)
+                ax.set_xlabel(f'true_phi [rad] -- {tau}')
+                ax.set_ylabel('events')
+                ax.legend()
+                fig.tight_layout()
+                fig.savefig(os.path.join(phi_diag_outdir, f'truephi_distribution_{tau}.pdf'), dpi=130)
+                plt.close(fig)
+
                 # single-number summary: error in the seam bins (first + last) vs the
                 # bulk (all other bins) -- a ratio >> 1 indicates a real periodicity
                 # problem; a ratio ~1 means the model handles the seam no worse than
