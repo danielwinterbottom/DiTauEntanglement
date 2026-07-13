@@ -431,25 +431,46 @@ def convert_root_to_parquet(input_file_name, key, config, collider, use_reco=Tru
         print('Columns in the saved dataframe:', columns_written)
 
 def convert_semileptonic_df(df):
-    # restructure semileptonic dataframe to give the leptonic tau as "tau1" and the hadronic one as "tau2"
-    # instead of taup and taun
-    # check if taup is leptonic and taun is hadronic and if so relabel taup->tau1 and taun->tau2
+    """
+    Restructure a semileptonic dataframe (caller must have already filtered to
+    exactly one of taup/taun leptonic per row) so the leptonic tau is always
+    "tau1" and the hadronic tau is always "tau2", instead of taup/taun
+    (physical charge).
 
-    df_lep_tau1 = df[((df['taup_isleptonic'] == 1) & (df['taun_ishadronic'] == 1))].copy()
-    df_lep_tau1 = df_lep_tau1.rename(columns=lambda x: x.replace('taup_', 'tau1_').replace('taun_', 'tau2_'))
-    # store the charge of the leptonic tau in a separate column
-    df_lep_tau1['tau1_charge'] = np.ones(len(df_lep_tau1))
-    df_lep_tau1['tau2_charge'] = -1*np.ones(len(df_lep_tau1))
+    Built as a single vectorized column-swap (np.where per taup_X/taun_X
+    column pair) rather than filtering into two row-subsets, renaming each,
+    and pd.concat-ing them back together. That older approach held 3+ full
+    copies of the dataframe simultaneously at its peak (the original + both
+    row-subset copies + the concatenated result) -- pandas/numpy never hand
+    freed heap pages back to the OS, so that transient peak left a
+    permanently elevated memory floor for the rest of the process (measured:
+    ~1.8GB of unrecovered RSS growth converting a single dataset whose actual
+    output was under 1GB). This version never materializes more than one
+    extra copy of the tau-specific columns.
+    """
+    is_taup_leptonic = (df['taup_isleptonic'] == 1).to_numpy()
+    n = len(df)
 
-    # check if taup is hadronic and taun is leptonic and if so relabel taun->tau1 and taup->tau2
-    df_lep_tau2 = df[((df['taup_ishadronic'] == 1) & (df['taun_isleptonic'] == 1))].copy()
-    df_lep_tau2 = df_lep_tau2.rename(columns=lambda x: x.replace('taun_', 'tau1_').replace('taup_', 'tau2_'))
-    # store the charge of the taus in a separate column
-    df_lep_tau2['tau2_charge'] = -1*np.ones(len(df_lep_tau2))
-    df_lep_tau2['tau1_charge'] = np.ones(len(df_lep_tau2))
+    taup_prefix, taun_prefix = 'taup_', 'taun_'
+    taup_suffixes = {c[len(taup_prefix):] for c in df.columns if c.startswith(taup_prefix)}
+    taun_suffixes = {c[len(taun_prefix):] for c in df.columns if c.startswith(taun_prefix)}
 
-    # concatenate the two dataframes
-    df_out = pd.concat([df_lep_tau1, df_lep_tau2], ignore_index=True)
+    out = {}
+    for col in df.columns:
+        if not (col.startswith(taup_prefix) or col.startswith(taun_prefix)):
+            out[col] = df[col].to_numpy()  # non-tau-specific column (e.g. met_px), passed through unchanged
+
+    for suffix in taup_suffixes | taun_suffixes:
+        taup_col, taun_col = f'{taup_prefix}{suffix}', f'{taun_prefix}{suffix}'
+        taup_vals = df[taup_col].to_numpy() if taup_col in df.columns else np.full(n, np.nan)
+        taun_vals = df[taun_col].to_numpy() if taun_col in df.columns else np.full(n, np.nan)
+        out[f'tau1_{suffix}'] = np.where(is_taup_leptonic, taup_vals, taun_vals)
+        out[f'tau2_{suffix}'] = np.where(is_taup_leptonic, taun_vals, taup_vals)
+
+    out['tau1_charge'] = np.ones(n)
+    out['tau2_charge'] = -np.ones(n)
+
+    df_out = pd.DataFrame(out)
     # shuffle the dataframe
     df_out = df_out.sample(frac=1, random_state=42).reset_index(drop=True)
 
