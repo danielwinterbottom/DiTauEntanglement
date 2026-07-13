@@ -269,7 +269,7 @@ def main():
         X, _ = dataset[:]
         X = X.to(device)
         print(f">> Running MAP prediction (method={nn_config.get('map_method', 'gradient')})...")
-        chunk_size = 50000 #nn_config.get('chunk_size', 20000 if device.type == 'cpu' else 10000)
+        chunk_size = 25000 #nn_config.get('chunk_size', 20000 if device.type == 'cpu' else 10000)
         _, predictions_native = flow_map_predict(
             model, X, test_dataset=dataset,
             method=nn_config.get('map_method', 'gradient'),
