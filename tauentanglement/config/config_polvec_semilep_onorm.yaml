@@ -4,7 +4,7 @@ SetupNN:
   model_name: model_LHC_TransformerFlow_PolVecDirect_SemiLeptonic_Weighted_onorm_July13 
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 1
+  n_epochs: 25
   hyperparams:  { # for NuFlow with transformer conditioning
               'batch_size': 4096,
               'num_layers': 9,
