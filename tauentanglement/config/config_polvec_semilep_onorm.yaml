@@ -31,8 +31,7 @@ SetupNN:
 
 
 Data:
-  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25']
-  #datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25','ppToHToTauTau_AllDM_UnCorr_Jun25_ext1','ppToHToTauTau_AllDM_UnCorr_Jun25_ext2','ppToHToTauTau_AllDM_UnCorr_Jun25_ext3','ppToHToTauTau_AllDM_UnCorr_Jun25_ext4','ppToHToTauTau_AllDM_UnCorr_Jun25_ext5_large','ppToHToTauTau_DM0and1_UnCorr_Jun25_large']   # name of dataset to use, has to be one of the keys in the available_files dictionary below
+  datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25_ext1','ppToHToTauTau_AllDM_UnCorr_Jun25_ext2','ppToHToTauTau_AllDM_UnCorr_Jun25_ext3','ppToHToTauTau_AllDM_UnCorr_Jun25_ext4','ppToHToTauTau_AllDM_UnCorr_Jun25_ext5_large','ppToHToTauTau_DM0and1_UnCorr_Jun25_large']   # keep ppToHToTauTau_AllDM_UnCorr_Jun25 for testing
   output_dir: 'prepared_LHC_data_polvectraining_onorm_july13'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   test_dataset: ['prepared_LHC_data_polvectraining_onorm_july13/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_1_transformer.parquet']
@@ -127,8 +126,7 @@ Data:
                     'undecayed_tau1_n', 'undecayed_tau1_r', 'undecayed_tau1_k',
                     'undecayed_tau2_n', 'undecayed_tau2_r', 'undecayed_tau2_k']}
   available_files: {
-                    'ppToHToTauTau_AllDM_UnCorr_Jun25': 'ppToHToTauTau_AllDM_UnCorr_Jun25/reco_events.root',
-                    #'ppToHToTauTau_AllDM_UnCorr_Jun25': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25/reco_events.root',
+                    'ppToHToTauTau_AllDM_UnCorr_Jun25': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25/reco_events.root',
                     'ppToHToTauTau_AllDM_UnCorr_Jun25_ext1': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25_ext1/reco_events.root',
                     'ppToHToTauTau_AllDM_UnCorr_Jun25_ext2': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25_ext2/reco_events.root',
                     'ppToHToTauTau_AllDM_UnCorr_Jun25_ext3': '/vols/cms/dw515/DiTauEntanglement_new/DiTauEntanglement/ppToHToTauTau_AllDM_UnCorr_Jun25_ext3/reco_events.root',
