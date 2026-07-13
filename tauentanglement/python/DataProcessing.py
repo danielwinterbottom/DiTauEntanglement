@@ -470,7 +470,7 @@ def get_train_val_test_datasets(keys, config, shuffle=True, load_existing=False)
 
     input_features = config['Features']['input_features']
     if config['inc_reco_taus']:
-        input_features += config['Features']['input_reco_tau_features']
+        input_features = input_features + config['Features']['input_reco_tau_features']
 
     output_features = config['Features']['output_features'][config['coordinates']]
 

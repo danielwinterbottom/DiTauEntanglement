@@ -9,6 +9,13 @@ Compares true vs. predicted (MAP estimate):
   - phiCP
   - entanglement / spin-correlation "cos" variables (the B+/B-/C matrix)
 
+Handles both the standard (leptonic_mode != 1: physical-charge based
+taup/taun naming) and semileptonic (leptonic_mode == 1: tau1=leptonic,
+tau2=hadronic, see DataProcessing.convert_semileptonic_df) trainings -- the
+tau labels used throughout this script are derived once from leptonic_mode
+near the top of main() and threaded through every physical-tau-specific
+column name, instead of hardcoding 'taup'/'taun'.
+
 Deliberately kept separate from evaluate.py (which handles the older
 neutrino-regression models and already has a lot of leptonic-mode/coordinate
 branching) -- this one only has to handle one fixed 12-value output layout.
@@ -44,24 +51,35 @@ from tauentanglement.utils.acoplanarity_tools import compute_aco_polarimetric
 M_TAU = 1.77686
 PHICP_BINS = 20  # phiCP always uses 20 bins, independent of --num_bins
 
-CARTESIAN_OUTPUT_ORDER = [
-    'ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z',
-    'ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z',
-    'undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz',
-    'undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz',
-]
-ONORM_OUTPUT_ORDER = [
-    'ts_hh_taup_n', 'ts_hh_taup_r', 'ts_hh_taup_k',
-    'ts_hh_taun_n', 'ts_hh_taun_r', 'ts_hh_taun_k',
-    'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
-    'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
-]
-ANGULAR_OUTPUT_ORDER = [
-    'ts_hh_taup_costheta', 'ts_hh_taup_phi',
-    'ts_hh_taun_costheta', 'ts_hh_taun_phi',
-    'undecayed_taup_n', 'undecayed_taup_r', 'undecayed_taup_k',
-    'undecayed_taun_n', 'undecayed_taun_r', 'undecayed_taun_k',
-]
+
+def cartesian_output_order(tau_labels):
+    t1, t2 = tau_labels
+    return [
+        f'ts_hh_{t1}_x', f'ts_hh_{t1}_y', f'ts_hh_{t1}_z',
+        f'ts_hh_{t2}_x', f'ts_hh_{t2}_y', f'ts_hh_{t2}_z',
+        f'undecayed_{t1}_px', f'undecayed_{t1}_py', f'undecayed_{t1}_pz',
+        f'undecayed_{t2}_px', f'undecayed_{t2}_py', f'undecayed_{t2}_pz',
+    ]
+
+
+def onorm_output_order(tau_labels):
+    t1, t2 = tau_labels
+    return [
+        f'ts_hh_{t1}_n', f'ts_hh_{t1}_r', f'ts_hh_{t1}_k',
+        f'ts_hh_{t2}_n', f'ts_hh_{t2}_r', f'ts_hh_{t2}_k',
+        f'undecayed_{t1}_n', f'undecayed_{t1}_r', f'undecayed_{t1}_k',
+        f'undecayed_{t2}_n', f'undecayed_{t2}_r', f'undecayed_{t2}_k',
+    ]
+
+
+def angular_output_order(tau_labels):
+    t1, t2 = tau_labels
+    return [
+        f'ts_hh_{t1}_costheta', f'ts_hh_{t1}_phi',
+        f'ts_hh_{t2}_costheta', f'ts_hh_{t2}_phi',
+        f'undecayed_{t1}_n', f'undecayed_{t1}_r', f'undecayed_{t1}_k',
+        f'undecayed_{t2}_n', f'undecayed_{t2}_r', f'undecayed_{t2}_k',
+    ]
 
 
 def unit(v):
@@ -89,14 +107,14 @@ def compute_phiCP(h1, n1, h2, n2):
     return ak.to_numpy(phicp)
 
 
-def tau_directions_com(taup_p3, taun_p3, taup_E, taun_E):
-    """Boost tau+/tau- to their common (ditau) rest frame; return unit direction vectors."""
-    taup4 = np.column_stack([taup_E, taup_p3])
-    taun4 = np.column_stack([taun_E, taun_p3])
-    com_boost = boost_vector(taup4 + taun4)
-    taup4_com = boost(taup4, -com_boost)
-    kx = unit(taup4_com[:, 1:])
-    return kx, -kx  # taup direction, taun direction
+def tau_directions_com(tau1_p3, tau2_p3, tau1_E, tau2_E):
+    """Boost the two taus to their common (ditau) rest frame; return unit direction vectors."""
+    tau1_4 = np.column_stack([tau1_E, tau1_p3])
+    tau2_4 = np.column_stack([tau2_E, tau2_p3])
+    com_boost = boost_vector(tau1_4 + tau2_4)
+    tau1_4_com = boost(tau1_4, -com_boost)
+    kx = unit(tau1_4_com[:, 1:])
+    return kx, -kx  # tau1 direction, tau2 direction
 
 
 def plot_true_vs_pred_2d(true_vals, pred_vals, labels, suptitle, outpath, num_bins, sym_range=None):
@@ -122,17 +140,18 @@ def plot_true_vs_pred_2d(true_vals, pred_vals, labels, suptitle, outpath, num_bi
     plt.close(fig)
 
 
-def add_DM(df, dm_prefix='reco'):
+def add_DM(df, tau_labels, dm_prefix='reco'):
     """Per-tau decay-mode code, same categorisation/convention as plot_phiCP.py's
     add_DM: 0=1-prong no pi0, 1=1-prong+1pi0, 2=1-prong+2pi0, 10=3-prong, 11=3-prong+pi0,
-    100=leptonic, -1=unmatched. Returns (dm_taup, dm_taun) arrays.
+    100=leptonic, -1=unmatched. Returns (dm_tau1, dm_tau2) arrays, following
+    whatever tau_labels are in use ((taup,taun) or (tau1,tau2)).
 
-    dm_prefix='reco' reads reco_taup_ishadronic etc. (reco-level); dm_prefix=''
-    reads the bare taup_ishadronic etc. (gen-level -- gen columns have no prefix
+    dm_prefix='reco' reads reco_{tau}_ishadronic etc. (reco-level); dm_prefix=''
+    reads the bare {tau}_ishadronic etc. (gen-level -- gen columns have no prefix
     in this dataframe convention, unlike reco which is explicitly 'reco_'-prefixed)."""
     col_prefix = f'{dm_prefix}_' if dm_prefix else ''
     dm = {}
-    for tau in ['taup', 'taun']:
+    for tau in tau_labels:
         is_lep = df[f'{col_prefix}{tau}_ishadronic'].values == 0
         is_dm0 = (df[f'{col_prefix}{tau}_npizero'].values == 0) & (df[f'{col_prefix}{tau}_is3prong'].values == 0) & (~is_lep)
         is_dm1 = (df[f'{col_prefix}{tau}_npizero'].values == 1) & (df[f'{col_prefix}{tau}_is3prong'].values == 0) & (~is_lep)
@@ -145,7 +164,7 @@ def add_DM(df, dm_prefix='reco'):
                             np.where(is_dm10, 10,
                                 np.where(is_dm11, 11,
                                     np.where(is_lep, 100, -1))))))
-    return dm['taup'], dm['taun']
+    return dm[tau_labels[0]], dm[tau_labels[1]]
 
 
 def asymmetry_quadrature(counts_a, counts_b):
@@ -208,6 +227,12 @@ def main():
     coordinates = data_config['coordinates']
     output_features = data_config['Features']['output_features'][coordinates]
     leptonic_mode = data_config.get('leptonic_mode', -1)
+    # tau1=leptonic/tau2=hadronic for semileptonic training (see
+    # DataProcessing.convert_semileptonic_df); otherwise taup/taun (physical
+    # charge, symmetric). Threaded through every column name built below
+    # instead of hardcoding 'taup'/'taun'.
+    tau_labels = ('tau1', 'tau2') if leptonic_mode == 1 else ('taup', 'taun')
+    t1, t2 = tau_labels
     norm_data = np.load(f'{output_dir}/normalization_params.npz')
 
     # --- load model (same for every test_dataset below) ---
@@ -278,39 +303,43 @@ def main():
         )
         pred_native_df = pd.DataFrame(predictions_native, columns=output_features)
 
+        cartesian_cols = cartesian_output_order(tau_labels)
+        onorm_cols = onorm_output_order(tau_labels)
+        angular_cols = angular_output_order(tau_labels)
+
         # --- convert predictions to Cartesian (true values are already Cartesian in df) ---
         if coordinates == 'onorm':
             pred_cart = ConvertFromOrthonormalNRK_Predictions_PolVec(
-                pred_native_df[ONORM_OUTPUT_ORDER].values,
-                reco_taup_charged=df[['reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz']].values,
-                reco_taup_pizero=df[['reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values,
-                reco_taun_charged=df[['reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz']].values,
-                reco_taun_pizero=df[['reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values,
+                pred_native_df[onorm_cols].values,
+                reco_taup_charged=df[[f'reco_{t1}_charged_px', f'reco_{t1}_charged_py', f'reco_{t1}_charged_pz']].values,
+                reco_taup_pizero=df[[f'reco_{t1}_pizero1_px', f'reco_{t1}_pizero1_py', f'reco_{t1}_pizero1_pz']].values,
+                reco_taun_charged=df[[f'reco_{t2}_charged_px', f'reco_{t2}_charged_py', f'reco_{t2}_charged_pz']].values,
+                reco_taun_pizero=df[[f'reco_{t2}_pizero1_px', f'reco_{t2}_pizero1_py', f'reco_{t2}_pizero1_pz']].values,
             )
-            pred_cart_df = pd.DataFrame(pred_cart, columns=CARTESIAN_OUTPUT_ORDER)
+            pred_cart_df = pd.DataFrame(pred_cart, columns=cartesian_cols)
         elif coordinates == 'onorm_angular':
             pred_cart = ConvertFromOrthonormalNRK_Predictions_PolVec_Angular(
-                pred_native_df[ANGULAR_OUTPUT_ORDER].values,
-                reco_taup_charged=df[['reco_taup_charged_px', 'reco_taup_charged_py', 'reco_taup_charged_pz']].values,
-                reco_taup_pizero=df[['reco_taup_pizero1_px', 'reco_taup_pizero1_py', 'reco_taup_pizero1_pz']].values,
-                reco_taun_charged=df[['reco_taun_charged_px', 'reco_taun_charged_py', 'reco_taun_charged_pz']].values,
-                reco_taun_pizero=df[['reco_taun_pizero1_px', 'reco_taun_pizero1_py', 'reco_taun_pizero1_pz']].values,
+                pred_native_df[angular_cols].values,
+                reco_taup_charged=df[[f'reco_{t1}_charged_px', f'reco_{t1}_charged_py', f'reco_{t1}_charged_pz']].values,
+                reco_taup_pizero=df[[f'reco_{t1}_pizero1_px', f'reco_{t1}_pizero1_py', f'reco_{t1}_pizero1_pz']].values,
+                reco_taun_charged=df[[f'reco_{t2}_charged_px', f'reco_{t2}_charged_py', f'reco_{t2}_charged_pz']].values,
+                reco_taun_pizero=df[[f'reco_{t2}_pizero1_px', f'reco_{t2}_pizero1_py', f'reco_{t2}_pizero1_pz']].values,
             )
-            pred_cart_df = pd.DataFrame(pred_cart, columns=CARTESIAN_OUTPUT_ORDER)
+            pred_cart_df = pd.DataFrame(pred_cart, columns=cartesian_cols)
         elif coordinates == 'standard':
-            pred_cart_df = pred_native_df[CARTESIAN_OUTPUT_ORDER].reset_index(drop=True)
+            pred_cart_df = pred_native_df[cartesian_cols].reset_index(drop=True)
         else:
             raise ValueError(f"coordinates='{coordinates}' not supported by this script (only 'standard'/'onorm'/'onorm_angular')")
 
-        true_cart_df = df[CARTESIAN_OUTPUT_ORDER].reset_index(drop=True)
+        true_cart_df = df[cartesian_cols].reset_index(drop=True)
 
         # decay mode (gen and reco), for the per-DM phiCP plots below and saved to results_df
-        gen_dm_taup, gen_dm_taun = add_DM(df, dm_prefix='')
-        reco_dm_taup, reco_dm_taun = add_DM(df, dm_prefix='reco')
+        gen_dm_t1, gen_dm_t2 = add_DM(df, tau_labels, dm_prefix='')
+        reco_dm_t1, reco_dm_t2 = add_DM(df, tau_labels, dm_prefix='reco')
 
         # === 1. tau 4-vector comparison ===
         print(">> Plotting tau 4-vector comparisons...")
-        for tau in ['taup', 'taun']:
+        for tau in tau_labels:
             true_p = true_cart_df[[f'undecayed_{tau}_px', f'undecayed_{tau}_py', f'undecayed_{tau}_pz']].values
             pred_p = pred_cart_df[[f'undecayed_{tau}_px', f'undecayed_{tau}_py', f'undecayed_{tau}_pz']].values
             true_E = df[f'undecayed_{tau}_e'].values
@@ -326,7 +355,7 @@ def main():
 
         # === 2. polarimetric vector comparison ===
         print(">> Plotting polarimetric vector comparisons...")
-        for tau in ['taup', 'taun']:
+        for tau in tau_labels:
             true_h = true_cart_df[[f'ts_hh_{tau}_x', f'ts_hh_{tau}_y', f'ts_hh_{tau}_z']].values
             pred_h_unit = unit(pred_cart_df[[f'ts_hh_{tau}_x', f'ts_hh_{tau}_y', f'ts_hh_{tau}_z']].values)
 
@@ -365,7 +394,7 @@ def main():
             os.makedirs(phi_diag_outdir, exist_ok=True)
             phi_diag_cols = {}
             n_phi_bins = args.num_bins
-            for tau in ['taup', 'taun']:
+            for tau in tau_labels:
                 true_phi = df[f'ts_hh_{tau}_phi'].values
                 pred_phi = pred_native_df[f'ts_hh_{tau}_phi'].values
                 raw_dphi = pred_phi - true_phi
@@ -449,23 +478,23 @@ def main():
 
         # === 3. phiCP ===
         print(">> Computing phiCP (true vs predicted)...")
-        def get_phiCP(cart_df, E_taup, E_taun):
-            h1 = cart_df[['ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z']].values
-            h2 = cart_df[['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z']].values
-            p_taup = cart_df[['undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz']].values
-            p_taun = cart_df[['undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz']].values
-            n2, n1 = tau_directions_com(p_taup, p_taun, E_taup, E_taun)
+        def get_phiCP(cart_df, E_t1, E_t2):
+            h1 = cart_df[[f'ts_hh_{t2}_x', f'ts_hh_{t2}_y', f'ts_hh_{t2}_z']].values
+            h2 = cart_df[[f'ts_hh_{t1}_x', f'ts_hh_{t1}_y', f'ts_hh_{t1}_z']].values
+            p_t1 = cart_df[[f'undecayed_{t1}_px', f'undecayed_{t1}_py', f'undecayed_{t1}_pz']].values
+            p_t2 = cart_df[[f'undecayed_{t2}_px', f'undecayed_{t2}_py', f'undecayed_{t2}_pz']].values
+            n2, n1 = tau_directions_com(p_t1, p_t2, E_t1, E_t2)
             return compute_phiCP(h1, n1, h2, n2)
 
-        true_E_taup = df['undecayed_taup_e'].values
-        true_E_taun = df['undecayed_taun_e'].values
-        pred_p_taup = pred_cart_df[['undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz']].values
-        pred_p_taun = pred_cart_df[['undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz']].values
-        pred_E_taup = np.sqrt(np.sum(pred_p_taup ** 2, axis=1) + M_TAU ** 2)
-        pred_E_taun = np.sqrt(np.sum(pred_p_taun ** 2, axis=1) + M_TAU ** 2)
+        true_E_t1 = df[f'undecayed_{t1}_e'].values
+        true_E_t2 = df[f'undecayed_{t2}_e'].values
+        pred_p_t1 = pred_cart_df[[f'undecayed_{t1}_px', f'undecayed_{t1}_py', f'undecayed_{t1}_pz']].values
+        pred_p_t2 = pred_cart_df[[f'undecayed_{t2}_px', f'undecayed_{t2}_py', f'undecayed_{t2}_pz']].values
+        pred_E_t1 = np.sqrt(np.sum(pred_p_t1 ** 2, axis=1) + M_TAU ** 2)
+        pred_E_t2 = np.sqrt(np.sum(pred_p_t2 ** 2, axis=1) + M_TAU ** 2)
 
-        true_phiCP = get_phiCP(true_cart_df, true_E_taup, true_E_taun)
-        pred_phiCP = get_phiCP(pred_cart_df, pred_E_taup, pred_E_taun)
+        true_phiCP = get_phiCP(true_cart_df, true_E_t1, true_E_t2)
+        pred_phiCP = get_phiCP(pred_cart_df, pred_E_t1, pred_E_t2)
 
         # Reweight the (single, UnCorr) sample to CP-even/CP-odd hypotheses using
         # TauSpinner's own per-event weights, and compare true vs. predicted phiCP
@@ -496,7 +525,7 @@ def main():
         # === 3b. phiCP per decay-mode combination (same style as plot_phiCP.py) ===
         if have_weights:
             print(">> Plotting phiCP per decay-mode combination...")
-            dm_taup, dm_taun = reco_dm_taup, reco_dm_taun
+            dm_t1, dm_t2 = reco_dm_t1, reco_dm_t2
             dm_combs = [
                 [0, 0], [0, 1], [1, 1], [2, 2], [1, 2], [0, 2], [10, 10], [0, 10], [1, 10], [2, 10],
                 [0, 11], [1, 11], [2, 11], [10, 11], [11, 11],
@@ -506,7 +535,7 @@ def main():
             os.makedirs(dm_outdir, exist_ok=True)
             min_events = 20
             for dm_p, dm_n in dm_combs:
-                mask = ((dm_taup == dm_p) & (dm_taun == dm_n)) | ((dm_taup == dm_n) & (dm_taun == dm_p))
+                mask = ((dm_t1 == dm_p) & (dm_t2 == dm_n)) | ((dm_t1 == dm_n) & (dm_t2 == dm_p))
                 n_events = mask.sum()
                 if n_events < min_events:
                     continue
@@ -519,17 +548,17 @@ def main():
 
         # === 3c. ditau (boson candidate) invariant mass ===
         print(">> Plotting ditau invariant mass...")
-        true_p_taup = true_cart_df[['undecayed_taup_px', 'undecayed_taup_py', 'undecayed_taup_pz']].values
-        true_p_taun = true_cart_df[['undecayed_taun_px', 'undecayed_taun_py', 'undecayed_taun_pz']].values
+        true_p_t1 = true_cart_df[[f'undecayed_{t1}_px', f'undecayed_{t1}_py', f'undecayed_{t1}_pz']].values
+        true_p_t2 = true_cart_df[[f'undecayed_{t2}_px', f'undecayed_{t2}_py', f'undecayed_{t2}_pz']].values
 
-        def ditau_mass(E_taup, p_taup, E_taun, p_taun):
-            Etot = E_taup + E_taun
-            ptot = p_taup + p_taun
+        def ditau_mass(E_t1, p_t1, E_t2, p_t2):
+            Etot = E_t1 + E_t2
+            ptot = p_t1 + p_t2
             m2 = Etot ** 2 - np.sum(ptot ** 2, axis=1)
             return np.sqrt(np.clip(m2, 0, None))
 
-        true_mass = ditau_mass(true_E_taup, true_p_taup, true_E_taun, true_p_taun)
-        pred_mass = ditau_mass(pred_E_taup, pred_p_taup, pred_E_taun, pred_p_taun)
+        true_mass = ditau_mass(true_E_t1, true_p_t1, true_E_t2, true_p_t2)
+        pred_mass = ditau_mass(pred_E_t1, pred_p_t1, pred_E_t2, pred_p_t2)
 
         plot_true_vs_pred_2d(
             [true_mass], [pred_mass], ['ditau_mass'],
@@ -571,30 +600,30 @@ def main():
             # data -- see calculate_hh.py. The prediction, by contrast, only ever
             # exists as (costheta, phi) in onorm_angular mode (that's the model's
             # actual output), so it has to be decoded.
-            true_n_p, true_r_p, true_k_p = df['ts_hh_taup_n'].values, df['ts_hh_taup_r'].values, df['ts_hh_taup_k'].values
-            true_n_m, true_r_m, true_k_m = df['ts_hh_taun_n'].values, df['ts_hh_taun_r'].values, df['ts_hh_taun_k'].values
+            true_n_p, true_r_p, true_k_p = df[f'ts_hh_{t1}_n'].values, df[f'ts_hh_{t1}_r'].values, df[f'ts_hh_{t1}_k'].values
+            true_n_m, true_r_m, true_k_m = df[f'ts_hh_{t2}_n'].values, df[f'ts_hh_{t2}_r'].values, df[f'ts_hh_{t2}_k'].values
             if coordinates == 'onorm':
-                pred_n_p, pred_r_p, pred_k_p = pred_native_df['ts_hh_taup_n'].values, pred_native_df['ts_hh_taup_r'].values, pred_native_df['ts_hh_taup_k'].values
-                pred_n_m, pred_r_m, pred_k_m = pred_native_df['ts_hh_taun_n'].values, pred_native_df['ts_hh_taun_r'].values, pred_native_df['ts_hh_taun_k'].values
+                pred_n_p, pred_r_p, pred_k_p = pred_native_df[f'ts_hh_{t1}_n'].values, pred_native_df[f'ts_hh_{t1}_r'].values, pred_native_df[f'ts_hh_{t1}_k'].values
+                pred_n_m, pred_r_m, pred_k_m = pred_native_df[f'ts_hh_{t2}_n'].values, pred_native_df[f'ts_hh_{t2}_r'].values, pred_native_df[f'ts_hh_{t2}_k'].values
             else:  # onorm_angular: model only outputs (costheta, phi) -> decode to (n, r, k)
                 def _angular_to_nrk(costheta, phi):
                     sintheta = np.sqrt(np.clip(1.0 - costheta ** 2, 0.0, None))
                     return sintheta * np.cos(phi), sintheta * np.sin(phi), costheta
-                pred_n_p, pred_r_p, pred_k_p = _angular_to_nrk(pred_native_df['ts_hh_taup_costheta'].values, pred_native_df['ts_hh_taup_phi'].values)
-                pred_n_m, pred_r_m, pred_k_m = _angular_to_nrk(pred_native_df['ts_hh_taun_costheta'].values, pred_native_df['ts_hh_taun_phi'].values)
+                pred_n_p, pred_r_p, pred_k_p = _angular_to_nrk(pred_native_df[f'ts_hh_{t1}_costheta'].values, pred_native_df[f'ts_hh_{t1}_phi'].values)
+                pred_n_m, pred_r_m, pred_k_m = _angular_to_nrk(pred_native_df[f'ts_hh_{t2}_costheta'].values, pred_native_df[f'ts_hh_{t2}_phi'].values)
 
             ent_df = pd.DataFrame({
                 'true_cosn_plus': true_n_p, 'true_cosr_plus': true_r_p, 'true_cosk_plus': true_k_p,
                 'true_cosn_minus': true_n_m, 'true_cosr_minus': true_r_m, 'true_cosk_minus': true_k_m,
                 'pred_cosn_plus': pred_n_p, 'pred_cosr_plus': pred_r_p, 'pred_cosk_plus': pred_k_p,
                 'pred_cosn_minus': pred_n_m, 'pred_cosr_minus': pred_r_m, 'pred_cosk_minus': pred_k_m,
-                # same values again under the raw ts_hh_taup/taun_{n,r,k} naming
+                # same values again under the raw ts_hh_{t1}/{t2}_{n,r,k} naming
                 # (the cosX_plus/minus naming above is just what
                 # compute_spin_density_vars expects as input)
-                'true_ts_hh_taup_n': true_n_p, 'true_ts_hh_taup_r': true_r_p, 'true_ts_hh_taup_k': true_k_p,
-                'true_ts_hh_taun_n': true_n_m, 'true_ts_hh_taun_r': true_r_m, 'true_ts_hh_taun_k': true_k_m,
-                'pred_ts_hh_taup_n': pred_n_p, 'pred_ts_hh_taup_r': pred_r_p, 'pred_ts_hh_taup_k': pred_k_p,
-                'pred_ts_hh_taun_n': pred_n_m, 'pred_ts_hh_taun_r': pred_r_m, 'pred_ts_hh_taun_k': pred_k_m,
+                f'true_ts_hh_{t1}_n': true_n_p, f'true_ts_hh_{t1}_r': true_r_p, f'true_ts_hh_{t1}_k': true_k_p,
+                f'true_ts_hh_{t2}_n': true_n_m, f'true_ts_hh_{t2}_r': true_r_m, f'true_ts_hh_{t2}_k': true_k_m,
+                f'pred_ts_hh_{t1}_n': pred_n_p, f'pred_ts_hh_{t1}_r': pred_r_p, f'pred_ts_hh_{t1}_k': pred_k_p,
+                f'pred_ts_hh_{t2}_n': pred_n_m, f'pred_ts_hh_{t2}_r': pred_r_m, f'pred_ts_hh_{t2}_k': pred_k_m,
             })
             true_vars = compute_spin_density_vars(ent_df, prefix='true_')
             pred_vars = compute_spin_density_vars(ent_df, prefix='pred_')
@@ -606,44 +635,51 @@ def main():
 
         # === 5. save results (incl. TauSpinner weights) to parquet ===
         print(">> Saving results dataframe (with TauSpinner weights passed through)...")
-        pred_h_taup_unit = unit(pred_cart_df[['ts_hh_taup_x', 'ts_hh_taup_y', 'ts_hh_taup_z']].values)
-        pred_h_taun_unit = unit(pred_cart_df[['ts_hh_taun_x', 'ts_hh_taun_y', 'ts_hh_taun_z']].values)
+        pred_h_t1_unit = unit(pred_cart_df[[f'ts_hh_{t1}_x', f'ts_hh_{t1}_y', f'ts_hh_{t1}_z']].values)
+        pred_h_t2_unit = unit(pred_cart_df[[f'ts_hh_{t2}_x', f'ts_hh_{t2}_y', f'ts_hh_{t2}_z']].values)
+
+        # friendly 4-vector output labels: keep the original 'tau_plus'/'tau_minus'
+        # naming (backward compatible with existing results parquet schema) when
+        # tau_labels are physical-charge based (taup/taun); for semileptonic
+        # (tau1/tau2) that naming would be actively misleading (tau1 is "whichever
+        # tau was leptonic", not tied to charge), so use tau1/tau2 directly there.
+        d1, d2 = ('tau_plus', 'tau_minus') if tau_labels == ('taup', 'taun') else tau_labels
 
         results_df = pd.DataFrame({
-            'true_tau_plus_E':  true_E_taup,
-            'true_tau_plus_px': true_cart_df['undecayed_taup_px'].values,
-            'true_tau_plus_py': true_cart_df['undecayed_taup_py'].values,
-            'true_tau_plus_pz': true_cart_df['undecayed_taup_pz'].values,
-            'true_tau_minus_E':  true_E_taun,
-            'true_tau_minus_px': true_cart_df['undecayed_taun_px'].values,
-            'true_tau_minus_py': true_cart_df['undecayed_taun_py'].values,
-            'true_tau_minus_pz': true_cart_df['undecayed_taun_pz'].values,
-            'pred_tau_plus_E':  pred_E_taup,
-            'pred_tau_plus_px': pred_cart_df['undecayed_taup_px'].values,
-            'pred_tau_plus_py': pred_cart_df['undecayed_taup_py'].values,
-            'pred_tau_plus_pz': pred_cart_df['undecayed_taup_pz'].values,
-            'pred_tau_minus_E':  pred_E_taun,
-            'pred_tau_minus_px': pred_cart_df['undecayed_taun_px'].values,
-            'pred_tau_minus_py': pred_cart_df['undecayed_taun_py'].values,
-            'pred_tau_minus_pz': pred_cart_df['undecayed_taun_pz'].values,
-            'true_ts_hh_taup_x': true_cart_df['ts_hh_taup_x'].values,
-            'true_ts_hh_taup_y': true_cart_df['ts_hh_taup_y'].values,
-            'true_ts_hh_taup_z': true_cart_df['ts_hh_taup_z'].values,
-            'true_ts_hh_taun_x': true_cart_df['ts_hh_taun_x'].values,
-            'true_ts_hh_taun_y': true_cart_df['ts_hh_taun_y'].values,
-            'true_ts_hh_taun_z': true_cart_df['ts_hh_taun_z'].values,
-            'pred_ts_hh_taup_x': pred_h_taup_unit[:, 0],
-            'pred_ts_hh_taup_y': pred_h_taup_unit[:, 1],
-            'pred_ts_hh_taup_z': pred_h_taup_unit[:, 2],
-            'pred_ts_hh_taun_x': pred_h_taun_unit[:, 0],
-            'pred_ts_hh_taun_y': pred_h_taun_unit[:, 1],
-            'pred_ts_hh_taun_z': pred_h_taun_unit[:, 2],
+            f'true_{d1}_E':  true_E_t1,
+            f'true_{d1}_px': true_cart_df[f'undecayed_{t1}_px'].values,
+            f'true_{d1}_py': true_cart_df[f'undecayed_{t1}_py'].values,
+            f'true_{d1}_pz': true_cart_df[f'undecayed_{t1}_pz'].values,
+            f'true_{d2}_E':  true_E_t2,
+            f'true_{d2}_px': true_cart_df[f'undecayed_{t2}_px'].values,
+            f'true_{d2}_py': true_cart_df[f'undecayed_{t2}_py'].values,
+            f'true_{d2}_pz': true_cart_df[f'undecayed_{t2}_pz'].values,
+            f'pred_{d1}_E':  pred_E_t1,
+            f'pred_{d1}_px': pred_cart_df[f'undecayed_{t1}_px'].values,
+            f'pred_{d1}_py': pred_cart_df[f'undecayed_{t1}_py'].values,
+            f'pred_{d1}_pz': pred_cart_df[f'undecayed_{t1}_pz'].values,
+            f'pred_{d2}_E':  pred_E_t2,
+            f'pred_{d2}_px': pred_cart_df[f'undecayed_{t2}_px'].values,
+            f'pred_{d2}_py': pred_cart_df[f'undecayed_{t2}_py'].values,
+            f'pred_{d2}_pz': pred_cart_df[f'undecayed_{t2}_pz'].values,
+            f'true_ts_hh_{t1}_x': true_cart_df[f'ts_hh_{t1}_x'].values,
+            f'true_ts_hh_{t1}_y': true_cart_df[f'ts_hh_{t1}_y'].values,
+            f'true_ts_hh_{t1}_z': true_cart_df[f'ts_hh_{t1}_z'].values,
+            f'true_ts_hh_{t2}_x': true_cart_df[f'ts_hh_{t2}_x'].values,
+            f'true_ts_hh_{t2}_y': true_cart_df[f'ts_hh_{t2}_y'].values,
+            f'true_ts_hh_{t2}_z': true_cart_df[f'ts_hh_{t2}_z'].values,
+            f'pred_ts_hh_{t1}_x': pred_h_t1_unit[:, 0],
+            f'pred_ts_hh_{t1}_y': pred_h_t1_unit[:, 1],
+            f'pred_ts_hh_{t1}_z': pred_h_t1_unit[:, 2],
+            f'pred_ts_hh_{t2}_x': pred_h_t2_unit[:, 0],
+            f'pred_ts_hh_{t2}_y': pred_h_t2_unit[:, 1],
+            f'pred_ts_hh_{t2}_z': pred_h_t2_unit[:, 2],
             'true_phiCP': true_phiCP,
             'pred_phiCP': pred_phiCP,
-            'gen_taup_DM': gen_dm_taup,
-            'gen_taun_DM': gen_dm_taun,
-            'reco_taup_DM': reco_dm_taup,
-            'reco_taun_DM': reco_dm_taun,
+            f'gen_{t1}_DM': gen_dm_t1,
+            f'gen_{t2}_DM': gen_dm_t2,
+            f'reco_{t1}_DM': reco_dm_t1,
+            f'reco_{t2}_DM': reco_dm_t2,
         })
 
         # cos_n/r/k projections (true + predicted) that the entanglement/spin-density
@@ -659,11 +695,11 @@ def main():
         # ConvertFromOrthonormalNRK_Predictions_PolVec[_Angular] undoes the per-tau
         # visible-momentum (n,r,k) basis back to Cartesian.
         if coordinates == 'onorm':
-            for col in ONORM_OUTPUT_ORDER:
+            for col in onorm_cols:
                 results_df[f'true_{col}'] = df[col].values
                 results_df[f'pred_{col}'] = pred_native_df[col].values
         elif coordinates == 'onorm_angular':
-            for col in ANGULAR_OUTPUT_ORDER:
+            for col in angular_cols:
                 results_df[f'true_{col}'] = df[col].values
                 results_df[f'pred_{col}'] = pred_native_df[col].values
             # |h| before it was forced to a unit vector during data prep (see
@@ -671,7 +707,7 @@ def main():
             # from 1 traced to numerical singularities in calculate_hh.py, not
             # a physics effect. Passed through so bad events (|h| far from 1)
             # can be identified/cut in downstream analysis of this results file.
-            for norm_col in ['ts_hh_taup_norm', 'ts_hh_taun_norm']:
+            for norm_col in [f'ts_hh_{t1}_norm', f'ts_hh_{t2}_norm']:
                 if norm_col in df.columns:
                     results_df[f'true_{norm_col}'] = df[norm_col].values
 
