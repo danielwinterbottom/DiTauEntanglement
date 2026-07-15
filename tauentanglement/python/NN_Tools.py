@@ -85,7 +85,7 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
     return model
 
 
-def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
+def setup_model_and_training(hp, train_dataset, test_dataset, input_features, output_features, model_name, verbose=True, reload=False, reload_scheduler=False, reset_training=False, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
     train_dataloader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=hp['batch_size'], shuffle=False)
 
@@ -186,23 +186,26 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
         os.system(f'cp {model_path} {copied_name}')
         model.load_state_dict(torch.load(model_path, map_location=device))
 
-        optimizer_path = f'{output_plots_dir}/partial_optimizer.pth'
-        if os.path.exists(optimizer_path):
-            print(f"Reloading optimizer from {optimizer_path}...")
-            optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
-            for state in optimizer.state.values():
-                for k, v in state.items():
-                    if isinstance(v, torch.Tensor):
-                        state[k] = v.to(device)
+        if reset_training:
+            print("reset_training=True: using reloaded model weights only; optimizer, scheduler, epoch, and history will be reset.")
         else:
-            print("No optimizer checkpoint found; optimizer state will be reset.")
+            optimizer_path = f'{output_plots_dir}/partial_optimizer.pth'
+            if os.path.exists(optimizer_path):
+                print(f"Reloading optimizer from {optimizer_path}...")
+                optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.to(device)
+            else:
+                print("No optimizer checkpoint found; optimizer state will be reset.")
 
-        meta_path = f'{output_plots_dir}/partial_meta.pth'
-        if os.path.exists(meta_path):
-            meta = torch.load(meta_path, map_location=torch.device('cpu'))
-            start_epoch = meta.get('epoch', 0)
-            initial_history = meta.get('history', None)
-            print(f"Resuming from epoch {start_epoch + 1}.")
+            meta_path = f'{output_plots_dir}/partial_meta.pth'
+            if os.path.exists(meta_path):
+                meta = torch.load(meta_path, map_location=torch.device('cpu'))
+                start_epoch = meta.get('epoch', 0)
+                initial_history = meta.get('history', None)
+                print(f"Resuming from epoch {start_epoch + 1}.")
 
     return model, optimizer, train_dataloader, test_dataloader, scheduler, es, start_epoch, initial_history
 
