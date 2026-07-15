@@ -1289,9 +1289,20 @@ for iev in range(reader.GetEntries()):
             
 
     for tau in ['taup', 'taun']:
-        # for  1-prong + 1/2 pi0 decays it is hard to replicate the proper decay mode application 
-        # so it will be sampled using the number from here instead: https://cds.cern.ch/record/2727092 
-        #first check if gen decay mode is 1-prong + 1 pi0 
+        # The HPS algorithm struggles to distinguish DM1 (pi+/-pi0) from DM2 (pi+/-2pi0) because
+        # the two pi0s in DM2 often overlap in the strip and get clustered into a single object,
+        # making the candidate look like DM1. Delphes does not model this migration.
+        # To correct for it, whenever the HPS emulation reconstructs a 1-track+1-strip candidate,
+        # we probabilistically reassign it as DM1 or DM2 using fractions from the efficiency matrix
+        # in CMS DP-2020/041 (https://cds.cern.ch/record/2727092), conditioned on the true gen DM.
+        # The raw efficiencies (probability that a given true DM is reconstructed into each reco DM)
+        # are normalised to sum to 1 over {DM1, DM2}, since the HPS emulation has already placed the
+        # candidate in this category — we are sampling the conditional probability given that selection.
+        # Raw efficiency values from Table (efficiency matrix, row-normalised):
+        #   True DM0: reco DM1 = 0.058, reco DM2 = 0.015
+        #   True DM1: reco DM1 = 0.677, reco DM2 = 0.246
+        #   True DM2: reco DM1 = 0.182, reco DM2 = 0.555
+        # first check if reco decay mode is 1-prong + 1 strip
         if branch_vals[f'reco_{tau}_npi'][0] == 1 and branch_vals[f'reco_{tau}_npizero'][0] == 1:
             is_true_dm_0 = branch_vals[f'{tau}_npi'][0] == 1 and branch_vals[f'{tau}_npizero'][0] == 0
             is_true_dm_1 = branch_vals[f'{tau}_npi'][0] == 1 and branch_vals[f'{tau}_npizero'][0] == 1
