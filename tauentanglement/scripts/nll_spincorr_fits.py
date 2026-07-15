@@ -417,7 +417,7 @@ for Cij in Cij_elements:
     h_data_root.SetLineWidth(2)
     h_data_root.SetMarkerStyle(20)
     h_data_root.SetMarkerColor(ROOT.kBlack)
-    h_data_root.GetXaxis().SetTitle(f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta_{{-}}_{{{Cij[1]}}}")
+    h_data_root.GetXaxis().SetTitle(f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta^{{-}}_{{{Cij[1]}}}")
     h_data_root.GetYaxis().SetTitle("Events")
     h_data_root.Draw("pE1")
     hs = ROOT.THStack("hs", "")

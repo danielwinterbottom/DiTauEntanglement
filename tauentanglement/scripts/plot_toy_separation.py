@@ -29,16 +29,26 @@ variables = [
 ]
 
 def load(path, tree, variables):
-    f = ROOT.TFile.Open(path)
-    t = f.Get(tree)
-    out = {v: np.array([getattr(e, v) for e in t]) for v in variables}
-    f.Close()
-    return out
+    rdf = ROOT.RDataFrame(tree, path)
+    return {v: rdf.AsNumpy([v])[v] for v in variables}
+
+_C_branches = ["Cnn","Cnr","Cnk","Crn","Crr","Crk","Ckn","Ckr","Ckk"]
+_B_branches = ["Bpn","Bpr","Bpk","Bmn","Bmr","Bmk"]
+
+def branches_present(path, tree, names):
+    rdf = ROOT.RDataFrame(tree, path)
+    present = set(rdf.GetColumnNames())
+    return [n for n in names if n in present]
 
 print("Loading toys...")
 var_names = [v["name"] for v in variables]
-sig = load(args.sig_file, args.tree, var_names)
-bkg = load(args.bkg_file, args.tree, var_names)
+
+sig_C = branches_present(args.sig_file, args.tree, _C_branches)
+sig_B = branches_present(args.sig_file, args.tree, _B_branches)
+all_extra = sig_C + sig_B
+
+sig = load(args.sig_file, args.tree, var_names + all_extra)
+bkg = load(args.bkg_file, args.tree, var_names + all_extra)
 
 for var in variables:
     sig_vals = sig[var["name"]]
@@ -117,3 +127,26 @@ for var in variables:
     fig.savefig(fname)
     print(f"Saved {fname}  |  {var['name']}: p={p_value:.4f}")
     plt.close(fig)
+
+def print_1sigma(label, branches, sig, bkg):
+    if not branches:
+        return
+    print(f"\n{'─'*55}")
+    print(f"  1-sigma ranges for {label}")
+    print(f"  {'Branch':<8}  {'sig: median [−1σ, +1σ]':^28}  {'bkg: median [−1σ, +1σ]':^28}")
+    print(f"{'─'*55}")
+    for br in branches:
+        for tag, vals in [('sig', sig), ('bkg', bkg)]:
+            if br not in vals:
+                continue
+        s = sig[br]
+        b = bkg[br]
+        def fmt(v):
+            med = np.median(v)
+            lo  = np.percentile(v, 16)
+            hi  = np.percentile(v, 84)
+            return f"{med:+.3f} ({lo-med:+.3f} / {hi-med:+.3f})"
+        print(f"  {br:<8}  {fmt(s):^28}  {fmt(b):^28}")
+
+print_1sigma("C matrix", sig_C, sig, bkg)
+print_1sigma("B vectors", sig_B, sig, bkg)
