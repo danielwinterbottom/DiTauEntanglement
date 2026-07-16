@@ -37,10 +37,10 @@ python taupolaris/scripts/train.py -c taupolaris/config/LHC_Transformer_Hadronic
 ```
 
 
-Train a "normal" neural network with MSE loss to compare to:
+Train a transformer model using MSE loss to compare to:
 
 ```
-python taupolaris/scripts/train.py -c taupolaris/config/LHC.yaml --useMLP
+python tauentanglement/scripts/train.py -c outputs_model_LHC_TransformerBaseline_Hadronic_100e_June9/config.yaml --useTransformerBaseline
 ```
 
 Can use the taupolaris/utils/batch_submission.py script to run any python script as a batch job e.g using one of the GPU nodes.
@@ -55,9 +55,9 @@ Test Nflows model:
 python taupolaris/scripts/evaluate.py -c taupolaris/config/LHC_Transformer_HadronicOnly.yaml
 ```
 
-Test MLP model (haven't tested this explicitly yet)
+Test transformer model
 ```
-python taupolaris/scripts/evaluate.py -c taupolaris/config/LHC.yaml --useMLP
+python tauentanglement/scripts/evaluate.py -c outputs_model_LHC_TransformerBaseline_Hadronic_100e_June9/config.yaml --useTransformerBaseline
 ```
 
 # Event Generation
