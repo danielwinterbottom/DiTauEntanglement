@@ -147,8 +147,6 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
         copied_name = model_path.replace('.pth', '_copy.pth')
         os.system(f'cp {model_path} {copied_name}')
         model.load_state_dict(torch.load(model_path, map_location=device))
-        first_param = next(model.parameters())
-        print(f"Loaded model weight check — first param norm: {first_param.norm().item():.6f}, mean: {first_param.mean().item():.6f}")
 
         if reset_training:
             print("reset_training=True: using reloaded model weights only; optimizer, scheduler, epoch, and history will be reset.")
