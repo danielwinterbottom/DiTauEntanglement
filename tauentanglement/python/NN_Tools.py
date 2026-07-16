@@ -180,6 +180,7 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
     if early_stopper: early_stopper.reset()
 
     for epoch in range(start_epoch + 1, num_epochs + 1):
+        model.train() # need to set model back to train mode, otherise dropout (and batchnorm if used) will not work
         running_loss=0
         mlp_loss_fn = nn.MSELoss()
         for batch, (X, y) in enumerate(train_dataloader):
