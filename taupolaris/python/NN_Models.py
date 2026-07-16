@@ -186,6 +186,8 @@ class ParticleTransformerCondition(nn.Module):
             self.taun_pi3_idx = [feat_idx[f] for f in self._taun_pi3_feats]
             self.taup_pizero_idx = [feat_idx[f] for f in self._taup_pizero_feats]
             self.taun_pizero_idx = [feat_idx[f] for f in self._taun_pizero_feats]
+            self.taup_npizero_idx = feat_idx['reco_taup_npizero']
+            self.taun_npizero_idx = feat_idx['reco_taun_npizero']
             self.taup_sv_idx = [feat_idx[f] for f in self._taup_sv_feats]
             self.taun_sv_idx = [feat_idx[f] for f in self._taun_sv_feats]
             self.taup_haspizero_idx = feat_idx['reco_taup_haspizero']
@@ -291,6 +293,12 @@ class ParticleTransformerCondition(nn.Module):
             taun_lep_input = torch.cat(
                 [x[:, self.taun_lep_idx], x[:, self.taun_ismuon_idx].unsqueeze(-1)], dim=-1
             )
+            taup_pizero_input = torch.cat(
+                [x[:, self.taup_pizero_idx], x[:, self.taup_npizero_idx].unsqueeze(-1)], dim=-1
+            )
+            taun_pizero_input = torch.cat(
+                [x[:, self.taun_pizero_idx], x[:, self.taun_npizero_idx].unsqueeze(-1)], dim=-1
+            )
 
             tokens = torch.stack([
                 self.pi_proj(x[:, self.taup_pi1_idx]) + type_embs[0],
@@ -301,8 +309,8 @@ class ParticleTransformerCondition(nn.Module):
                 self.pi_proj(x[:, self.taun_pi2_idx]) + type_embs[5],
                 self.pi_proj(x[:, self.taup_pi3_idx]) + type_embs[6],
                 self.pi_proj(x[:, self.taun_pi3_idx]) + type_embs[7],
-                self.pi_proj(x[:, self.taup_pizero_idx]) + type_embs[8],
-                self.pi_proj(x[:, self.taun_pizero_idx]) + type_embs[9],
+                self.pizero_proj(taup_pizero_input) + type_embs[8],
+                self.pizero_proj(taun_pizero_input) + type_embs[9],
                 self.met_proj(x[:, self.met_idx]) + type_embs[10],
                 self.sv_proj(x[:, self.taup_sv_idx]) + type_embs[11],
                 self.sv_proj(x[:, self.taun_sv_idx]) + type_embs[12],
