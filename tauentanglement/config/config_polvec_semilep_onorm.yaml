@@ -1,10 +1,10 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_LHC_TransformerFlow_PolVecDirect_SemiLeptonic_Weighted_onorm_July13 
+  model_name: model_LHC_TransformerFlow_PolVecDirect_SemiLeptonic_Weighted_onorm_July15 
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 25
+  n_epochs: 100
   hyperparams:  { # for NuFlow with transformer conditioning
               'batch_size': 4096,
               'num_layers': 9,
@@ -35,11 +35,12 @@ Data:
   output_dir: 'prepared_LHC_data_polvectraining_onorm_july13'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
   test_dataset: ['prepared_LHC_data_polvectraining_onorm_july13/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_1_transformer.parquet']
-  test_output_name: ['output_results_UnCorr']
+  test_output_name: ['output_results_UnCorr_large']
   leptonic_mode: 1 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
   coordinates: onorm  # options: onorm, onorm_angular (onorm_angular parameterizes the polarimetric-vector outputs as (costheta,phi) instead of the redundant unit-norm-constrained (n,r,k) triplet -- see ConvertNRKToAngular)
+  training_weight_columns: ['tauspinner_wt_alpha0', 'tauspinner_wt_alpha90']
   train_fraction: 0.85  # fraction of the dataset to use for training
   val_fraction: 0.10 # fraction of the dataset to use for validation
   test_fraction: 0.05 # fraction of the dataset to use for testing

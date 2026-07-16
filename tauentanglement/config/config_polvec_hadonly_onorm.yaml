@@ -1,10 +1,10 @@
 collider: LHC # options so far: are LEP and LHC
 
 SetupNN:
-  model_name: model_LHC_TransformerFlow_PolVecDirect_Hadronic_Weighted_onorm_July13
+  model_name: model_LHC_TransformerFlow_PolVecDirect_Hadronic_Weighted_onorm_July15
   reload: False # load existing model if True, otherwise train new model
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
-  n_epochs: 50
+  n_epochs: 100
   hyperparams:  { # for NuFlow with transformer conditioning
               'batch_size': 4096,
               'num_layers': 9,
@@ -33,8 +33,8 @@ Data:
   datasets: ['ppToHToTauTau_AllDM_UnCorr_Jun25_ext1', 'ppToHToTauTau_AllDM_UnCorr_Jun25_ext2','ppToHToTauTau_AllDM_UnCorr_Jun25_ext3', 'ppToHToTauTau_AllDM_UnCorr_Jun25_ext4','ppToHToTauTau_AllDM_UnCorr_Jun25_ext5_large','ppToHToTauTau_DM0and1_UnCorr_Jun25_large'] # keep ppToHToTauTau_AllDM_UnCorr_Jun25 for testing
   output_dir: 'prepared_LHC_data_polvectraining_onorm_july13'  # directory where the prepared datasets will be stored
   use_reco: True # whether to use reco-level input features - this changes the cuts applied in the data processing and the visible tau vector used for the onorm basis
-  test_dataset: 'prepared_LHC_data_polvectraining_onorm_july13/ppToHToTauTau_AllDM_UnCorr_Jun25/test_dataframe__leptonic_mode_0_transformer.parquet'  # held-out test split saved during this model's own training data-prep (correct schema: ts_hh_*/undecayed_*/tauspinner weights)
-  test_output_name: 'output_results_UnCorr'
+  test_dataset: 'prepared_LHC_data_polvectraining_onorm_july13/ppToHToTauTau_AllDM_UnCorr_Jun25_ext5/test_dataframe__leptonic_mode_0_transformer.parquet'  # held-out test split saved during this model's own training data-prep (correct schema: ts_hh_*/undecayed_*/tauspinner weights)
+  test_output_name: 'output_results_UnCorr_large'
   leptonic_mode: 0 # 0 means only hadronic taus, 1 means 1 leptonic tau and 1 hadronic, 2 means both leptonic, -1 means no selection based on whether tau is leptonic is applied
   tree_name: 'tree'  # name of the tree in the root file
   inc_reco_taus: False
