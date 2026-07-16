@@ -2,7 +2,7 @@ import yaml
 import os
 import argparse
 import multiprocessing
-from tauentanglement.python.DataProcessing import convert_root_to_parquet
+from taupolaris.python.DataProcessing import convert_root_to_parquet
 
 
 def _prepare_one_dataset(file_path, key, config_data, collider, use_reco):
@@ -20,7 +20,7 @@ def _prepare_one_dataset(file_path, key, config_data, collider, use_reco):
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
+    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LEP.yaml', required=True)
     args = argparser.parse_args()
 
     config_file = args.config

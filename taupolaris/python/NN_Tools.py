@@ -4,8 +4,8 @@ import pandas as pd
 import os
 import torch
 from torch.utils.data import DataLoader
-from tauentanglement.python.NN_Models import ConditionalFlow, MLP, TransformerRegressor
-from tauentanglement.python.Plotting import plot_loss
+from taupolaris.python.NN_Models import ConditionalFlow, MLP, TransformerRegressor
+from taupolaris.python.Plotting import plot_loss
 import torch.nn as nn
 import torch.optim as optim
 
@@ -223,6 +223,7 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
     if early_stopper: early_stopper.reset()
 
     for epoch in range(start_epoch + 1, num_epochs + 1):
+        model.train() # need to set model back to train mode, otherise dropout (and batchnorm if used) will not work
         running_loss=0
         mlp_loss_fn = nn.MSELoss()
         for batch, batch_data in enumerate(train_dataloader):

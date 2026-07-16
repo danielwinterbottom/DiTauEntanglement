@@ -25,7 +25,7 @@ string or parallel lists), the same convention as evaluate.py, via
 DataProcessing.get_test_dataset.
 
 Run (from the DiTauEntanglement directory):
-    python3 tauentanglement/scripts/evaluate_polvec.py --config config_polvec.yaml --max_events 2000
+    python3 taupolaris/scripts/evaluate_polvec.py --config config_polvec.yaml --max_events 2000
 """
 import argparse
 import os
@@ -38,15 +38,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from tauentanglement.python.DataProcessing import RegressionDataset, get_test_dataset
-from tauentanglement.python.NN_Tools import load_model, get_device
-from tauentanglement.python.Evaluation_Tools import flow_map_predict, plot_spin_density_matrix
-from tauentanglement.utils.coordinate_conversions import (
+from taupolaris.python.DataProcessing import RegressionDataset, get_test_dataset
+from taupolaris.python.NN_Tools import load_model, get_device
+from taupolaris.python.Evaluation_Tools import flow_map_predict, plot_spin_density_matrix
+from taupolaris.utils.coordinate_conversions import (
     ConvertFromOrthonormalNRK_Predictions_PolVec,
     ConvertFromOrthonormalNRK_Predictions_PolVec_Angular,
 )
-from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars, boost, boost_vector
-from tauentanglement.utils.acoplanarity_tools import compute_aco_polarimetric
+from taupolaris.utils.kinematic_helpers import compute_spin_density_vars, boost, boost_vector
+from taupolaris.utils.acoplanarity_tools import compute_aco_polarimetric
 
 M_TAU = 1.77686
 PHICP_BINS = 20  # phiCP always uses 20 bins, independent of --num_bins

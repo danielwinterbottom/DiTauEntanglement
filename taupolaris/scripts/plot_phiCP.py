@@ -9,9 +9,9 @@ import argparse
 import os
 
 import math
-from tauentanglement.utils.calculate_hh import Particle, _prepare_kinematic_for_hh, calculateHH, getHHVectors
+from taupolaris.utils.calculate_hh import Particle, _prepare_kinematic_for_hh, calculateHH, getHHVectors
 
-from tauentanglement.utils.acoplanarity_tools import (
+from taupolaris.utils.acoplanarity_tools import (
     compute_aco_polarimetric,
     get_R_P_vectors_all,
     compute_aco_classic,

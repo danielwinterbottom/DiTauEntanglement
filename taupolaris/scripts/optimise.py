@@ -1,7 +1,7 @@
 import torch
 import argparse
-from tauentanglement.python.DataProcessing import get_train_val_test_datasets
-from tauentanglement.python.NN_Tools import setup_model_and_training, train_model, get_device
+from taupolaris.python.DataProcessing import get_train_val_test_datasets
+from taupolaris.python.NN_Tools import setup_model_and_training, train_model, get_device
 import yaml
 import os
 import numpy as np

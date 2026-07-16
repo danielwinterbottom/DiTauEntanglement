@@ -7,7 +7,7 @@ import pyarrow.parquet as pq
 import numpy as np
 import os
 import multiprocessing
-from tauentanglement.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK, ConvertNRKToAngular
+from taupolaris.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK, ConvertNRKToAngular
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features,

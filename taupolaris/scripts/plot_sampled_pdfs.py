@@ -3,9 +3,9 @@ import argparse
 import yaml
 import os
 import numpy as np
-from tauentanglement.python.NN_Tools import load_model, get_device
-from tauentanglement.python.DataProcessing import get_test_dataset
-from tauentanglement.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
+from taupolaris.python.NN_Tools import load_model, get_device
+from taupolaris.python.DataProcessing import get_test_dataset
+from taupolaris.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
 import matplotlib.pyplot as plt
 import mplhep as hep
 from tqdm import tqdm

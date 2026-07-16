@@ -5,16 +5,16 @@ import yaml
 import os
 import uproot
 import numpy as np
-from tauentanglement.python.NN_Tools import load_model, get_device
-from tauentanglement.python.DataProcessing import get_test_dataset
-from tauentanglement.utils.coordinate_conversions import ConvertPredictionsToCartesian, ConvertFromOrthonormalNRK_Predictions
-from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs
-from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars
+from taupolaris.python.NN_Tools import load_model, get_device
+from taupolaris.python.DataProcessing import get_test_dataset
+from taupolaris.utils.coordinate_conversions import ConvertPredictionsToCartesian, ConvertFromOrthonormalNRK_Predictions
+from taupolaris.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs
+from taupolaris.utils.kinematic_helpers import compute_spin_density_vars
 
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
+    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useCPU', help='whether to use CPU only for evaluation', action='store_true')
     args = argparser.parse_args()

@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tauentanglement"
+name = "taupolaris"
 version = "0.1.0"
-description = "Tau Entanglement analysis package"
+description = "Package for reconstructing tau polarimetric vectors, primarily using machine learning methods"
 authors = [{name = "Lucas Russell and Daniel Winterbottom"}]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,4 +14,4 @@ dependencies = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["tauentanglement*"]
+include = ["taupolaris*"]
