@@ -4,7 +4,7 @@ from numpy import arange
 import numpy as np
 import pandas as pd
 from array import array
-from tauentanglement.utils.kinematic_helpers import EntanglementVariables
+from taupolaris.utils.kinematic_helpers import EntanglementVariables
 import argparse
 
 parser = argparse.ArgumentParser()

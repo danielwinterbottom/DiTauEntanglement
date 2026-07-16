@@ -6,7 +6,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid valu
 warnings.filterwarnings("ignore", category=RuntimeWarning, message="divide by zero encountered in divide")
 warnings.filterwarnings("ignore", category=RuntimeWarning, message="invalid value encountered in multiply")
 vector.register_awkward()
-from tauentanglement.utils.PolarimetricA1 import PolarimetricA1_vectorised
+from taupolaris.utils.PolarimetricA1 import PolarimetricA1_vectorised
 
 def pt_direction_to_momentum4d(pt, direction, mass):
     # get p vector from pT and direction vector (cartesian)

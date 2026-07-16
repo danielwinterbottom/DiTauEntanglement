@@ -1,10 +1,16 @@
-# DiTauEntanglement
+# TauPolaris
+
+TauPolaris is a package for reconstructing and studying tau polarimetric vectors. It provides:
+
+- Generation of ditau event samples (e+e- and LHC processes, via Pythia + Delphes), including a from-scratch Python reimplementation of TauSpinner's spin-correlation reweighting, so events can be produced/reweighted under different CP hypotheses without depending on the external TauSpinner library.
+- Training of machine-learning models -- primarily conditional normalizing flows with transformer-based conditioning -- to reconstruct tau polarimetric vectors and full tau kinematics from reconstructed decay products.
+- Exact computation of polarimetric vectors when the true tau decay products are known, independent of any ML model -- useful as ground truth for training/evaluation, or as a standalone calculation.
 
 
 # Setup environment
 
         conda env create -f env.yml
-        conda activate DiTauEntanglement
+        conda activate taupolarisenv
 
 
 # New Setup gude:
@@ -23,7 +29,7 @@ This example uses the reduced datasets for that it can be run reasonably quickly
 Prepare dataframes:
 
 ```
-python tauentanglement/scripts/prepare_inputs.py -c tauentanglement/config/LHC.yaml
+python taupolaris/scripts/prepare_inputs.py -c taupolaris/config/LHC.yaml
 ```
 
 
@@ -31,31 +37,31 @@ Run Nflows training:
 
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml
+python taupolaris/scripts/train.py -c taupolaris/config/LHC.yaml
 ```
 
 
 Train a "normal" neural network with MSE loss to compare to:
 
 ```
-python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml --useMLP
+python taupolaris/scripts/train.py -c taupolaris/config/LHC.yaml --useMLP
 ```
 
-Can use the tauentanglement/utils/batch_submission.py script to run any python script as a batch job e.g using one of the GPU nodes.
+Can use the taupolaris/utils/batch_submission.py script to run any python script as a batch job e.g using one of the GPU nodes.
 For running the training on the batch use:
 
-	python tauentanglement/utils/batch_submission.py -c "python tauentanglement/scripts/train.py -c tauentanglement/config/LHC.yaml" --gpu --runtime 86400 --job_name model_NFlows_LHC_onnorm_reco_May08
+	python taupolaris/utils/batch_submission.py -c "python taupolaris/scripts/train.py -c taupolaris/config/LHC.yaml" --gpu --runtime 86400 --job_name model_NFlows_LHC_onnorm_reco_May08
 
 
 Test Nflows model:
 
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml
+python taupolaris/scripts/evaluate.py -c taupolaris/config/LHC.yaml
 ```
 
 Test MLP model (haven't tested this explicitly yet)
 ```
-python tauentanglement/scripts/evaluate.py -c tauentanglement/config/LHC.yaml --useMLP
+python taupolaris/scripts/evaluate.py -c taupolaris/config/LHC.yaml --useMLP
 ```
 
 ## Instructions for pp->H training
@@ -212,6 +218,6 @@ This is run in 3 stages. First pythia is run to produce .hepmc files, then delph
 
 To run all 3 stages together as batch jobs use:
 
-	python tauentanglement/generation/submit_pythia_jobs_LHC.py -c tauentanglement/generation/configs/pythia_cmnd_dm0and1 -j ppToHToTauTau_DM0and1_CPOdd_May07 --extra="--phi=0" -n 3000
+	python taupolaris/generation/submit_pythia_jobs_LHC.py -c taupolaris/generation/configs/pythia_cmnd_dm0and1 -j ppToHToTauTau_DM0and1_CPOdd_May07 --extra="--phi=0" -n 3000
 
 This runs 10000 events per job. The phi angle changes the CP nature of the higgs. phi=0 = CP-odd, 1.5708 = CP-even, +/-0.7854 = max-mix (+/- determines sign of inteference term)

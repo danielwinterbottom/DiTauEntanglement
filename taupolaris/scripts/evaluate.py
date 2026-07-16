@@ -5,16 +5,16 @@ import yaml
 import os
 import uproot
 import numpy as np
-from tauentanglement.python.NN_Tools import load_model
-from tauentanglement.python.DataProcessing import get_test_dataset
-from tauentanglement.utils.coordinate_conversions import convert_coordinates_pred
-from tauentanglement.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
-from tauentanglement.utils.kinematic_helpers import compute_spin_density_vars, add_energies_pair, add_energy, inv_mass
+from taupolaris.python.NN_Tools import load_model
+from taupolaris.python.DataProcessing import get_test_dataset
+from taupolaris.utils.coordinate_conversions import convert_coordinates_pred
+from taupolaris.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
+from taupolaris.utils.kinematic_helpers import compute_spin_density_vars, add_energies_pair, add_energy, inv_mass
 
 
 def main():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
+    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LEP.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useTransformerBaseline', help='whether to use a transformer encoder + regression head instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useCPU', help='whether to use CPU only for evaluation', action='store_true')

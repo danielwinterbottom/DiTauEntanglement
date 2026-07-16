@@ -4,8 +4,8 @@ import pandas as pd
 import os
 import torch
 from torch.utils.data import DataLoader
-from tauentanglement.python.NN_Models import ConditionalFlow, MLP, TransformerRegressor
-from tauentanglement.python.Plotting import plot_loss
+from taupolaris.python.NN_Models import ConditionalFlow, MLP, TransformerRegressor
+from taupolaris.python.Plotting import plot_loss
 import torch.nn as nn
 import torch.optim as optim
 

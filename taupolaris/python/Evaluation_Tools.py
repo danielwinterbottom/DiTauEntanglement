@@ -1,8 +1,8 @@
 import torch
 from tqdm import tqdm
 import numpy as np
-from tauentanglement.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
-from tauentanglement.utils.coordinate_conversions import ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
+from taupolaris.utils.kinematic_helpers import polarimetric_vector_tau, compute_spin_angles, boost_vector, boost, compute_spin_density_vars
+from taupolaris.utils.coordinate_conversions import ConvertFromOrthonormalNRK_Predictions, convert_coordinates_pred
 import os
 import matplotlib
 matplotlib.use('Agg')

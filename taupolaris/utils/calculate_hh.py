@@ -9,7 +9,7 @@ TauolaFortran.load("libtauola.so") as a fall-back / cross-check.
 
 Usage
 -----
-from tauentanglement.utils.calculate_hh import Particle, calculateHH
+from taupolaris.utils.calculate_hh import Particle, calculateHH
 
 daughters = [Particle(px, py, pz, e, pdgid), ...]
 HH, WTamplit = calculateHH(tau_pdgid, daughters, phi, theta)
@@ -20,7 +20,7 @@ import ctypes
 import copy
 from typing import List, Optional, Tuple
 
-from tauentanglement.utils import tauola_fortran as _tf
+from taupolaris.utils import tauola_fortran as _tf
 
 
 # ---------------------------------------------------------------------------

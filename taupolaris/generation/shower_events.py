@@ -7,7 +7,7 @@ from pyHepMC3 import HepMC3
 from Pythia8ToHepMC3 import Pythia8ToHepMC3
 import ROOT
 from array import array
-from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindDMin
+from taupolaris.utils.ReconstructTaus import FindDMin_Point, FindDMin
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', '-i', help= 'LHE file to be converted')
