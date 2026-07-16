@@ -12,7 +12,7 @@ import shutil
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LEP.yaml', required=True)
+    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LHC.yaml', required=True)
     argparser.add_argument('--useMLP', help='whether to use a simple MLP instead of a normalizing flow', action='store_true')
     argparser.add_argument('--useTransformerBaseline', help='whether to use a transformer encoder + regression head (MSE) instead of a normalizing flow', action='store_true')
     argparser.add_argument('--loadDS', help='whether to load existing train/val datasets or recreate', action='store_true')
