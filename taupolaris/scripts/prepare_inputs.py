@@ -1,12 +1,12 @@
 import yaml
 import os
 import argparse
-from tauentanglement.python.DataProcessing import RegressionDataset, convert_root_to_parquet
+from taupolaris.python.DataProcessing import RegressionDataset, convert_root_to_parquet
 
 if __name__ == "__main__":
 
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='tauentanglement/config/LEP.yaml', required=True)
+    argparser.add_argument('--config', '-c', help='path to the configuration file', type=str, default='taupolaris/config/LEP.yaml', required=True)
     args = argparser.parse_args()
 
     config_file = args.config

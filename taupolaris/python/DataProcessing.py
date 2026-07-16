@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 import uproot
 import numpy as np
 import os
-from tauentanglement.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK
+from taupolaris.utils.coordinate_conversions import ConvertToPolar, ConvertToOrthonormalNRK
 
 class RegressionDataset(Dataset):
     def __init__(self, dataframe, input_features, output_features,

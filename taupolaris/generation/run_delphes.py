@@ -7,8 +7,8 @@ import math
 import argparse
 from array import array
 import numpy as np
-from tauentanglement.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ
-from tauentanglement.utils.calculate_hh import Particle, computeHiggsCPWeight, getSpinWeightPieces, getHHVectors
+from taupolaris.utils.ReconstructTaus import FindDMin_Point, FindVertexLSQ
+from taupolaris.utils.calculate_hh import Particle, computeHiggsCPWeight, getSpinWeightPieces, getHHVectors
 
 def TraceTauMother(part, particles, verbose=False):
     """
@@ -441,7 +441,7 @@ class ResolutionGraph:
 class TrackAngularSmearer:
     def __init__(
         self,
-        base="tauentanglement/generation/configs/track_resolutions/",
+        base="taupolaris/generation/configs/track_resolutions/",
         seed=None,
     ):
         self.rng = np.random.default_rng(seed)
