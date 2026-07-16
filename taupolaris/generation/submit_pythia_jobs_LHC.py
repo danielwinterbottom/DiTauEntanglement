@@ -57,7 +57,7 @@ python taupolaris/generation/shower_events.py -c {args.cmnd_file} -n {nperjob} -
 out_string += f'DelphesHepMC3 taupolaris/generation/configs/delphes_card_CMS.tcl {args.job_name}/job_output_$SEED/delphes_output_$SEED.root {args.job_name}/job_output_$SEED/pythia_events_$SEED.hepmc\n\
 python taupolaris/generation/run_delphes.py -i {args.job_name}/job_output_$SEED/delphes_output_$SEED.root -o {args.job_name}/job_output_$SEED/reco_events_$SEED.root\n\
 rm {args.job_name}/job_output_$SEED/pythia_events_$SEED.hepmc\n\
-#rm {args.job_name}/job_output_$SEED/pythia_events_$SEED.root\n\
+rm {args.job_name}/job_output_$SEED/pythia_events_$SEED.root\n\
 rm {args.job_name}/job_output_$SEED/delphes_output_$SEED.root'
 
 os.system('mkdir -p jobs')
