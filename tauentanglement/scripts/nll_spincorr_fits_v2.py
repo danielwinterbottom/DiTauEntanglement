@@ -344,7 +344,7 @@ for Cij in Cij_elements:
     h_data_root.SetLineWidth(2)
     h_data_root.SetMarkerStyle(20)
     h_data_root.SetMarkerColor(ROOT.kBlack)
-    h_data_root.GetXaxis().SetTitle(f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta_{{-}}_{{{Cij[1]}}}")
+    h_data_root.GetXaxis().SetTitle(f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta^{{-}}_{{{Cij[1]}}}")
     h_data_root.GetYaxis().SetTitle("Events")
     h_data_root.Draw("pE1")
     hs = ROOT.THStack("hs", "")
@@ -435,6 +435,7 @@ if args.measure_B:
         print(f"{label}: {best_rho:.3f} (+{rho_high-best_rho:.3f}/-{best_rho-rho_low:.3f})  [true=0]")
 
 
+
 C = np.array([[measured_Cij_values["nn"][0], measured_Cij_values["nr"][0], measured_Cij_values["nk"][0]],
               [measured_Cij_values["rn"][0], measured_Cij_values["rr"][0], measured_Cij_values["rk"][0]],
               [measured_Cij_values["kn"][0], measured_Cij_values["kr"][0], measured_Cij_values["kk"][0]]])
@@ -455,6 +456,7 @@ N_toys = args.n_toys
 con_toys = []
 m12_toys = []
 Cnn_toys = []
+B_toys = {(w, a): [] for w, a in B_elements} if args.measure_B else {}
 
 print_every = 1
 
@@ -515,16 +517,18 @@ for toy in range(N_toys):
     if args.no_replace:
         sig_idx = sig_pool[toy * N_sig_events : toy * N_sig_events + N_sig_toy_events]
         bkg_idx = bkg_pool[toy * N_bkg_events : toy * N_bkg_events + N_bkg_toy_events]
+        toy_sig_wt = sig_model_wt[sig_idx]
     else:
         sig_idx = np.random.choice(n_sig_total, size=N_sig_toy_events, replace=True, p=sig_model_wt/sig_model_wt.sum())
         bkg_idx = np.random.choice(n_bkg_total, size=N_bkg_toy_events, replace=True)
+        toy_sig_wt = None
 
     measured_B_values_toy = {}
     if args.measure_B:
         for which, ax in B_elements:
             key = (which, ax)
             var_vals = sig_B_vals[key]
-            toy_sig_B, _ = np.histogram(var_vals[sig_idx], bins=n_bins, range=(-1, 1))
+            toy_sig_B, _ = np.histogram(var_vals[sig_idx], bins=n_bins, range=(-1, 1), weights=toy_sig_wt)
             toy_sig_B = toy_sig_B.astype(np.float64)
             if toy_sig_B.sum() > 0:
                 toy_sig_B *= N_sig_toy_events / toy_sig_B.sum()
@@ -536,9 +540,13 @@ for toy in range(N_toys):
                 if tmpl.sum() > 0:
                     tmpl *= N_bkg_events / tmpl.sum()
                 fixed_bkg_templates[bkg_key] = tmpl
-            toy_bkg_B = fixed_bkg_templates[bkg_key]
             if N_bkg_toy_events > 0:
-                toy_bkg_B_scaled = toy_bkg_B * (N_bkg_toy_events / toy_bkg_B.sum()) if toy_bkg_B.sum() > 0 else toy_bkg_B
+                toy_bkg_B, _ = np.histogram(bkg_var_vals[bkg_idx], bins=n_bins, range=(-1, 1))
+                toy_bkg_B = toy_bkg_B.astype(np.float64)
+                if toy_bkg_B.sum() > 0:
+                    toy_bkg_B_scaled = toy_bkg_B * (N_bkg_toy_events / toy_bkg_B.sum())
+                else:
+                    toy_bkg_B_scaled = np.zeros(n_bins, dtype=np.float64)
             else:
                 toy_bkg_B_scaled = np.zeros(n_bins, dtype=np.float64)
             toy_counts_B = toy_sig_B + toy_bkg_B_scaled
@@ -556,7 +564,7 @@ for toy in range(N_toys):
         key = (x_var, y_var)
 
         sig_prod_all = sig_prod_vals[key]
-        toy_sig_counts, _ = np.histogram(sig_prod_all[sig_idx], bins=n_bins, range=(-1, 1))
+        toy_sig_counts, _ = np.histogram(sig_prod_all[sig_idx], bins=n_bins, range=(-1, 1), weights=toy_sig_wt)
         toy_sig_counts = toy_sig_counts.astype(np.float64)
         if toy_sig_counts.sum() > 0:
             toy_sig_counts *= N_sig_toy_events / toy_sig_counts.sum()
@@ -591,6 +599,9 @@ for toy in range(N_toys):
     con_toys.append(con_toy)
     m12_toys.append(m12_toy)
     Cnn_toys.append(C_toy[0,0])
+    if args.measure_B:
+        for w, a in B_elements:
+            B_toys[(w, a)].append(measured_B_values_toy.get((w, a), 0.))
 
     if toy % print_every == 0 or toy == N_toys - 1:
         print(f"------------------------------------------------")
@@ -629,8 +640,20 @@ for toy in range(N_toys):
         print(f"Concurrence 68% interval: {con_err_low:.3f} - {con_err_high:.3f}")
         print(f"M12 68% interval: {m12_err_low:.3f} - {m12_err_high:.3f}\n")
 
-        print(f"Median Cnn from toys: {Cnn_median:.3f}")
-        print(f"Cnn 68% interval: {Cnn_err_low:.3f} - {Cnn_err_high:.3f}\n")
+        azimov_Cnn = measured_Cij_values["nn"]
+        print(f"Cnn  | Asimov: {azimov_Cnn[0]:.3f} (+{azimov_Cnn[2]-azimov_Cnn[0]:.3f}/-{azimov_Cnn[0]-azimov_Cnn[1]:.3f})  |  Toy median: {Cnn_median:.3f} ({Cnn_err_low-Cnn_median:.3f}/+{Cnn_err_high-Cnn_median:.3f})\n")
+
+        if args.measure_B:
+            print("B components (Asimov vs toy median):")
+            B_labels = {'p': 'tau+', 'm': 'tau-'}
+            for w, a in B_elements:
+                az = measured_B_values[(w, a)]
+                b_arr = np.array(B_toys[(w, a)])
+                b_med = np.median(b_arr)
+                b_lo  = np.percentile(b_arr, 16)
+                b_hi  = np.percentile(b_arr, 84)
+                print(f"  B{B_labels[w]}_{a} | Asimov: {az[0]:.3f} (+{az[2]-az[0]:.3f}/-{az[0]-az[1]:.3f})  |  Toy median: {b_med:.3f} ({b_lo-b_med:.3f}/+{b_hi-b_med:.3f})")
+            print()
 
         branch_vals['iToy'][0] = toy
         branch_vals['con'][0] = con_toy
