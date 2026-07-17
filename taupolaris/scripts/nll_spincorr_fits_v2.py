@@ -458,7 +458,7 @@ m12_toys = []
 Cnn_toys = []
 B_toys = {(w, a): [] for w, a in B_elements} if args.measure_B else {}
 
-print_every = 1
+print_every = 100
 
 # pre-compute fixed background templates (from full bkg sample) for use in toy NLL
 fixed_bkg_templates = {}
@@ -603,6 +603,27 @@ for toy in range(N_toys):
         for w, a in B_elements:
             B_toys[(w, a)].append(measured_B_values_toy.get((w, a), 0.))
 
+    branch_vals['iToy'][0] = toy
+    branch_vals['con'][0] = con_toy
+    branch_vals['m12'][0] = m12_toy
+    branch_vals['Cnn'][0] = C_toy[0,0]
+    branch_vals['Cnr'][0] = C_toy[0,1]
+    branch_vals['Cnk'][0] = C_toy[0,2]
+    branch_vals['Crn'][0] = C_toy[1,0]
+    branch_vals['Crr'][0] = C_toy[1,1]
+    branch_vals['Crk'][0] = C_toy[1,2]
+    branch_vals['Ckn'][0] = C_toy[2,0]
+    branch_vals['Ckr'][0] = C_toy[2,1]
+    branch_vals['Ckk'][0] = C_toy[2,2]
+    if args.measure_B:
+        branch_vals['Bpn'][0] = measured_B_values_toy.get(('p','n'), 0.)
+        branch_vals['Bpr'][0] = measured_B_values_toy.get(('p','r'), 0.)
+        branch_vals['Bpk'][0] = measured_B_values_toy.get(('p','k'), 0.)
+        branch_vals['Bmn'][0] = measured_B_values_toy.get(('m','n'), 0.)
+        branch_vals['Bmr'][0] = measured_B_values_toy.get(('m','r'), 0.)
+        branch_vals['Bmk'][0] = measured_B_values_toy.get(('m','k'), 0.)
+    toy_tree_out.Fill()
+
     if toy % print_every == 0 or toy == N_toys - 1:
         print(f"------------------------------------------------")
         print(f"Toy {toy+1}/{N_toys}")
@@ -654,27 +675,6 @@ for toy in range(N_toys):
                 b_hi  = np.percentile(b_arr, 84)
                 print(f"  B{B_labels[w]}_{a} | Asimov: {az[0]:.3f} (+{az[2]-az[0]:.3f}/-{az[0]-az[1]:.3f})  |  Toy median: {b_med:.3f} ({b_lo-b_med:.3f}/+{b_hi-b_med:.3f})")
             print()
-
-        branch_vals['iToy'][0] = toy
-        branch_vals['con'][0] = con_toy
-        branch_vals['m12'][0] = m12_toy
-        branch_vals['Cnn'][0] = C_toy[0,0]
-        branch_vals['Cnr'][0] = C_toy[0,1]
-        branch_vals['Cnk'][0] = C_toy[0,2]
-        branch_vals['Crn'][0] = C_toy[1,0]
-        branch_vals['Crr'][0] = C_toy[1,1]
-        branch_vals['Crk'][0] = C_toy[1,2]
-        branch_vals['Ckn'][0] = C_toy[2,0]
-        branch_vals['Ckr'][0] = C_toy[2,1]
-        branch_vals['Ckk'][0] = C_toy[2,2]
-        if args.measure_B:
-            branch_vals['Bpn'][0] = measured_B_values_toy.get(('p','n'), 0.)
-            branch_vals['Bpr'][0] = measured_B_values_toy.get(('p','r'), 0.)
-            branch_vals['Bpk'][0] = measured_B_values_toy.get(('p','k'), 0.)
-            branch_vals['Bmn'][0] = measured_B_values_toy.get(('m','n'), 0.)
-            branch_vals['Bmr'][0] = measured_B_values_toy.get(('m','r'), 0.)
-            branch_vals['Bmk'][0] = measured_B_values_toy.get(('m','k'), 0.)
-        toy_tree_out.Fill()
 
         fout.cd()
         toy_tree_out.Write("", ROOT.TObject.kOverwrite)
