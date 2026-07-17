@@ -238,8 +238,8 @@ def EntanglementVariables(C, Bplus=np.array([[0],[0],[0]]), Bminus=np.array([[0]
     rho = 1./4*(rho1+rho2+rho3+rho4) 
 
     # check if rho is valid density matrix (Hermitian, positive semi-definite, trace=1)
-    if not np.all(np.linalg.eigvals(rho) >= -1e-10):
-        print("Warning: rho is unphysical - not positive semi-definite!")
+    #if not np.all(np.linalg.eigvals(rho) >= -1e-10):
+    #    print("Warning: rho is unphysical - not positive semi-definite!")
 
    
     trace = np.trace(rho)
