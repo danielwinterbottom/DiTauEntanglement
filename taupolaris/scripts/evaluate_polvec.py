@@ -34,6 +34,7 @@ import pandas as pd
 import awkward as ak
 import torch
 import yaml
+from tqdm import tqdm
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -115,6 +116,45 @@ def tau_directions_com(tau1_p3, tau2_p3, tau1_E, tau2_E):
     tau1_4_com = boost(tau1_4, -com_boost)
     kx = unit(tau1_4_com[:, 1:])
     return kx, -kx  # tau1 direction, tau2 direction
+
+
+def circular_std(angles, axis=-1):
+    """Circular standard deviation (Mardia & Jupp), used instead of a plain np.std
+    to estimate the flow-sampling error on phiCP. phiCP is periodic on [0, 2*pi),
+    so a naive std would report a spuriously huge error for any event whose MAP
+    estimate sits near the 0/2*pi seam and whose flow samples land just across it
+    (e.g. MAP~0.02 rad with samples at ~0.01 and ~6.27 -- actually tightly
+    clustered, ~0.01 rad apart, not ~6 rad apart)."""
+    mean_cos = np.mean(np.cos(angles), axis=axis)
+    mean_sin = np.mean(np.sin(angles), axis=axis)
+    R = np.clip(np.sqrt(mean_cos ** 2 + mean_sin ** 2), 1e-12, 1.0)
+    return np.sqrt(-2.0 * np.log(R))
+
+
+def convert_native_to_cartesian(coordinates, native_df, onorm_cols, angular_cols, cartesian_cols,
+                                 reco_t1_charged, reco_t1_pizero, reco_t2_charged, reco_t2_pizero):
+    """Convert flow native-space (onorm/onorm_angular/standard) predictions to a
+    Cartesian DataFrame with cartesian_cols. native_df must be a DataFrame indexable
+    by onorm_cols/angular_cols/cartesian_cols (e.g. columns=output_features).
+    reco_t1/t2_charged/pizero must have the same row count as native_df -- use
+    np.repeat to tile them when converting multiple flow samples per event."""
+    if coordinates == 'onorm':
+        cart = ConvertFromOrthonormalNRK_Predictions_PolVec(
+            native_df[onorm_cols].values,
+            reco_taup_charged=reco_t1_charged, reco_taup_pizero=reco_t1_pizero,
+            reco_taun_charged=reco_t2_charged, reco_taun_pizero=reco_t2_pizero,
+        )
+    elif coordinates == 'onorm_angular':
+        cart = ConvertFromOrthonormalNRK_Predictions_PolVec_Angular(
+            native_df[angular_cols].values,
+            reco_taup_charged=reco_t1_charged, reco_taup_pizero=reco_t1_pizero,
+            reco_taun_charged=reco_t2_charged, reco_taun_pizero=reco_t2_pizero,
+        )
+    elif coordinates == 'standard':
+        cart = native_df[cartesian_cols].values
+    else:
+        raise ValueError(f"coordinates='{coordinates}' not supported by this script (only 'standard'/'onorm'/'onorm_angular')")
+    return pd.DataFrame(cart, columns=cartesian_cols)
 
 
 def plot_true_vs_pred_2d(true_vals, pred_vals, labels, suptitle, outpath, num_bins, sym_range=None):
@@ -211,6 +251,8 @@ def main():
     argparser.add_argument('--num_bins', type=int, default=50)
     argparser.add_argument('--oneprong', action='store_true', help='whether to only evaluate on 1-prong taus only')
     argparser.add_argument('--threeprong', action='store_true', help='whether to only evaluate on events with at least 1 3-prong tau')
+    argparser.add_argument('--n_flow_samples', type=int, default=50,
+                            help='number of flow samples per event used to estimate an error on pred_phiCP (circular std)')
     args = argparser.parse_args()
 
     with open(args.config, 'r') as f:
@@ -309,28 +351,16 @@ def main():
         angular_cols = angular_output_order(tau_labels)
 
         # --- convert predictions to Cartesian (true values are already Cartesian in df) ---
-        if coordinates == 'onorm':
-            pred_cart = ConvertFromOrthonormalNRK_Predictions_PolVec(
-                pred_native_df[onorm_cols].values,
-                reco_taup_charged=df[[f'reco_{t1}_charged_px', f'reco_{t1}_charged_py', f'reco_{t1}_charged_pz']].values,
-                reco_taup_pizero=df[[f'reco_{t1}_pizero1_px', f'reco_{t1}_pizero1_py', f'reco_{t1}_pizero1_pz']].values,
-                reco_taun_charged=df[[f'reco_{t2}_charged_px', f'reco_{t2}_charged_py', f'reco_{t2}_charged_pz']].values,
-                reco_taun_pizero=df[[f'reco_{t2}_pizero1_px', f'reco_{t2}_pizero1_py', f'reco_{t2}_pizero1_pz']].values,
-            )
-            pred_cart_df = pd.DataFrame(pred_cart, columns=cartesian_cols)
-        elif coordinates == 'onorm_angular':
-            pred_cart = ConvertFromOrthonormalNRK_Predictions_PolVec_Angular(
-                pred_native_df[angular_cols].values,
-                reco_taup_charged=df[[f'reco_{t1}_charged_px', f'reco_{t1}_charged_py', f'reco_{t1}_charged_pz']].values,
-                reco_taup_pizero=df[[f'reco_{t1}_pizero1_px', f'reco_{t1}_pizero1_py', f'reco_{t1}_pizero1_pz']].values,
-                reco_taun_charged=df[[f'reco_{t2}_charged_px', f'reco_{t2}_charged_py', f'reco_{t2}_charged_pz']].values,
-                reco_taun_pizero=df[[f'reco_{t2}_pizero1_px', f'reco_{t2}_pizero1_py', f'reco_{t2}_pizero1_pz']].values,
-            )
-            pred_cart_df = pd.DataFrame(pred_cart, columns=cartesian_cols)
-        elif coordinates == 'standard':
-            pred_cart_df = pred_native_df[cartesian_cols].reset_index(drop=True)
-        else:
-            raise ValueError(f"coordinates='{coordinates}' not supported by this script (only 'standard'/'onorm'/'onorm_angular')")
+        # kept as named arrays (not just inlined into the conversion call) so they can be
+        # reused/tiled for the flow-sampling phiCP error estimate below
+        reco_t1_charged = df[[f'reco_{t1}_charged_px', f'reco_{t1}_charged_py', f'reco_{t1}_charged_pz']].values
+        reco_t1_pizero  = df[[f'reco_{t1}_pizero1_px', f'reco_{t1}_pizero1_py', f'reco_{t1}_pizero1_pz']].values
+        reco_t2_charged = df[[f'reco_{t2}_charged_px', f'reco_{t2}_charged_py', f'reco_{t2}_charged_pz']].values
+        reco_t2_pizero  = df[[f'reco_{t2}_pizero1_px', f'reco_{t2}_pizero1_py', f'reco_{t2}_pizero1_pz']].values
+        pred_cart_df = convert_native_to_cartesian(
+            coordinates, pred_native_df, onorm_cols, angular_cols, cartesian_cols,
+            reco_t1_charged, reco_t1_pizero, reco_t2_charged, reco_t2_pizero,
+        )
 
         true_cart_df = df[cartesian_cols].reset_index(drop=True)
 
@@ -496,6 +526,40 @@ def main():
 
         true_phiCP = get_phiCP(true_cart_df, true_E_t1, true_E_t2)
         pred_phiCP = get_phiCP(pred_cart_df, pred_E_t1, pred_E_t2)
+
+        # === 3a. phiCP uncertainty, from repeated flow sampling ===
+        # MAP gives a single point estimate; sampling the flow n_flow_samples times per
+        # event and taking the (circular) spread of the resulting phiCP gives a per-event
+        # error estimate on pred_phiCP.
+        n_fs = args.n_flow_samples
+        # each call below processes (events_in_chunk * n_fs) rows in one shot -- reusing
+        # MAP's own chunk_size here would mean e.g. 25000*50 = 1.25M rows per call (MAP
+        # itself never multiplies chunk_size by anything), which was empirically much
+        # slower than linear scaling predicted. Divide by n_fs so each call stays close
+        # to MAP's own per-call scale.
+        err_chunk_size = max(1, chunk_size // n_fs)
+        print(f">> Estimating pred_phiCP uncertainty from {n_fs} flow samples/event "
+              f"(chunk size {err_chunk_size} events, {err_chunk_size * n_fs} rows/call)...")
+        pred_phiCP_err = np.empty(len(df))
+        for start in tqdm(range(0, len(df), err_chunk_size), desc="Processing chunks (phiCP uncertainty)"):
+            end = min(start + err_chunk_size, len(df))
+            C = end - start
+            with torch.no_grad():
+                samples_norm = model.sample(num_samples=n_fs, context=X[start:end])  # [C, n_fs, F]
+            samples_native = dataset.destandardize_outputs(samples_norm).cpu().numpy().reshape(C * n_fs, -1)
+            samples_native_df = pd.DataFrame(samples_native, columns=output_features)
+
+            rep = lambda arr: np.repeat(arr[start:end], n_fs, axis=0)
+            sample_cart_df = convert_native_to_cartesian(
+                coordinates, samples_native_df, onorm_cols, angular_cols, cartesian_cols,
+                rep(reco_t1_charged), rep(reco_t1_pizero), rep(reco_t2_charged), rep(reco_t2_pizero),
+            )
+            p_t1_s = sample_cart_df[[f'undecayed_{t1}_px', f'undecayed_{t1}_py', f'undecayed_{t1}_pz']].values
+            p_t2_s = sample_cart_df[[f'undecayed_{t2}_px', f'undecayed_{t2}_py', f'undecayed_{t2}_pz']].values
+            E_t1_s = np.sqrt(np.sum(p_t1_s ** 2, axis=1) + M_TAU ** 2)
+            E_t2_s = np.sqrt(np.sum(p_t2_s ** 2, axis=1) + M_TAU ** 2)
+            phiCP_samples = get_phiCP(sample_cart_df, E_t1_s, E_t2_s).reshape(C, n_fs)
+            pred_phiCP_err[start:end] = circular_std(phiCP_samples, axis=1)
 
         # Reweight the (single, UnCorr) sample to CP-even/CP-odd hypotheses using
         # TauSpinner's own per-event weights, and compare true vs. predicted phiCP
@@ -677,6 +741,7 @@ def main():
             f'pred_ts_hh_{t2}_z': pred_h_t2_unit[:, 2],
             'true_phiCP': true_phiCP,
             'pred_phiCP': pred_phiCP,
+            'pred_phiCP_err': pred_phiCP_err,
             f'gen_{t1}_DM': gen_dm_t1,
             f'gen_{t2}_DM': gen_dm_t2,
             f'reco_{t1}_DM': reco_dm_t1,
