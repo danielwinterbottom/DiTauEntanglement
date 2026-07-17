@@ -213,6 +213,51 @@ def _output_path_for_coordinates(config, key):
     return os.path.join(config['output_dir'], key, fname)
 
 
+def _boost_to_rest_frame(p4, frame4):
+    """Boost 4-vectors p4 into the rest frame of frame4.
+
+    p4, frame4: (N, 4) arrays ordered (px, py, pz, E). Returns an (N, 4) array
+    in the same ordering. Pure boost (no rotation), matching the vector-library
+    boost used in acoplanarity_tools.get_ditau_polarimetric.
+    """
+    p = p4[:, :3]
+    E = p4[:, 3]
+    beta = frame4[:, :3] / frame4[:, 3:4]
+    b2 = np.sum(beta ** 2, axis=1)
+    gamma = 1.0 / np.sqrt(np.maximum(1.0 - b2, 1e-12))
+    bp = np.sum(beta * p, axis=1)
+    # avoid 0/0 for frames already at rest
+    coef = np.where(b2 > 0, (gamma - 1.0) * bp / np.where(b2 > 0, b2, 1.0), 0.0) - gamma * E
+    p_out = p + coef[:, None] * beta
+    E_out = gamma * (E - bp)
+    return np.concatenate([p_out, E_out[:, None]], axis=1)
+
+
+def _approx_leptonic_polvec(df, tau):
+    """Approximate polarimetric vector for a leptonic tau decay: the direction
+    of the charged lepton in the tau rest frame with a sign flip (pion-like
+    definition times -1), as used by acoplanarity_tools.polarimetric_vec_leptonic.
+
+    Computed from gen-level quantities with the same two-step boost sequence
+    (lab -> Higgs RF -> tau RF) as get_ditau_polarimetric, so the resulting
+    Cartesian components live in the same frame as the ts_hh_* truth columns.
+    Returns an (N, 3) array.
+    """
+    lep4 = df[[f'{tau}_lep_px', f'{tau}_lep_py', f'{tau}_lep_pz', f'{tau}_lep_e']].values.astype(float)
+    tau4 = df[[f'undecayed_{tau}_px', f'undecayed_{tau}_py', f'undecayed_{tau}_pz', f'undecayed_{tau}_e']].values.astype(float)
+    other = 'taun' if tau == 'taup' else 'taup'
+    other4 = df[[f'undecayed_{other}_px', f'undecayed_{other}_py', f'undecayed_{other}_pz', f'undecayed_{other}_e']].values.astype(float)
+    higgs4 = tau4 + other4
+
+    lep_hf = _boost_to_rest_frame(lep4, higgs4)
+    tau_hf = _boost_to_rest_frame(tau4, higgs4)
+    lep_trf = _boost_to_rest_frame(lep_hf, tau_hf)
+
+    h = -lep_trf[:, :3]
+    norm = np.linalg.norm(h, axis=1, keepdims=True)
+    return h / np.maximum(norm, 1e-12)
+
+
 def _process_chunk(df, config, collider, use_reco, prefix, charged_name, has_ts_hh, has_undecayed, has_reco_flags):
     """Everything convert_root_to_parquet used to do to the whole dataframe at
     once (row filtering, decay-mode boolean flags, collider-specific columns,
@@ -284,34 +329,58 @@ def _process_chunk(df, config, collider, use_reco, prefix, charged_name, has_ts_
             out_prefix=None, drop_xyz=False, keep_basis=True,
         )
 
+        # Additionally store an "approximate" polarimetric vector alongside the
+        # full TauSpinner truth: for leptonically decaying taus (muons and
+        # electrons), this is the lepton direction in the tau rest frame,
+        # sign-flipped (same as polarimetric_vec_leptonic in acoplanarity_tools)
+        # -- a deterministic function of the (gen) lepton + tau kinematics,
+        # matching the approximation used downstream in the neutrino-regression
+        # phiCP calculation. For hadronic taus it's just a copy of the full
+        # TauSpinner h, since there's no leptonic approximation to make. Stored
+        # under a separate ts_hh_approx_* prefix so both are available; select
+        # ts_hh_approx_* instead of ts_hh_* in the output_features config to
+        # train against the approximation instead of the full truth.
+        if has_ts_hh:
+            if not has_undecayed:
+                raise ValueError("Computing ts_hh_approx_* requires the undecayed tau branches (taup_px etc.) in the input tree")
+            for tau in ['taup', 'taun']:
+                islep = df[f'{tau}_isleptonic'].values > 0
+                h_approx = _approx_leptonic_polvec(df, tau)
+                for i, comp in enumerate(['x', 'y', 'z']):
+                    col = df[f'ts_hh_{tau}_{comp}'].values.copy()
+                    col[islep] = h_approx[islep, i]
+                    df[f'ts_hh_approx_{tau}_{comp}'] = col
+
         # polarimetric vectors + full tau momenta (polvec training outputs), projected
         # onto the same per-tau visible-momentum (n,r,k) basis as the neutrino above.
         # Basis vectors are already stored via the taup_nu_/taun_nu_ conversions above,
         # so keep_basis=False here to avoid redundant duplicate columns.
         if has_ts_hh:
-            df = ConvertToOrthonormalNRK(
-                df, prefix_to_convert='ts_hh_taup_',
-                charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
-                out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
-            )
-            df = ConvertToOrthonormalNRK(
-                df, prefix_to_convert='ts_hh_taun_',
-                charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
-                out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
-            )
+            for ts_hh_prefix in ('ts_hh_', 'ts_hh_approx_'):
+                df = ConvertToOrthonormalNRK(
+                    df, prefix_to_convert=f'{ts_hh_prefix}taup_',
+                    charged_prefix=f"{prefix}taup_{charged_name}_", pi0_prefix=f"{prefix}taup_pizero1_",
+                    out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
+                )
+                df = ConvertToOrthonormalNRK(
+                    df, prefix_to_convert=f'{ts_hh_prefix}taun_',
+                    charged_prefix=f"{prefix}taun_{charged_name}_", pi0_prefix=f"{prefix}taun_pizero1_",
+                    out_prefix=None, drop_xyz=False, keep_basis=False, suffixes=("x", "y", "z"),
+                )
 
-            # ts_hh_taup/taun are (nominally) unit vectors, so their (n,r,k)
-            # triplet carries a redundant degree of freedom -- collapse to the
-            # 2 genuine ones (costheta, phi) for the onorm_angular training
-            # target (see ConvertNRKToAngular for why this matters for
-            # flow-based training). drop_nrk=False keeps the raw (n,r,k) too
-            # (not used for training, same treatment as x,y,z above) so
-            # downstream physics validation (e.g. the entanglement/spin-density
-            # variables in evaluate_polvec.py) can use the true, unnormalized
-            # projections rather than the direction-only training target.
-            if config['coordinates'] == 'onorm_angular':
-                df = ConvertNRKToAngular(df, prefix='ts_hh_taup_', drop_nrk=False)
-                df = ConvertNRKToAngular(df, prefix='ts_hh_taun_', drop_nrk=False)
+                # ts_hh_taup/taun (and their approx counterparts) are (nominally)
+                # unit vectors, so their (n,r,k) triplet carries a redundant
+                # degree of freedom -- collapse to the 2 genuine ones (costheta,
+                # phi) for the onorm_angular training target (see
+                # ConvertNRKToAngular for why this matters for flow-based
+                # training). drop_nrk=False keeps the raw (n,r,k) too (not used
+                # for training, same treatment as x,y,z above) so downstream
+                # physics validation (e.g. the entanglement/spin-density
+                # variables in evaluate_polvec.py) can use the true, unnormalized
+                # projections rather than the direction-only training target.
+                if config['coordinates'] == 'onorm_angular':
+                    df = ConvertNRKToAngular(df, prefix=f'{ts_hh_prefix}taup_', drop_nrk=False)
+                    df = ConvertNRKToAngular(df, prefix=f'{ts_hh_prefix}taun_', drop_nrk=False)
 
         if has_undecayed:
             df = ConvertToOrthonormalNRK(
