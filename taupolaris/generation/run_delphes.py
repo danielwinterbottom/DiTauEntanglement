@@ -245,6 +245,10 @@ def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
                 t2 = tracks_[j]
                 t3 = tracks_[k]
                 if abs(t1.Charge + t2.Charge + t3.Charge) != 1: continue
+                # order as [opposite-charge, same-charge (high pT), same-charge (low pT)]
+                # -- matches the gen-level SortPions convention, so downstream code
+                # (e.g. the a1 polarimetric vector) can assume pi1=OS, pi2/pi3=SS.
+                t1, t2, t3 = SortPions([t1, t2, t3], tau_charge=t1.Charge + t2.Charge + t3.Charge)
                 tau_vis = t1.P4() + t2.P4() + t3.P4()
                 mass_3body_min =  0.8
                 mass_3body_max =  1.5
@@ -356,6 +360,10 @@ def GetTauCands(tracks, strips, incDM2=True, match_charge=None):
                 t2 = tracks_[j]
                 t3 = tracks_[k]
                 if abs(t1.Charge + t2.Charge + t3.Charge) != 1: continue
+                # order as [opposite-charge, same-charge (high pT), same-charge (low pT)]
+                # -- matches the gen-level SortPions convention, so downstream code
+                # (e.g. the a1 polarimetric vector) can assume pi1=OS, pi2/pi3=SS.
+                t1, t2, t3 = SortPions([t1, t2, t3], tau_charge=t1.Charge + t2.Charge + t3.Charge)
                 tau_vis = t1.P4() + t2.P4() + t3.P4()
                 mass_3body_min =  0.8
                 mass_3body_max =  1.5
