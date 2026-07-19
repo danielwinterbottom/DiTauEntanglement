@@ -89,17 +89,82 @@ def boost(v, beta):
 
     return np.concatenate([v0, vvec], axis=-1)
 
+class _P4Wrap:
+    """Minimal (E,px,py,pz) wrapper exposing .E/.px/.py/.pz attributes, since
+    PolarimetricA1_vectorised was written against awkward Momentum4D records
+    but its math only ever touches these four attributes -- a plain (N,4)
+    numpy array works identically."""
+    def __init__(self, arr):
+        self.E, self.px, self.py, self.pz = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+
+def polarimetric_vector_a1(tau, os_pi, ss1_pi, ss2_pi, taucharge):
+    """
+    a1 (3-prong, tau -> 3pi) polarimetric vector, using the same
+    PolarimetricA1_vectorised model as acoplanarity_tools.polarimetric_vec_dm10.
+
+    Inputs (all already boosted into the SAME frame, e.g. the ditau/Higgs
+    rest frame -- this function does the final boost into the tau's own rest
+    frame internally, matching polarimetric_vector_tau's mask1/mask2 boost
+    convention):
+      tau, os_pi, ss1_pi, ss2_pi : (N,4) arrays. os_pi is the pion of opposite
+                                   charge to the tau, ss1_pi/ss2_pi are the two
+                                   same-charge pions (order between ss1/ss2
+                                   doesn't matter -- see SortPions convention
+                                   in run_delphes.py).
+      taucharge                 : (N,) array of +1 (tau+) / -1 (tau-).
+
+    Returns:
+      s : (N,3) unit polarimetric direction vector
+    """
+    from taupolaris.utils.PolarimetricA1 import PolarimetricA1_vectorised
+
+    boost_vec = boost_vector(tau)
+    tau_trf  = boost(tau,    -boost_vec)
+    os_trf   = boost(os_pi,  -boost_vec)
+    ss1_trf  = boost(ss1_pi, -boost_vec)
+    ss2_trf  = boost(ss2_pi, -boost_vec)
+
+    pv = PolarimetricA1_vectorised(
+        _P4Wrap(tau_trf), _P4Wrap(os_trf), _P4Wrap(ss1_trf), _P4Wrap(ss2_trf), taucharge
+    ).PVC()
+    vec = -np.stack([pv.x, pv.y, pv.z], axis=-1)  # sign convention matches polarimetric_vec_dm10
+    return vec / np.maximum(np.linalg.norm(vec, axis=-1, keepdims=True), 1e-12)
+
+
 def polarimetric_vector_tau(
     tau, pi1, piz1,
-    tau_npi, tau_npizero
+    tau_npi, tau_npizero,
+    lep=None, is_leptonic=None,
+    pi2=None, pi3=None, taucharge=None,
 ):
     """
     Generic tau polarimetric vector.
 
     Inputs:
-      tau, pi1, piz1 : (N,4) arrays
-      tau_npi        : (N,) number of charged pions
-      tau_npizero    : (N,) number of pi0
+      tau, pi1, piz1 : (N,4) arrays. For a 3-prong (tau_npi==3) row, pi1 is
+                       the opposite-charge pion (see pi2/pi3/taucharge below);
+                       piz1 is unused for those rows.
+      tau_npi        : (N,) number of charged pions (1 or 3)
+      tau_npizero    : (N,) number of pi0 (only meaningful for tau_npi==1 rows)
+      lep            : (N,4) optional lepton (mu/e) momentum, in the same frame
+                       as tau/pi1/piz1. Only used for rows where is_leptonic is
+                       True.
+      is_leptonic    : (N,) optional boolean mask. Rows with True use the
+                       lepton-direction polarimetric approximation (lepton
+                       direction in the tau rest frame, sign-flipped -- same
+                       as polarimetric_vec_leptonic in acoplanarity_tools)
+                       instead of pi1/piz1, since a leptonic decay has no
+                       hadronic decay products to build the exact polarimetric
+                       vector from. Rows with True are excluded from mask1/mask2/
+                       mask3 below regardless of tau_npi/tau_npizero.
+      pi2, pi3       : (N,4) optional same-charge pions, required together with
+                       taucharge for tau_npi==3 (a1) rows. pi1 must be the
+                       opposite-charge pion for those rows (SortPions
+                       convention in run_delphes.py already orders pi1/pi2/pi3
+                       this way at gen level).
+      taucharge      : (N,) optional array of +1 (tau+) / -1 (tau-), required
+                       together with pi2/pi3 for tau_npi==3 rows.
 
     Returns:
       s : (N,3) polarimetric direction vector
@@ -108,12 +173,14 @@ def polarimetric_vector_tau(
     boost_vec = boost_vector(tau)
     tau_s = np.zeros_like(tau[...,1:])
 
-    mask1 = (tau_npi == 1) & (tau_npizero == 0)
+    lep_mask = is_leptonic if is_leptonic is not None else np.zeros(len(tau), dtype=bool)
+
+    mask1 = (tau_npi == 1) & (tau_npizero == 0) & ~lep_mask
 
     pi1_b = boost(pi1[mask1], -boost_vec[mask1])
     tau_s[mask1] = spatial(pi1_b, unit=True)
 
-    mask2 = (tau_npi == 1) & (tau_npizero >= 1)
+    mask2 = (tau_npi == 1) & (tau_npizero >= 1) & ~lep_mask
 
     q = pi1[mask2] - piz1[mask2]
     P = tau[mask2]
@@ -130,6 +197,20 @@ def polarimetric_vector_tau(
 
     pv_b = boost(pv, -boost_vec[mask2])
     tau_s[mask2] = spatial(pv_b, unit=True)
+
+    mask3 = (tau_npi == 3) & ~lep_mask
+    if mask3.any():
+        if pi2 is None or pi3 is None or taucharge is None:
+            raise ValueError("pi2, pi3, and taucharge must be provided for tau_npi==3 (a1) rows")
+        tau_s[mask3] = polarimetric_vector_a1(
+            tau[mask3], pi1[mask3], pi2[mask3], pi3[mask3], taucharge[mask3]
+        )
+
+    if is_leptonic is not None:
+        if lep is None:
+            raise ValueError("lep must be provided when is_leptonic is provided")
+        lep_b = boost(lep[lep_mask], -boost_vec[lep_mask])
+        tau_s[lep_mask] = -spatial(lep_b, unit=True)
 
     return tau_s
 
