@@ -3,6 +3,7 @@ ROOT.gROOT.SetBatch(True)
 from numpy import arange
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 from array import array
 from taupolaris.utils.kinematic_helpers import EntanglementVariables
 import argparse
@@ -10,8 +11,10 @@ import os
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=int, help="Determines which model to assume for the signal. 1 = CP-even Higgs, 2 = spin0 no entanglement, 3 = uncorrelated", default=1)
-parser.add_argument("--sig-file", default="outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_UnCorr.parquet")
-parser.add_argument("--bkg-file", default="outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_ZToTauTau.parquet")
+parser.add_argument("--sig-file", default="outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_UnCorr.parquet", help="Sig file for the fully-hadronic (tt) channel.")
+parser.add_argument("--bkg-file", default="outputs_model_LHC_TransformerFlow_Hadronic_100e_June22_TRIAL2/output_results_ZToTauTau.parquet", help="Bkg file for the fully-hadronic (tt) channel.")
+parser.add_argument("--sig-file-sl", default='outputs_model_LHC_TransformerFlow_SemiLeptonic_100e_June24_TRIAL2/output_results_Uncorr_new.parquet', help="Sig file for the semileptonic (mt+et) channels -- mu+tauh and e+tauh both come from the same file, distinguished by reco_taup/taun_ismuon/iselectron. If not provided (together with --bkg-file-sl), mt/et categories are skipped.")
+parser.add_argument("--bkg-file-sl", default='outputs_model_LHC_TransformerFlow_SemiLeptonic_100e_June24_TRIAL2/output_results_ZTT_new.parquet', help="Bkg file for the semileptonic (mt+et) channels.")
 parser.add_argument("--no-replace", action="store_true", help="Sample toys without replacement (non-overlapping chunks). Limits N_toys to the smallest category's pool_size/N_events.")
 parser.add_argument("--n-toys", type=int, default=1000, help="Number of toys to generate. If --no-replace is set, this will be limited by the smallest category's pool.")
 parser.add_argument("--outdir", default="nll_fits_fast_incdm2_v2", help="Directory to write output files to.")
@@ -205,6 +208,53 @@ def compute_event_weights(df, C, B_p=None, B_m=None):
     return np.clip(wt, 0, None)
 
 
+def _reco_dm_mask(df, tau, dm):
+    """Boolean mask for a single tau leg ('taup' or 'taun') matching a
+    reco-level decay-mode label used in yields_run3: pi = 1-prong no pi0,
+    rho = 1-prong 1 pi0, a11pr = 1-prong 2 pi0, a1 = 3-prong no pi0,
+    mu/e = leptonic (muon/electron)."""
+    if dm == 'pi':
+        return (df[f'reco_{tau}_is3prong'] == 0) & (df[f'reco_{tau}_npizero'] == 0)
+    elif dm == 'rho':
+        return (df[f'reco_{tau}_is3prong'] == 0) & (df[f'reco_{tau}_npizero'] == 1)
+    elif dm == 'a11pr':
+        return (df[f'reco_{tau}_is3prong'] == 0) & (df[f'reco_{tau}_npizero'] == 2)
+    elif dm == 'a1':
+        return (df[f'reco_{tau}_is3prong'] == 1) & (df[f'reco_{tau}_npizero'] == 0)
+    elif dm == 'mu':
+        return df[f'reco_{tau}_ismuon'] == 1
+    elif dm == 'e':
+        return df[f'reco_{tau}_iselectron'] == 1
+    else:
+        raise ValueError(f"Unknown decay-mode label: {dm}")
+
+
+def _dm_pair_mask(dm1, dm2):
+    """Selection for a (dm1, dm2) decay-mode combination, symmetric in
+    taup/taun since physical charge doesn't determine which leg has which
+    decay mode."""
+    return lambda df: (
+        (_reco_dm_mask(df, 'taup', dm1) & _reco_dm_mask(df, 'taun', dm2)) |
+        (_reco_dm_mask(df, 'taup', dm2) & _reco_dm_mask(df, 'taun', dm1))
+    )
+
+
+def _dm_pair_mask_any(*pairs):
+    """Union of several (dm1, dm2) pair selections (see _dm_pair_mask) -- for
+    yields_run3 bins that lump more than one decay-mode combination together,
+    e.g. 'rhoa11pr' = (rho, a11pr) events plus (a11pr, a11pr) events."""
+    def _mask(df):
+        result = None
+        for dm1, dm2 in pairs:
+            m = _dm_pair_mask(dm1, dm2)(df)
+            result = m if result is None else (result | m)
+        return result
+    return _mask
+
+
+_no_gen_cut = lambda df: np.ones(len(df), dtype=bool)
+
+
 # ============================================================================
 # Category definitions
 # ============================================================================
@@ -219,61 +269,188 @@ def compute_event_weights(df, C, B_p=None, B_m=None):
 # its own N_sig/N_bkg (expected event yields for that category, e.g. from a
 # luminosity scale-up of a data/MC yield table).
 #
-# Yield estimates for the default category below:
-# rhorho: sig = 13.203052, ZTT = 23.640888, bkg = 43.041533
-# pirho: sig = 8.3268526, ZTT 16.686166, bkg = 26.272433
-# get numbers for rhorho and pirho from HIG-25-012 hepdata
-# estimate pipi from: 1/4*(N_pirho)**2/N_rhorho
-# pipi: sig = 1.31289, ZTT = 2.9443, bkg = 4.0091551556695775
-# total: sig = 22.8427946, ZTT = 43.271354, bkg = 73.3231
-# lum scale: sig = 1098.2, ZTT = 2080.4, bkg = 3525.2
-# round: sig = 1100, ZTT = 2100, bkg = 3500
-# for now we are only including ZTT background
+# Categories below are the fully-hadronic (tt) decay-mode combinations from
+# `yields_run3`, using its lumi-scaled sig/bkg numbers (lum_scale=48.076923)
+# directly as N_sig/N_bkg. No gen-level cut is needed/applied -- selection is
+# reco-only, matching how the analysis categorizes data.
+#
+# Semileptonic (mt/et) categories from yields_run3 (murho, mupi, mua1,
+# mua11pr, erho, epi, ea1, ea11pr) are not included yet: the current input
+# files (--sig-file/--bkg-file) only contain fully-hadronic (hadhad) events.
+# Adding them requires switching to semileptonic input files and reworking the
+# cos-variable/weight-column handling for the leptonic leg -- left for later.
 CATEGORIES = [
-    {
-        'name': 'dm01_incl',
-        'gen_mask':  lambda df: (df['true_taup_npizero'] < 2) & (df['true_taun_npizero'] < 2) &
-                                 (df['true_taup_is3prong'] == 0) & (df['true_taun_is3prong'] == 0),
-        'reco_mask': lambda df: (df['reco_taup_npizero'] < 2) & (df['reco_taun_npizero'] < 2) &
-                                 (df['reco_taup_is3prong'] == 0) & (df['reco_taun_is3prong'] == 0),
-        'N_sig': 1100,
-        'N_bkg': 2100,
-    },
-    {
-        'name': 'dm01_incl_2',
-        'gen_mask':  lambda df: (df['true_taup_npizero'] < 2) & (df['true_taun_npizero'] < 2) &
-                                 (df['true_taup_is3prong'] == 0) & (df['true_taun_is3prong'] == 0),
-        'reco_mask': lambda df: (df['reco_taup_npizero'] < 2) & (df['reco_taun_npizero'] < 2) &
-                                 (df['reco_taup_is3prong'] == 0) & (df['reco_taun_is3prong'] == 0),
-        'N_sig': 1100,
-        'N_bkg': 2100,
-    },
-    ## Example of a second category (disabled by default) -- e.g. a 3-prong
-    ## category with its own expected yields:
-    # {
-    #     'name': 'dm10_incl',
-    #     'gen_mask':  lambda df: (df['true_taup_is3prong'] == 1) | (df['true_taun_is3prong'] == 1),
-    #     'reco_mask': lambda df: (df['reco_taup_is3prong'] == 1) | (df['reco_taun_is3prong'] == 1),
-    #     'N_sig': 1100,
-    #     'N_bkg': 2100,
-    # },
+    # tt (fully hadronic) -- from yields_run3
+    {'name': 'rhorho',   'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('rho', 'rho'),   'N_sig': 635, 'N_bkg': 2069},
+    {'name': 'rhoa11pr', 'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask_any(('rho', 'a11pr'), ('a11pr', 'a11pr')), 'N_sig': 322, 'N_bkg': 1229},
+    {'name': 'rhoa1',    'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('rho', 'a1'),    'N_sig': 631, 'N_bkg': 1632},
+    {'name': 'a1a1',     'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('a1', 'a1'),     'N_sig': 164, 'N_bkg': 481},
+    {'name': 'pirho',    'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('pi', 'rho'),    'N_sig': 400, 'N_bkg': 1263},
+    {'name': 'pipi',     'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('pi', 'pi'),     'N_sig': 180, 'N_bkg': 1069},
+    {'name': 'pia1',     'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('pi', 'a1'),     'N_sig': 233, 'N_bkg': 535},
+    {'name': 'pia11pr',  'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('pi', 'a11pr'),  'N_sig': 93,  'N_bkg': 299},
+    {'name': 'a11pra1',  'channel': 'tt', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('a11pr', 'a1'),  'N_sig': 137, 'N_bkg': 460},
+
+    # mt (muon + hadronic tau) and et (electron + hadronic tau) -- from
+    # yields_run3. Both come from the same semileptonic file (distinguished by
+    # reco_taup/taun_ismuon/iselectron), so both use the 'sl' channel. Only
+    # used if --sig-file-sl/--bkg-file-sl are both provided; otherwise these
+    # are skipped automatically.
+    {'name': 'murho',    'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('mu', 'rho'),   'N_sig': 2193, 'N_bkg': 11729},
+    {'name': 'mupi',     'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('mu', 'pi'),    'N_sig': 859,  'N_bkg': 3894},
+    {'name': 'mua1',     'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('mu', 'a1'),    'N_sig': 1144, 'N_bkg': 6940},
+    {'name': 'mua11pr',  'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('mu', 'a11pr'), 'N_sig': 453,  'N_bkg': 3076},
+
+    {'name': 'erho',     'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('e', 'rho'),    'N_sig': 1880, 'N_bkg': 18706},
+    {'name': 'epi',      'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('e', 'pi'),     'N_sig': 684,  'N_bkg': 5419},
+    {'name': 'ea1',      'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('e', 'a1'),     'N_sig': 1910, 'N_bkg': 28698},
+    {'name': 'ea11pr',   'channel': 'sl', 'gen_mask': _no_gen_cut, 'reco_mask': _dm_pair_mask('e', 'a11pr'),  'N_sig': 428,  'N_bkg': 5082},
 ]
+
+# Old single inclusive category (superseded by the yields_run3-based breakdown
+# above); kept here, fully commented out, for reference:
+#CATEGORIES = [
+#     {
+#         'name': 'dm01_incl',
+#         #'gen_mask': _no_gen_cut,
+#         'gen_mask':  lambda df: (df['true_taup_npizero'] < 2) & (df['true_taun_npizero'] < 2) &
+#                                  (df['true_taup_is3prong'] == 0) & (df['true_taun_is3prong'] == 0),
+#         'reco_mask': lambda df: (df['reco_taup_npizero'] < 2) & (df['reco_taun_npizero'] < 2) &
+#                                  (df['reco_taup_is3prong'] == 0) & (df['reco_taun_is3prong'] == 0),
+#         'N_sig': 1100,
+#         'N_bkg': 2100,
+#     },
+#]
 
 var_prefix = 'map_pred'
 #var_prefix = 'true'
 
+_cut_cols = [
+    'reco_taup_npizero', 'reco_taun_npizero', 'reco_taup_is3prong', 'reco_taun_is3prong',
+    'reco_taup_ismuon', 'reco_taun_ismuon', 'reco_taup_iselectron', 'reco_taun_iselectron',
+]
+
+
+def _get_file_columns(path):
+    return set(pq.ParquetFile(path).schema.names)
+
+
+def _swap_to_physical_charge(df, var_prefix):
+    """For semileptonic eval outputs, the 'taup'/'tau_plus' labels mean the
+    LEPTONIC tau (tau1), not the physical tau+ (see convert_semileptonic_df).
+    The wt_hp_*/wt_hm_* spin weights ARE defined by physical charge though, so
+    without correction the labels and weights are mismatched for the ~half of
+    events where the lepton is physically the tau-. If the file carries the
+    'taup_charge' column (added to the pipeline for exactly this purpose),
+    swap all taup<->taun and tau_plus<->tau_minus columns for events where the
+    labeled taup is physically negative, so that after this call the labels
+    are true physical charge everywhere and match the weights."""
+    if 'taup_charge' not in df.columns:
+        return df
+    flip = df['taup_charge'].values < 0
+    if not flip.any():
+        return df
+    print(f"  restoring physical-charge labels using 'taup_charge': swapping legs for "
+          f"{flip.sum()}/{len(df)} events where the labeled taup is physically tau-")
+    swapped = set()
+    for col in df.columns:
+        if col in swapped:
+            continue
+        if 'taup' in col:
+            partner = col.replace('taup', 'taun')
+        elif 'tau_plus' in col:
+            partner = col.replace('tau_plus', 'tau_minus')
+        else:
+            continue
+        if partner not in df.columns:
+            continue
+        a = df[col].values.copy()
+        b = df[partner].values.copy()
+        a[flip], b[flip] = b[flip], a[flip].copy()
+        df[col] = a
+        df[partner] = b
+        swapped.add(col)
+        swapped.add(partner)
+    return df
+
+
+def _load_one(path, var_prefix, extra_cols):
+    """Load a single parquet file, returning the cos{n,r,k}_{plus,minus}
+    columns (for var_prefix) plus extra_cols.
+
+    Always (re)derives the cos columns from raw kinematics via
+    compute_spin_vars when the raw inputs are available, rather than trusting
+    any cos{n,r,k}_{plus,minus} columns already cached in the file. This
+    matters for a1 (3-prong) legs: files produced before the a1 polarimetric
+    fix have cos values for those legs computed with the old, incorrect
+    1-prong-only approximation, and simply reading the cached columns would
+    silently keep using those stale values. reco_taup/taun_ishadronic +
+    reco_taup/taun_charged also correctly handle a leptonically-decaying leg
+    (see Evaluation_Tools.compute_spin_vars). Only falls back to the cached
+    cos columns if the raw inputs needed to derive them aren't present.
+    """
+    cos_cols = [f'{var_prefix}_cos{a}_{s}' for a in _axes for s in ('plus', 'minus')]
+    avail = _get_file_columns(path)
+
+    raw_needed = (
+        [f'{var_prefix}_tau_plus_{c}' for c in ('E', 'px', 'py', 'pz')] +
+        [f'{var_prefix}_tau_minus_{c}' for c in ('E', 'px', 'py', 'pz')] +
+        [f'reco_{tau}_{part}_{c}' for tau in ('taup', 'taun') for part in ('pi1', 'pi2', 'pi3', 'pizero1', 'charged') for c in ('E', 'px', 'py', 'pz')] +
+        [f'reco_{tau}_haspizero' for tau in ('taup', 'taun')] +
+        [f'reco_{tau}_ishadronic' for tau in ('taup', 'taun')] +
+        [f'reco_{tau}_is3prong' for tau in ('taup', 'taun')]
+    )
+    if all(c in avail for c in raw_needed):
+        needed = list(dict.fromkeys(raw_needed + extra_cols))
+        if 'taup_charge' in avail:
+            needed.append('taup_charge')
+        df = pd.read_parquet(path, columns=needed)
+        # A relabeled semileptonic file WITHOUT the charge column can't be
+        # corrected -- warn loudly so stale files aren't used silently.
+        if 'taup_charge' not in df.columns and (df['reco_taup_ishadronic'].values == 0).mean() > 0.9:
+            print(f"  WARNING: {path} looks like a relabeled semileptonic file (taup is "
+                  f"the leptonic tau in >90% of events) but has no 'taup_charge' column. "
+                  f"Labels cannot be mapped back to physical charge, so the spin weights "
+                  f"are mismatched for ~half the events (diluted sensitivity, B+/B- and "
+                  f"CP-odd Cij mixing). Regenerate with the updated prepare+eval pipeline.")
+        df = _swap_to_physical_charge(df, var_prefix)
+        # imported lazily -- Evaluation_Tools.py pulls in torch at module scope
+        from taupolaris.python.Evaluation_Tools import compute_spin_vars
+        df = compute_spin_vars(df, tau_pred_prefix=f'{var_prefix}_', tau_vis_prefix='reco_')
+        return df.reset_index(drop=True)
+
+    if all(c in avail for c in cos_cols):
+        print(f"  WARNING: raw kinematics not found in {path}, falling back to "
+              f"cached cos columns for '{var_prefix}' -- these may be stale for a1 "
+              f"(3-prong) legs if the file predates the a1 polarimetric fix.")
+        needed = list(dict.fromkeys(cos_cols + extra_cols))
+        return pd.read_parquet(path, columns=needed).reset_index(drop=True)
+
+    raise ValueError(f"{path}: neither cos{{n,r,k}}_{{plus,minus}} columns nor the raw "
+                      f"kinematics needed to derive them are present.")
+
+
+def load_channel_files(sig_path, bkg_path, var_prefix, measure_B):
+    sig_extra = _wt_cols + ((_B_wt_cols) if measure_B else []) + _cut_cols
+    bkg_extra = _cut_cols
+    df_sig = _load_one(sig_path, var_prefix, sig_extra)
+    df_bkg = _load_one(bkg_path, var_prefix, bkg_extra)
+    return df_sig, df_bkg
+
+
 print("Loading parquet files...")
-_needed_cols = (
-    [f'{var_prefix}_cos{a}_{s}' for a in _axes for s in ('plus', 'minus')] +
-    _wt_cols +
-    ((_B_wt_cols) if args.measure_B else []) +
-    ['true_taup_npizero', 'true_taun_npizero', 'true_taup_is3prong', 'true_taun_is3prong',
-     'reco_taup_npizero', 'reco_taun_npizero', 'reco_taup_is3prong', 'reco_taun_is3prong']
-)
-df_sig_raw = pd.read_parquet(args.sig_file, columns=_needed_cols)
-_bkg_cols = [c for c in _needed_cols if c not in _wt_cols and c not in _B_wt_cols]
-df_bkg_raw = pd.read_parquet(args.bkg_file, columns=_bkg_cols)
-print(f"Loaded {len(df_sig_raw)} sig events, {len(df_bkg_raw)} bkg events")
+channel_files = {'tt': (args.sig_file, args.bkg_file)}
+if args.sig_file_sl and args.bkg_file_sl:
+    channel_files['sl'] = (args.sig_file_sl, args.bkg_file_sl)
+else:
+    print("--sig-file-sl/--bkg-file-sl not both provided: mt/et (semileptonic) categories will be skipped.")
+
+channel_raw = {}
+for ch, (sig_path, bkg_path) in channel_files.items():
+    print(f"Loading channel '{ch}': sig={sig_path}, bkg={bkg_path}")
+    df_sig_raw, df_bkg_raw = load_channel_files(sig_path, bkg_path, var_prefix, args.measure_B)
+    channel_raw[ch] = (df_sig_raw, df_bkg_raw)
+    print(f"  loaded {len(df_sig_raw)} sig events, {len(df_bkg_raw)} bkg events")
 
 
 n_bins=20
@@ -372,12 +549,18 @@ def build_category(cat_spec, df_sig_raw, df_bkg_raw, C_rwt, B_rwt_p, B_rwt_m, n_
     return cat
 
 
-print(f"\nBuilding {len(CATEGORIES)} categor{'y' if len(CATEGORIES)==1 else 'ies'}: {[c['name'] for c in CATEGORIES]}")
-categories = [
-    build_category(spec, df_sig_raw, df_bkg_raw, C_rwt, B_rwt_p, B_rwt_m, n_bins, vals, args.measure_B)
-    for spec in CATEGORIES
-]
-del df_sig_raw, df_bkg_raw
+print(f"\nBuilding categories (channels loaded: {list(channel_raw.keys())})...")
+categories = []
+for spec in CATEGORIES:
+    ch = spec.get('channel', 'tt')
+    if ch not in channel_raw:
+        print(f"  Skipping category '{spec['name']}' (channel '{ch}' not loaded -- "
+              f"provide --sig-file-{ch}/--bkg-file-{ch} to include it)")
+        continue
+    df_sig_raw, df_bkg_raw = channel_raw[ch]
+    categories.append(build_category(spec, df_sig_raw, df_bkg_raw, C_rwt, B_rwt_p, B_rwt_m, n_bins, vals, args.measure_B))
+print(f"Built {len(categories)} categories: {[c['name'] for c in categories]}")
+del channel_raw
 
 
 def _asimov_counts(sig_vals, bkg_vals, N_sig, N_bkg, weights_sig=None):
@@ -390,6 +573,114 @@ def _asimov_counts(sig_vals, bkg_vals, N_sig, N_bkg, weights_sig=None):
     if h_bkg.sum() > 0:
         h_bkg *= N_bkg / h_bkg.sum()
     return h_sig + h_bkg, h_bkg
+
+
+def _plot_model_shapes(model_hists, vals, xlabel, component_label, outpath, headroom=1.3):
+    """Overlay the model-predicted (signal-only, background-free) shape at
+    rho = -1, 0, +1 -- the extremes and midpoint of the reweighting -- to show
+    how much the observable's shape actually changes with the fit parameter,
+    i.e. the raw discriminating power of the reweighting for this
+    variable/category, independent of the Asimov data or background.
+    component_label is the Cij/B name (e.g. 'Cnn', 'Btau+_n'), used in the
+    legend in place of the generic '#rho'. headroom scales the y-axis max so
+    the histogram peak stays clear of the legend (B components need more,
+    since their legend text is longer)."""
+    idx_m1 = 0
+    idx_0 = int(np.argmin(np.abs(vals)))
+    idx_p1 = len(vals) - 1
+
+    def _to_th1(arr, name):
+        h = ROOT.TH1D(name, "", n_bins, -1, 1)
+        for i, v in enumerate(arr):
+            h.SetBinContent(i + 1, v)
+        return h
+
+    h_m1 = _to_th1(model_hists[idx_m1], "h_rho_m1")
+    h_0 = _to_th1(model_hists[idx_0], "h_rho_0")
+    h_p1 = _to_th1(model_hists[idx_p1], "h_rho_p1")
+
+    canv = ROOT.TCanvas("canv_shapes", "canv_shapes", 800, 600)
+    for h, color in [(h_m1, ROOT.kBlue), (h_0, ROOT.kBlack), (h_p1, ROOT.kRed)]:
+        h.SetTitle("")
+        h.SetStats(0)
+        h.SetLineWidth(2)
+        h.SetLineColor(color)
+        h.GetXaxis().SetTitle(xlabel)
+        h.GetYaxis().SetTitle("Normalised")
+    ymax = max(h_m1.GetMaximum(), h_0.GetMaximum(), h_p1.GetMaximum()) * headroom
+    h_m1.SetMinimum(0)
+    h_m1.SetMaximum(ymax)
+    h_m1.Draw("hist")
+    h_0.Draw("hist same")
+    h_p1.Draw("hist same")
+    leg = ROOT.TLegend(0.6, 0.7, 0.9, 0.9)
+    leg.AddEntry(h_m1, f"{component_label} = {vals[idx_m1]:.2f}", "l")
+    leg.AddEntry(h_0, f"{component_label} = {vals[idx_0]:.2f}", "l")
+    leg.AddEntry(h_p1, f"{component_label} = {vals[idx_p1]:.2f}", "l")
+    leg.SetBorderSize(0)
+    leg.SetFillStyle(0)
+    leg.Draw()
+    canv.Print(outpath)
+    del h_m1, h_0, h_p1, canv, leg
+
+
+def _np_to_th1(arr, name):
+    h = ROOT.TH1D(name, "", n_bins, -1, 1)
+    h.Sumw2()
+    for i, v in enumerate(arr):
+        h.SetBinContent(i+1, v)
+        h.SetBinError(i+1, np.sqrt(abs(v)))
+    return h
+
+
+def _plot_asimov_overlay(data_counts, bkg_counts, pred_corr_np, xlabel, legend_lines, outpath, headroom=1.2):
+    """Asimov data vs best-fit signal + background overlay for one category/element.
+    headroom scales the y-axis max so the histogram content stays clear of the
+    legend (B components need more, since their legend text is longer)."""
+    h_data_root = _np_to_th1(data_counts, "h_data")
+    h_azimov_bkg_root = _np_to_th1(bkg_counts, "h_azimov_bkg")
+    h_pred_corr_root = _np_to_th1(pred_corr_np, "h_pred_corr")
+
+    canv = ROOT.TCanvas("canv", "canv", 800, 600)
+    h_data_root.SetTitle("")
+    h_data_root.SetStats(0)
+    h_data_root.SetLineColor(ROOT.kBlack)
+    h_data_root.SetLineWidth(2)
+    h_data_root.SetMarkerStyle(20)
+    h_data_root.SetMarkerColor(ROOT.kBlack)
+    h_data_root.GetXaxis().SetTitle(xlabel)
+    h_data_root.GetYaxis().SetTitle("Events")
+    stack_max = h_azimov_bkg_root.GetBinContent(h_azimov_bkg_root.GetMaximumBin()) + \
+                h_pred_corr_root.GetBinContent(h_pred_corr_root.GetMaximumBin())
+    ymax = max(h_data_root.GetMaximum() + h_data_root.GetBinError(h_data_root.GetMaximumBin()), stack_max)
+    h_data_root.SetMinimum(0)
+    h_data_root.SetMaximum(ymax * headroom)
+    h_data_root.Draw("pE1")
+    hs = ROOT.THStack("hs", "")
+    h_pred_corr_root.SetLineColor(ROOT.kBlack)
+    h_pred_corr_root.SetFillColor(ROOT.kRed)
+    h_pred_corr_root.SetLineWidth(1)
+    h_azimov_bkg_root.SetLineColor(ROOT.kBlack)
+    h_azimov_bkg_root.SetFillColor(ROOT.kBlue)
+    h_azimov_bkg_root.SetLineWidth(1)
+    hs.Add(h_azimov_bkg_root)
+    hs.Add(h_pred_corr_root)
+    hs.SetMinimum(0)
+    hs.Draw("hist same")
+    h_data_root.Draw("pE1 same")
+    leg = ROOT.TLegend(0.58, 0.53, 0.9, 0.9)
+    leg.AddEntry(h_data_root, "Asimov Data", "pe")
+    leg.AddEntry(h_azimov_bkg_root, "Background", "f")
+    leg.AddEntry(h_pred_corr_root, "Best-fit signal", "f")
+    leg.SetBorderSize(0)
+    leg.SetFillStyle(0)
+    dummy_hist = ROOT.TH1D("dummy_hist", "", 1, 0, 1)
+    dummy_hist.SetLineColor(ROOT.kWhite)
+    for line in legend_lines:
+        leg.AddEntry(dummy_hist, line, "l")
+    leg.Draw()
+    canv.Print(outpath)
+    del h_data_root, h_pred_corr_root, h_azimov_bkg_root, canv, dummy_hist, leg, hs
 
 
 C_exp = C_rwt
@@ -415,58 +706,29 @@ for Cij in Cij_elements:
     measured_Cij_values[Cij] = (best_rho, rho_low, rho_high)
 
     # plotting: one plot per category (Asimov data vs best-fit signal + background for that category)
-    def _np_to_th1(arr, name):
-        h = ROOT.TH1D(name, "", n_bins, -1, 1)
-        h.Sumw2()
-        for i, v in enumerate(arr):
-            h.SetBinContent(i+1, v)
-            h.SetBinError(i+1, np.sqrt(abs(v)))
-        return h
-
     i_best = np.argmin(np.abs(vals - best_rho))
-    model_tag = {1: f"fitted_phiCP{phiCP:.0f}", 2: "fitted_spin0_noentanglement", 3: "fitted_uncorrelated"}[args.model]
+    if args.model == 1:
+        model_tag = f"fitted_phiCP{phiCP:.0f}"
+    elif args.model == 2:
+        model_tag = "fitted_spin0_noentanglement"
+    else:
+        model_tag = "fitted_uncorrelated"
     for cat, data_counts, bkg_counts in per_cat_hists:
         pred_corr_np = cat['model_hists_per_Cij'][Cij][i_best] * cat['N_sig']
+        _plot_asimov_overlay(
+            data_counts, bkg_counts, pred_corr_np,
+            f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta^{{-}}_{{{Cij[1]}}}",
+            [f"Combined-fit C{Cij} = {best_rho:.2f}^{{+{rho_high-best_rho:.2f}}}_{{-{best_rho-rho_low:.2f}}}",
+             f"True C{Cij} = {GetMatrixCoefficient(C_exp, Cij):.2f}"],
+            f"{args.outdir}/{cat['name']}_C{Cij}_{model_tag}.pdf",
+        )
 
-        h_data_root = _np_to_th1(data_counts, "h_data")
-        h_azimov_bkg_root = _np_to_th1(bkg_counts, "h_azimov_bkg")
-        h_pred_corr_root = _np_to_th1(pred_corr_np, "h_pred_corr")
-
-        canv = ROOT.TCanvas("canv", "canv", 800, 600)
-        h_data_root.SetTitle("")
-        h_data_root.SetStats(0)
-        h_data_root.SetLineColor(ROOT.kBlack)
-        h_data_root.SetLineWidth(2)
-        h_data_root.SetMarkerStyle(20)
-        h_data_root.SetMarkerColor(ROOT.kBlack)
-        h_data_root.GetXaxis().SetTitle(f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta^{{-}}_{{{Cij[1]}}}")
-        h_data_root.GetYaxis().SetTitle("Events")
-        h_data_root.Draw("pE1")
-        hs = ROOT.THStack("hs", "")
-        h_pred_corr_root.SetLineColor(ROOT.kBlack)
-        h_pred_corr_root.SetFillColor(ROOT.kRed)
-        h_pred_corr_root.SetLineWidth(1)
-        h_azimov_bkg_root.SetLineColor(ROOT.kBlack)
-        h_azimov_bkg_root.SetFillColor(ROOT.kBlue)
-        h_azimov_bkg_root.SetLineWidth(1)
-        hs.Add(h_azimov_bkg_root)
-        hs.Add(h_pred_corr_root)
-        hs.Draw("hist same")
-        h_data_root.Draw("pE1 same")
-        leg = ROOT.TLegend(0.58, 0.53, 0.9, 0.9)
-        leg.AddEntry(h_data_root, "Asimov Data", "pe")
-        leg.AddEntry(h_azimov_bkg_root, "Background", "f")
-        leg.AddEntry(h_pred_corr_root, "Best-fit signal", "f")
-        leg.SetBorderSize(0)
-        leg.SetFillStyle(0)
-        dummy_hist = ROOT.TH1D("dummy_hist", "", 1, 0, 1)
-        dummy_hist.SetLineColor(ROOT.kWhite)
-        leg.AddEntry(dummy_hist, f"Combined-fit C{Cij} = {best_rho:.2f}^{{+{rho_high-best_rho:.2f}}}_{{-{best_rho-rho_low:.2f}}}", "l")
-        leg.AddEntry(dummy_hist, f"True C{Cij} = {GetMatrixCoefficient(C_exp, Cij):.2f}", "l")
-        leg.Draw()
-        canv.Print(f"{args.outdir}/{cat['name']}_C{Cij}_{model_tag}.pdf")
-
-        del h_data_root, h_pred_corr_root, h_azimov_bkg_root, canv, dummy_hist
+        _plot_model_shapes(
+            cat['model_hists_per_Cij'][Cij], vals,
+            f"cos#theta^{{+}}_{{{Cij[0]}}}cos#theta^{{-}}_{{{Cij[1]}}}",
+            f"C{Cij}",
+            f"{args.outdir}/{cat['name']}_C{Cij}_shapes.pdf",
+        )
 
 print("\nMeasured Cij values (combined reweighting fit):")
 for Cij, (Cij_val, Cij_low, Cij_high) in measured_Cij_values.items():
@@ -482,6 +744,7 @@ if args.measure_B:
     for which, ax in B_elements:
         key = (which, ax)
         cat_terms = []
+        per_cat_hists_B = []  # (cat, data_counts, bkg_counts), kept for plotting below
         for cat in categories:
             data_counts, bkg_counts = _asimov_counts(
                 cat['sig_B_vals'][key], cat['bkg_B_vals'][key], cat['N_sig'], cat['N_bkg'],
@@ -491,10 +754,35 @@ if args.measure_B:
                 'data_counts': data_counts, 'model_hists': cat['model_hists_per_B'][key],
                 'N_sig_exp': cat['N_sig'], 'N_bkg_exp': cat['N_bkg'], 'bkg_counts': bkg_counts,
             })
+            per_cat_hists_B.append((cat, data_counts, bkg_counts))
         best_rho, rho_low, rho_high = nll_scan_combined_np(cat_terms, vals)
         measured_B_values[key] = (best_rho, rho_low, rho_high)
         label = f"B{'tau+' if which=='p' else 'tau-'}_{ax}"
+        label_tex = f"B^{{{'+' if which=='p' else '-'}}}_{{{ax}}}"
         print(f"{label}: {best_rho:.3f} (+{rho_high-best_rho:.3f}/-{best_rho-rho_low:.3f})  [true=0, combined over {len(categories)} categories]")
+
+        xlabel = f"cos#theta^{{{'+' if which=='p' else '-'}}}_{{{ax}}}"
+        i_best = np.argmin(np.abs(vals - best_rho))
+        for cat, data_counts, bkg_counts in per_cat_hists_B:
+            pred_corr_np = cat['model_hists_per_B'][key][i_best] * cat['N_sig']
+            _plot_asimov_overlay(
+                data_counts, bkg_counts, pred_corr_np, xlabel,
+                [f"Combined-fit {label_tex} = {best_rho:.2f}^{{+{rho_high-best_rho:.2f}}}_{{-{best_rho-rho_low:.2f}}}",
+                 f"True {label_tex} = 0.00"],
+                f"{args.outdir}/{cat['name']}_B{which}{ax}_{model_tag}.pdf",
+                headroom=2.0,
+            )
+            _plot_model_shapes(
+                cat['model_hists_per_B'][key], vals, xlabel, label_tex,
+                f"{args.outdir}/{cat['name']}_B{which}{ax}_shapes.pdf",
+                headroom=1.6,
+            )
+
+    print("\nMeasured B values (combined reweighting fit):")
+    for (which, ax), (B_val, B_low, B_high) in measured_B_values.items():
+        label = f"B{'tau+' if which=='p' else 'tau-'}_{ax}"
+        print(f"{label}: {label} = {B_val:.3f} (+{B_high-B_val:.3f}/-{B_val-B_low:.3f})")
+    print("\nTrue B values: all 0.000")
 
 
 C = np.array([[measured_Cij_values["nn"][0], measured_Cij_values["nr"][0], measured_Cij_values["nk"][0]],
