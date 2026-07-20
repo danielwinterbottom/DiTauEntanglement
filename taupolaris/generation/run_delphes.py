@@ -692,18 +692,18 @@ branches = [
   'met_px', 'met_py',
   'taup_vis_pT', 'taup_vis_eta',
   'taun_vis_pT', 'taun_vis_eta',
-  'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e',
+  'taup_pi1_px', 'taup_pi1_py', 'taup_pi1_pz', 'taup_pi1_e', 'taup_pi1_charge',
   'taup_pi1_ipx', 'taup_pi1_ipy', 'taup_pi1_ipz',
-  'taup_pi2_px', 'taup_pi2_py', 'taup_pi2_pz', 'taup_pi2_e',
-  'taup_pi3_px', 'taup_pi3_py', 'taup_pi3_pz', 'taup_pi3_e',
-  'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e',
+  'taup_pi2_px', 'taup_pi2_py', 'taup_pi2_pz', 'taup_pi2_e', 'taup_pi2_charge',
+  'taup_pi3_px', 'taup_pi3_py', 'taup_pi3_pz', 'taup_pi3_e', 'taup_pi3_charge',
+  'taun_pi1_px', 'taun_pi1_py', 'taun_pi1_pz', 'taun_pi1_e', 'taun_pi1_charge',
   'taun_pi1_ipx', 'taun_pi1_ipy', 'taun_pi1_ipz',
-  'taun_pi2_px', 'taun_pi2_py', 'taun_pi2_pz', 'taun_pi2_e',
-  'taun_pi3_px', 'taun_pi3_py', 'taun_pi3_pz', 'taun_pi3_e',
+  'taun_pi2_px', 'taun_pi2_py', 'taun_pi2_pz', 'taun_pi2_e', 'taun_pi2_charge',
+  'taun_pi3_px', 'taun_pi3_py', 'taun_pi3_pz', 'taun_pi3_e', 'taun_pi3_charge',
   'taup_pizero1_px', 'taup_pizero1_py', 'taup_pizero1_pz', 'taup_pizero1_e',
   'taun_pizero1_px', 'taun_pizero1_py', 'taun_pizero1_pz', 'taun_pizero1_e',
-  'taup_lep_px', 'taup_lep_py', 'taup_lep_pz', 'taup_lep_e',
-  'taun_lep_px', 'taun_lep_py', 'taun_lep_pz', 'taun_lep_e',
+  'taup_lep_px', 'taup_lep_py', 'taup_lep_pz', 'taup_lep_e', 'taup_lep_charge',
+  'taun_lep_px', 'taun_lep_py', 'taun_lep_pz', 'taun_lep_e', 'taun_lep_charge',
   'taup_lep_ipx', 'taup_lep_ipy', 'taup_lep_ipz',
   'taun_lep_ipx', 'taun_lep_ipy', 'taun_lep_ipz',
   'taup_charged_px', 'taup_charged_py', 'taup_charged_pz', 'taup_charged_e',
@@ -911,10 +911,12 @@ for iev in range(reader.GetEntries()):
     branch_vals['taup_lep_py'][0] = taup_leptons[0].P4().Py() if len(taup_leptons) > 0 else 0
     branch_vals['taup_lep_pz'][0] = taup_leptons[0].P4().Pz() if len(taup_leptons) > 0 else 0
     branch_vals['taup_lep_e'][0] = taup_leptons[0].P4().E() if len(taup_leptons) > 0 else 0
+    branch_vals['taup_lep_charge'][0] = taup_leptons[0].Charge if len(taup_leptons) > 0 else 0
     branch_vals['taun_lep_px'][0] = taun_leptons[0].P4().Px() if len(taun_leptons) > 0 else 0
     branch_vals['taun_lep_py'][0] = taun_leptons[0].P4().Py() if len(taun_leptons) > 0 else 0
     branch_vals['taun_lep_pz'][0] = taun_leptons[0].P4().Pz() if len(taun_leptons) > 0 else 0
     branch_vals['taun_lep_e'][0] = taun_leptons[0].P4().E() if len(taun_leptons) > 0 else 0
+    branch_vals['taun_lep_charge'][0] = taun_leptons[0].Charge if len(taun_leptons) > 0 else 0
 
     # store ips for leptons
     taup_lep_ip = get_impact_parameter(taup_leptons[0]) if len(taup_leptons) > 0 else ROOT.TVector3(0,0,0)
@@ -930,10 +932,12 @@ for iev in range(reader.GetEntries()):
     branch_vals['taup_pi1_py'][0] = taup_pis[0].P4().Py() if len(taup_pis) > 0 else 0
     branch_vals['taup_pi1_pz'][0] = taup_pis[0].P4().Pz() if len(taup_pis) > 0 else 0
     branch_vals['taup_pi1_e'][0] = taup_pis[0].P4().E() if len(taup_pis) > 0 else 0
+    branch_vals['taup_pi1_charge'][0] = taup_pis[0].Charge if len(taup_pis) > 0 else 0
     branch_vals['taun_pi1_px'][0] = taun_pis[0].P4().Px() if len(taun_pis) > 0 else 0
     branch_vals['taun_pi1_py'][0] = taun_pis[0].P4().Py() if len(taun_pis) > 0 else 0
     branch_vals['taun_pi1_pz'][0] = taun_pis[0].P4().Pz() if len(taun_pis) > 0 else 0
     branch_vals['taun_pi1_e'][0] = taun_pis[0].P4().E() if len(taun_pis) > 0 else 0
+    branch_vals['taun_pi1_charge'][0] = taun_pis[0].Charge if len(taun_pis) > 0 else 0
 
     taup_ip = get_impact_parameter(taup_pis[0]) if len(taup_pis) > 0 else ROOT.TVector3(0,0,0)
     branch_vals['taup_pi1_ipx'][0] = taup_ip.X()
@@ -950,22 +954,26 @@ for iev in range(reader.GetEntries()):
         branch_vals['taup_pi2_py'][0] = taup_pis[1].P4().Py()
         branch_vals['taup_pi2_pz'][0] = taup_pis[1].P4().Pz()
         branch_vals['taup_pi2_e'][0] = taup_pis[1].P4().E()
+        branch_vals['taup_pi2_charge'][0] = taup_pis[1].Charge
     if len(taup_pis) > 2:
         branch_vals['taup_pi3_px'][0] = taup_pis[2].P4().Px()
         branch_vals['taup_pi3_py'][0] = taup_pis[2].P4().Py()
         branch_vals['taup_pi3_pz'][0] = taup_pis[2].P4().Pz()
         branch_vals['taup_pi3_e'][0] = taup_pis[2].P4().E()
+        branch_vals['taup_pi3_charge'][0] = taup_pis[2].Charge
 
     if len(taun_pis) > 1:
         branch_vals['taun_pi2_px'][0] = taun_pis[1].P4().Px()
         branch_vals['taun_pi2_py'][0] = taun_pis[1].P4().Py()
         branch_vals['taun_pi2_pz'][0] = taun_pis[1].P4().Pz()
         branch_vals['taun_pi2_e'][0] = taun_pis[1].P4().E()
+        branch_vals['taun_pi2_charge'][0] = taun_pis[1].Charge
     if len(taun_pis) > 2:
         branch_vals['taun_pi3_px'][0] = taun_pis[2].P4().Px()
         branch_vals['taun_pi3_py'][0] = taun_pis[2].P4().Py()
         branch_vals['taun_pi3_pz'][0] = taun_pis[2].P4().Pz()
         branch_vals['taun_pi3_e'][0] = taun_pis[2].P4().E()
+        branch_vals['taun_pi3_charge'][0] = taun_pis[2].Charge
 
     branch_vals['taup_charged_px'][0] = taup_charged_sum.Px()
     branch_vals['taup_charged_py'][0] = taup_charged_sum.Py()
@@ -1097,6 +1105,7 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taup_pi1_py'][0] = taup_cands[0][1][0].P4().Py()
             branch_vals['reco_taup_pi1_pz'][0] = taup_cands[0][1][0].P4().Pz()
             branch_vals['reco_taup_pi1_e'][0] = taup_cands[0][1][0].P4().E()
+            branch_vals['reco_taup_pi1_charge'][0] = taup_cands[0][1][0].Charge
 
             reco_taup_point = get_3d_point_from_phi_d0_dz(taup_cands[0][1][0].Phi, taup_cands[0][1][0].D0, taup_cands[0][1][0].DZ)
             # overwrite Xd, Yd, Zd with the new 3D point
@@ -1114,11 +1123,13 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taup_pi2_py'][0] = taup_cands[0][1][1].P4().Py()
             branch_vals['reco_taup_pi2_pz'][0] = taup_cands[0][1][1].P4().Pz()
             branch_vals['reco_taup_pi2_e'][0] = taup_cands[0][1][1].P4().E()
+            branch_vals['reco_taup_pi2_charge'][0] = taup_cands[0][1][1].Charge
         if len(taup_cands[0][1]) > 2:
             branch_vals['reco_taup_pi3_px'][0] = taup_cands[0][1][2].P4().Px()
             branch_vals['reco_taup_pi3_py'][0] = taup_cands[0][1][2].P4().Py()
             branch_vals['reco_taup_pi3_pz'][0] = taup_cands[0][1][2].P4().Pz()
             branch_vals['reco_taup_pi3_e'][0] = taup_cands[0][1][2].P4().E()
+            branch_vals['reco_taup_pi3_charge'][0] = taup_cands[0][1][2].Charge
 
             reco_directions = []
             reco_points = []
@@ -1138,6 +1149,7 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taup_lep_py'][0] = taup_cands[0][3][0].P4().Py()
             branch_vals['reco_taup_lep_pz'][0] = taup_cands[0][3][0].P4().Pz()
             branch_vals['reco_taup_lep_e'][0] = taup_cands[0][3][0].P4().E()
+            branch_vals['reco_taup_lep_charge'][0] = taup_cands[0][3][0].Charge
 
             # identify if the lepton was electron or muon based on PID
             if abs(taup_cands[0][3][0].PID) == 11:
@@ -1201,6 +1213,7 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_pi1_py'][0] = taun_cands[0][1][0].P4().Py()
             branch_vals['reco_taun_pi1_pz'][0] = taun_cands[0][1][0].P4().Pz()
             branch_vals['reco_taun_pi1_e'][0] = taun_cands[0][1][0].P4().E()
+            branch_vals['reco_taun_pi1_charge'][0] = taun_cands[0][1][0].Charge
 
             reco_taun_point = get_3d_point_from_phi_d0_dz(taun_cands[0][1][0].Phi, taun_cands[0][1][0].D0, taun_cands[0][1][0].DZ)
             # overwrite Xd, Yd, Zd with the new 3D point
@@ -1218,11 +1231,13 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_pi2_py'][0] = taun_cands[0][1][1].P4().Py()
             branch_vals['reco_taun_pi2_pz'][0] = taun_cands[0][1][1].P4().Pz()
             branch_vals['reco_taun_pi2_e'][0] = taun_cands[0][1][1].P4().E()
+            branch_vals['reco_taun_pi2_charge'][0] = taun_cands[0][1][1].Charge
         if len(taun_cands[0][1]) > 2:
             branch_vals['reco_taun_pi3_px'][0] = taun_cands[0][1][2].P4().Px()
             branch_vals['reco_taun_pi3_py'][0] = taun_cands[0][1][2].P4().Py()
             branch_vals['reco_taun_pi3_pz'][0] = taun_cands[0][1][2].P4().Pz()
             branch_vals['reco_taun_pi3_e'][0] = taun_cands[0][1][2].P4().E()
+            branch_vals['reco_taun_pi3_charge'][0] = taun_cands[0][1][2].Charge
 
             reco_directions = []
             reco_points = []
@@ -1242,6 +1257,7 @@ for iev in range(reader.GetEntries()):
             branch_vals['reco_taun_lep_py'][0] = taun_cands[0][3][0].P4().Py()
             branch_vals['reco_taun_lep_pz'][0] = taun_cands[0][3][0].P4().Pz()
             branch_vals['reco_taun_lep_e'][0] = taun_cands[0][3][0].P4().E()
+            branch_vals['reco_taun_lep_charge'][0] = taun_cands[0][3][0].Charge
 
             reco_lep_ip = get_impact_parameter(taun_cands[0][3][0], pv_3vec=reco_pv_3vec, reco_track=True)
             branch_vals['reco_taun_lep_ipx'][0] = reco_lep_ip.X()
