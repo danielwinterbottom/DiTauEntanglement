@@ -558,8 +558,17 @@ def convert_semileptonic_df(df):
         out[tau1_col] = np.where(is_taup_leptonic, taup_vals, taun_vals)
         out[tau2_col] = np.where(is_taup_leptonic, taun_vals, taup_vals)
 
-    out['tau1_charge'] = np.ones(n)
-    out['tau2_charge'] = -np.ones(n)
+    # Physical charge of each labeled leg: tau1 (the leptonic tau) is the
+    # physical tau+ when it was taup before the swap, else the physical tau-.
+    # This must be the REAL charge (not a hardcoded +1) because downstream
+    # consumers (e.g. the spin-correlation fits) need to map the leptonic/
+    # hadronic labels back to physical charge: the TauSpinner spin-weight
+    # columns (wt_hp_*/wt_hm_*) are defined by physical charge and are NOT
+    # swapped by this relabeling (their names carry no taup_/taun_ substring),
+    # so without the true charge the labels and weights are mismatched for the
+    # ~half of events where the lepton is physically the tau-.
+    out['tau1_charge'] = np.where(is_taup_leptonic, 1.0, -1.0)
+    out['tau2_charge'] = np.where(is_taup_leptonic, -1.0, 1.0)
 
     df_out = pd.DataFrame(out)
     # shuffle the dataframe

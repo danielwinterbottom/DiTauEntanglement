@@ -391,10 +391,19 @@ def main():
              for tau in ['taup', 'taun']
              for comp in ['px', 'py', 'pz', 'e']]
         )
+        # tau1_charge/tau2_charge: physical charge of the labeled legs, stored by
+        # convert_semileptonic_df for semileptonic (tau1=leptonic) dataframes.
+        # Passed through (renamed to the taup/taun output convention, since this
+        # script writes tau1 out as 'taup') so downstream consumers can map the
+        # leptonic/hadronic labels back to physical charge -- the wt_hp_*/wt_hm_*
+        # spin weights are defined by physical charge and are NOT relabeled.
+        _passthrough_cols = _passthrough_cols + ['tau1_charge', 'tau2_charge']
         cols_to_pass = [c for c in _passthrough_cols if c in test_df.columns]
         if cols_to_pass:
-            tauspinner_info_df = test_df[cols_to_pass].reset_index(drop=True) 
-        else: 
+            tauspinner_info_df = test_df[cols_to_pass].reset_index(drop=True)
+            tauspinner_info_df = tauspinner_info_df.rename(
+                columns={'tau1_charge': 'taup_charge', 'tau2_charge': 'taun_charge'})
+        else:
             tauspinner_info_df = None
 
         # store the mass constraint if exists

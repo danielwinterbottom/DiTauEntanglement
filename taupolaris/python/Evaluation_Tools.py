@@ -305,6 +305,47 @@ def compute_spin_vars(df, tau_pred_prefix='true_', tau_vis_prefix=''):
     taun_pi1 = df[[f'{tau_vis_prefix}taun_pi1_E', f'{tau_vis_prefix}taun_pi1_px', f'{tau_vis_prefix}taun_pi1_py', f'{tau_vis_prefix}taun_pi1_pz']].values
     taun_pizero1 = df[[f'{tau_vis_prefix}taun_pizero1_E', f'{tau_vis_prefix}taun_pizero1_px', f'{tau_vis_prefix}taun_pizero1_py', f'{tau_vis_prefix}taun_pizero1_pz']].values
 
+    # Semileptonic support: if the ishadronic flag is available, use the
+    # charged-leg momentum (== the single lepton, for a leptonically-decaying
+    # tau) and the lepton-direction polarimetric approximation for those legs,
+    # since taup_pi1/taup_pizero1 aren't meaningful for a leptonic decay.
+    # Older (hadronic-only) dataframes without this flag fall back to the
+    # original pion-only behaviour unchanged.
+    has_lepton_info = (
+        f'{tau_vis_prefix}taup_ishadronic' in df.columns and
+        f'{tau_vis_prefix}taun_ishadronic' in df.columns
+    )
+    if has_lepton_info:
+        taup_is_leptonic = df[f'{tau_vis_prefix}taup_ishadronic'].values == 0
+        taun_is_leptonic = df[f'{tau_vis_prefix}taun_ishadronic'].values == 0
+        taup_lep = df[[f'{tau_vis_prefix}taup_charged_E', f'{tau_vis_prefix}taup_charged_px', f'{tau_vis_prefix}taup_charged_py', f'{tau_vis_prefix}taup_charged_pz']].values
+        taun_lep = df[[f'{tau_vis_prefix}taun_charged_E', f'{tau_vis_prefix}taun_charged_px', f'{tau_vis_prefix}taun_charged_py', f'{tau_vis_prefix}taun_charged_pz']].values
+
+    # a1 (3-prong) support: if is3prong is available, use the real number of
+    # charged pions (1 or 3) instead of hardcoding 1 for every row, and load
+    # pi2/pi3 so the correct a1 polarimetric formula (polarimetric_vector_a1)
+    # can be used for 3-prong legs instead of the 1-prong-only pi1/pizero1
+    # formulas. pi1 is assumed to be the opposite-charge pion and pi2/pi3 the
+    # two same-charge pions (SortPions convention in run_delphes.py); this
+    # only holds for dataframes produced after that ordering fix, so older
+    # reco-level a1 legs may still be mislabeled.
+    has_a1_info = (
+        f'{tau_vis_prefix}taup_is3prong' in df.columns and
+        f'{tau_vis_prefix}taun_is3prong' in df.columns
+    )
+    if has_a1_info:
+        taup_npi = np.where(df[f'{tau_vis_prefix}taup_is3prong'].values == 1, 3, 1)
+        taun_npi = np.where(df[f'{tau_vis_prefix}taun_is3prong'].values == 1, 3, 1)
+        taup_pi2 = df[[f'{tau_vis_prefix}taup_pi2_E', f'{tau_vis_prefix}taup_pi2_px', f'{tau_vis_prefix}taup_pi2_py', f'{tau_vis_prefix}taup_pi2_pz']].values
+        taup_pi3 = df[[f'{tau_vis_prefix}taup_pi3_E', f'{tau_vis_prefix}taup_pi3_px', f'{tau_vis_prefix}taup_pi3_py', f'{tau_vis_prefix}taup_pi3_pz']].values
+        taun_pi2 = df[[f'{tau_vis_prefix}taun_pi2_E', f'{tau_vis_prefix}taun_pi2_px', f'{tau_vis_prefix}taun_pi2_py', f'{tau_vis_prefix}taun_pi2_pz']].values
+        taun_pi3 = df[[f'{tau_vis_prefix}taun_pi3_E', f'{tau_vis_prefix}taun_pi3_px', f'{tau_vis_prefix}taun_pi3_py', f'{tau_vis_prefix}taun_pi3_pz']].values
+        taup_charge = np.ones(len(df))
+        taun_charge = -np.ones(len(df))
+    else:
+        taup_npi = np.ones_like(df[f'{tau_vis_prefix}taup_haspizero'].values)
+        taun_npi = np.ones_like(df[f'{tau_vis_prefix}taun_haspizero'].values)
+
     com_boost_vec = boost_vector(taup + taun)
     taup = boost(taup, -com_boost_vec)
     taun = boost(taun, -com_boost_vec)
@@ -313,14 +354,32 @@ def compute_spin_vars(df, tau_pred_prefix='true_', tau_vis_prefix=''):
     taup_pizero1 = boost(taup_pizero1, -com_boost_vec)
     taun_pi1 = boost(taun_pi1, -com_boost_vec)
     taun_pizero1 = boost(taun_pizero1, -com_boost_vec)
+    if has_lepton_info:
+        taup_lep = boost(taup_lep, -com_boost_vec)
+        taun_lep = boost(taun_lep, -com_boost_vec)
+    if has_a1_info:
+        taup_pi2 = boost(taup_pi2, -com_boost_vec)
+        taup_pi3 = boost(taup_pi3, -com_boost_vec)
+        taun_pi2 = boost(taun_pi2, -com_boost_vec)
+        taun_pi3 = boost(taun_pi3, -com_boost_vec)
 
     taup_s = polarimetric_vector_tau(
         taup, taup_pi1, taup_pizero1,
-        np.ones_like(df[f'{tau_vis_prefix}taup_haspizero'].values), df[f'{tau_vis_prefix}taup_haspizero'].values
+        taup_npi, df[f'{tau_vis_prefix}taup_haspizero'].values,
+        lep=taup_lep if has_lepton_info else None,
+        is_leptonic=taup_is_leptonic if has_lepton_info else None,
+        pi2=taup_pi2 if has_a1_info else None,
+        pi3=taup_pi3 if has_a1_info else None,
+        taucharge=taup_charge if has_a1_info else None,
     )
     taun_s = polarimetric_vector_tau(
         taun, taun_pi1, taun_pizero1,
-        np.ones_like(df[f'{tau_vis_prefix}taun_haspizero'].values), df[f'{tau_vis_prefix}taun_haspizero'].values
+        taun_npi, df[f'{tau_vis_prefix}taun_haspizero'].values,
+        lep=taun_lep if has_lepton_info else None,
+        is_leptonic=taun_is_leptonic if has_lepton_info else None,
+        pi2=taun_pi2 if has_a1_info else None,
+        pi3=taun_pi3 if has_a1_info else None,
+        taucharge=taun_charge if has_a1_info else None,
     )
 
     spin_angles = compute_spin_angles(
