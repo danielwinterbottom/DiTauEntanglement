@@ -8,7 +8,6 @@ from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
 import matplotlib.pyplot as plt
 import mplhep as hep
-from tqdm import tqdm
 plt.style.use(hep.style.CMS)
 plt.rcParams.update({"font.size": 16})
 
@@ -71,77 +70,60 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     print(f"Saving plots to {outdir}/")
 
+    scan_outdir = os.path.join(outdir, "likelihood_scans")
+    if args.scan_pdf:
+        os.makedirs(scan_outdir, exist_ok=True)
+
     map_method  = nn_config.get('map_method', 'gradient')
     map_num_draws = nn_config.get('map_num_draws', 100)
 
-    for event_number in args.events:
+    # Compute MAP estimates for all requested events in a single batched call
+    # instead of looping event-by-event: the gradient optimisation (200 Adam
+    # steps through the flow) is the dominant cost, and batching lets every
+    # event share those steps rather than repeating them serially per event.
+    map_pred_all = None
+    map_pred_all_stochastic = None
+    if not args.no_map:
+        print(f"Computing MAP estimates for {len(args.events)} event(s) (batched, method='{map_method}')...")
+        X_events = test_dataset.X[args.events].to(device)
+        map_norm_all, map_pred_all, log_prob_z_all = flow_map_predict(
+            model, X_events,
+            test_dataset=test_dataset,
+            num_draws=map_num_draws,
+            chunk_size=len(args.events),
+            method=map_method,
+            return_log_prob=True
+        )
+        for event_number, log_prob_z in zip(args.events, log_prob_z_all):
+            print(f"  event {event_number}: found likelihood {log_prob_z:.4f}")
+
+        print(f"Computing alternative MAP estimates for {len(args.events)} event(s) (batched, method='stochastic')...")
+        _, map_pred_all_stochastic = flow_map_predict(
+            model, X_events,
+            test_dataset=test_dataset,
+            num_draws=map_num_draws,
+            chunk_size=len(args.events),
+            method='stochastic',
+        )
+
+    for i, event_number in enumerate(args.events):
         print(f"  Sampling event {event_number}...")
 
         map_value = None
+        map_value2 = None
         if not args.no_map:
-            X_event = test_dataset.X[event_number].unsqueeze(0).to(device)
-            map_norm, map_pred, log_prob_z = flow_map_predict(
-                model, X_event,
-                test_dataset=test_dataset,
-                num_draws=map_num_draws,
-                chunk_size=1,
-                method=map_method,
-                return_log_prob=True
-            )
-            map_value = map_pred[0]
-
-
-            print("\n\nINFO!!!")
-            print(f"At best standardised x ({map_norm}), found likelihood: {log_prob_z}")
-            print("-"*60, '\n')
+            map_value = map_pred_all[i]
+            map_value2 = map_pred_all_stochastic[i]
+            X_event = X_events[i:i + 1]
+            map_norm = map_norm_all[i:i + 1]
+            log_prob_z = log_prob_z_all[i]
 
             if args.scan_pdf:
-                # SCAN LOG
-                for tau in ['taun', 'taup']:
-                    if tau == 'taun':
-                        scan_idx = 5 # 6th element
-                    else:
-                        scan_idx = 2 # 3rd element
-                    x_map_norm = map_norm[0].to(device)
-                    shifts = np.arange(-1, 1, 0.01)
-                    scan_log_p = []
-                    x_shifted_phys = []
-                    print(f">> Profiling likelihood for k in {tau} (others frozen)")
-                    with torch.no_grad():
-                        for shift in tqdm(shifts):
-                            x_shifted = x_map_norm.clone()
-                            x_shifted[scan_idx] += float(shift)
-                            z, logabsdet_enc = model.encode(x_shifted.unsqueeze(0), context=X_event)
-                            log_pz = -0.5 * (z ** 2).sum(dim=-1)
-                            log_p = log_pz + logabsdet_enc
-                            # print(f">> for x ({x_shifted}) have logp: {log_p.item()}")
-                            scan_log_p.append((log_p).item())
-                            x_shifted_phys.append(test_dataset.destandardize_outputs(x_shifted.unsqueeze(0).cpu())[0][scan_idx])
+                _plot_likelihood_scan(
+                    model, X_event, map_norm[0], log_prob_z,
+                    event_number, test_dataset, scan_outdir, device
+                )
 
-                    scan_log_p = np.array(scan_log_p)
-
-                    # plot the scan
-                    x_range = [x_map_norm[scan_idx].item()+shift for shift in shifts]
-
-                    fig,ax = plt.subplots(figsize=(6,6))
-                    plt.plot(x_range, scan_log_p)
-                    ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
-                    ax.legend()
-                    plt.xlabel(f"k component {tau} (entry {scan_idx+1}) - standardised")
-                    plt.ylabel('log(p)')
-                    plt.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_standardised.pdf"))
-                    # unstandardised
-                    fig,ax = plt.subplots(figsize=(6,6))
-                    plt.plot(x_shifted_phys, scan_log_p)
-                    ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
-                    ax.legend()
-                    plt.xlabel(f"k component {tau} (entry {scan_idx+1}) - physical")
-                    plt.ylabel('log(p)')
-                    plt.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_physical.pdf"))
-
-
-
-        # Scan
         save_sampled_pdfs_LHC(
             model=model,
             device=device,
@@ -152,11 +134,56 @@ def main():
             bins=args.bins,
             outdir=outdir,
             map_value=map_value,
+            map_value2=map_value2,
             df=test_df,
             coordinates=data_config['coordinates']
         )
 
     print("Done.")
+
+
+def _plot_likelihood_scan(model, X_event, map_norm, log_prob_z, event_number, test_dataset, outdir, device):
+    """Profile log p against a single shifted component (others frozen), for both
+    taus, using one batched forward pass per tau instead of a per-shift Python loop."""
+    scan_indices = {'taun': 5, 'taup': 2}  # 6th / 3rd element respectively
+    shifts = np.arange(-1, 1, 0.01)
+    shifts_t = torch.from_numpy(shifts).float().to(device)
+    n_shifts = len(shifts)
+
+    x_map_norm = map_norm.to(device)
+    X_batch = X_event.repeat(n_shifts, 1)
+
+    for tau, scan_idx in scan_indices.items():
+        print(f">> Profiling likelihood for k in {tau} (others frozen)")
+        x_shifted = x_map_norm.unsqueeze(0).repeat(n_shifts, 1)
+        x_shifted[:, scan_idx] += shifts_t
+
+        with torch.no_grad():
+            z, logabsdet_enc = model.encode(x_shifted, context=X_batch)
+            scan_log_p = (-0.5 * (z ** 2).sum(dim=-1) + logabsdet_enc).cpu().numpy()
+
+        x_shifted_phys = test_dataset.destandardize_outputs(x_shifted.cpu())[:, scan_idx].numpy()
+        x_range = x_map_norm[scan_idx].item() + shifts
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(x_range, scan_log_p)
+        ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
+        ax.legend()
+        ax.set_xlabel(f"k component {tau} (entry {scan_idx+1}) - standardised")
+        ax.set_ylabel('log(p)')
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_standardised.pdf"))
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(x_shifted_phys, scan_log_p)
+        ax.axhline(y=float(log_prob_z), color='red', linestyle='--', label='MAP log p')
+        ax.legend()
+        ax.set_xlabel(f"k component {tau} (entry {scan_idx+1}) - physical")
+        ax.set_ylabel('log(p)')
+        fig.tight_layout()
+        fig.savefig(os.path.join(outdir, f"profile_event{event_number}_{tau}_physical.pdf"))
+        plt.close(fig)
 
 
 if __name__ == '__main__':
