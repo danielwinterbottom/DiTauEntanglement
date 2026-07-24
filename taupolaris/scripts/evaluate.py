@@ -5,7 +5,7 @@ import yaml
 import os
 import uproot
 import numpy as np
-from taupolaris.python.NN_Tools import load_model, get_device
+from taupolaris.python.NN_Tools import load_model, get_device, is_legacy_pizero_proj_checkpoint
 from taupolaris.python.DataProcessing import get_test_dataset
 from taupolaris.utils.coordinate_conversions import convert_coordinates_pred
 from taupolaris.python.Evaluation_Tools import flow_map_predict, compute_spin_vars, save_sampled_pdfs, plot_spin_density_matrix
@@ -54,17 +54,20 @@ def main():
         hp = nn_config['hyperparams']
     is_transformer = nn_config.get('use_transformer', False)
     leptonic_mode = data_config.get('leptonic_mode', 0)
-    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP, useTransformer=is_transformer, useTransformerMLP=args.useTransformerBaseline, leptonic_mode=leptonic_mode)
     model_path = f'{output_plots_dir}/best_model.pth'
     print(f"Using model {nn_config['model_name']}")
     print(f"Loading model from {model_path}...")
     if not os.path.exists(model_path):  # check if model exists, if not take partial model
         model_path = f'{output_plots_dir}/partial_model.pth'
-    try:  # load model and optimizer
-        model.load_state_dict(torch.load(model_path))
-    except:
-        print(f"Loading model from {model_path} failed. Trying to load from CPU.")
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    # map_location='cpu' always works regardless of what device the checkpoint was
+    # saved on (and regardless of whether a GPU is available here)
+    state_dict = torch.load(model_path, map_location=torch.device('cpu'))
+    legacy_pizero_proj = is_legacy_pizero_proj_checkpoint(state_dict)
+    if legacy_pizero_proj:
+        print(">> Checkpoint predates the pizero_proj/final-LayerNorm architecture change; "
+              "building the matching (older) model architecture.")
+    model = load_model(hp, input_features, output_features, batch_norm=False, useMLP=args.useMLP, useTransformer=is_transformer, useTransformerMLP=args.useTransformerBaseline, leptonic_mode=leptonic_mode, legacy_pizero_proj=legacy_pizero_proj)
+    model.load_state_dict(state_dict)
     print(">> Successfully loaded model")
     model.eval()
 

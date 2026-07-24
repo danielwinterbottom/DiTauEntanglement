@@ -48,7 +48,15 @@ def get_device():
     return torch.device("cpu")
 
 
-def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
+def is_legacy_pizero_proj_checkpoint(state_dict):
+    """True if state_dict predates commit 2a901355 ('add Npizero'), which added
+    condition_net.pizero_proj and the transformer's final LayerNorm to
+    ParticleTransformerCondition. Pass the result as legacy_pizero_proj= to
+    load_model so the constructed architecture matches the checkpoint."""
+    return not any(k.endswith('condition_net.pizero_proj.weight') for k in state_dict)
+
+
+def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0, legacy_pizero_proj=False):
     if useMLP:
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
@@ -71,6 +79,7 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
                                 d_model=hp['d_model'], nhead=hp['nhead'],
                                 num_transformer_layers=hp['num_transformer_layers'],
                                 dropout=hp['dropout'],
+                                legacy_pizero_proj=legacy_pizero_proj,
                                 num_layers=hp['num_layers'], num_bins=hp['num_bins'],
                                 tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
                                 num_blocks=hp['num_blocks'], activation=nn.GELU())

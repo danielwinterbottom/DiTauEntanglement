@@ -121,9 +121,19 @@ class ParticleTransformerCondition(nn.Module):
 
     _met_feats = ['reco_met_px', 'reco_met_py']
 
-    def __init__(self, input_features, leptonic_mode, context_dim=256, d_model=64, nhead=4, num_layers=3, dropout=0.0):
+    def __init__(self, input_features, leptonic_mode, context_dim=256, d_model=64, nhead=4, num_layers=3, dropout=0.0,
+                 legacy_pizero_proj=False):
+        """
+        legacy_pizero_proj: checkpoints saved before commit 2a901355 ("add
+        Npizero") used pi_proj (4-momentum only, no npizero count, no final
+        transformer LayerNorm) for the pizero token instead of a dedicated
+        pizero_proj. Set True to build the matching (older) architecture when
+        loading such a checkpoint -- see load_model_auto in NN_Tools.py, which
+        detects this from the checkpoint's state_dict keys automatically.
+        """
         super().__init__()
         self.leptonic_mode = leptonic_mode
+        self.legacy_pizero_proj = legacy_pizero_proj
         feat_idx = {name: i for i, name in enumerate(input_features)}
 
         self.met_idx = [feat_idx[f] for f in self._met_feats]
@@ -134,7 +144,8 @@ class ParticleTransformerCondition(nn.Module):
         self.met_proj = nn.Linear(2, d_model)
         self.sv_proj = nn.Linear(3, d_model)
         self.lep_proj = nn.Linear(5, d_model)  # lep 4-momentum + ismuon flag
-        self.pizero_proj = nn.Linear(5, d_model)  # pizero 4-momentum + npizero count
+        if not legacy_pizero_proj:
+            self.pizero_proj = nn.Linear(5, d_model)  # pizero 4-momentum + npizero count
 
         if leptonic_mode == 0:
             print(">> Using Hadronic Training Embedding")
@@ -213,22 +224,25 @@ class ParticleTransformerCondition(nn.Module):
             dropout=dropout, batch_first=True,
             activation='gelu', norm_first=True,
         )
-        # self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        print("Initialising encoder layers (with final layer normalisation)")
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers, norm=nn.LayerNorm(d_model))
+        if legacy_pizero_proj:
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        else:
+            self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers, norm=nn.LayerNorm(d_model))
         self.output_proj = nn.Linear(d_model, context_dim)
+
+    def _pizero_token(self, x, pizero_idx, npizero_idx):
+        """New checkpoints: pizero_proj(4-momentum + npizero count).
+        legacy_pizero_proj checkpoints: pi_proj(4-momentum only)."""
+        if self.legacy_pizero_proj:
+            return self.pi_proj(x[:, pizero_idx])
+        pizero_input = torch.cat([x[:, pizero_idx], x[:, npizero_idx].unsqueeze(-1)], dim=-1)
+        return self.pizero_proj(pizero_input)
 
     def forward(self, x):
         B, device = x.shape[0], x.device
 
         if self.leptonic_mode == 0:
             type_embs = self.type_emb(torch.arange(13, device=device))
-            taup_pizero_input = torch.cat(
-                [x[:, self.taup_pizero_idx], x[:, self.taup_npizero_idx].unsqueeze(-1)], dim=-1
-            )
-            taun_pizero_input = torch.cat(
-                [x[:, self.taun_pizero_idx], x[:, self.taun_npizero_idx].unsqueeze(-1)], dim=-1
-            )
             tokens = torch.stack([
                 self.pi_proj(x[:, self.taup_pi1_idx]) + type_embs[0],
                 self.pi_proj(x[:, self.taun_pi1_idx]) + type_embs[1],
@@ -238,8 +252,8 @@ class ParticleTransformerCondition(nn.Module):
                 self.pi_proj(x[:, self.taun_pi2_idx]) + type_embs[5],
                 self.pi_proj(x[:, self.taup_pi3_idx]) + type_embs[6],
                 self.pi_proj(x[:, self.taun_pi3_idx]) + type_embs[7],
-                self.pizero_proj(taup_pizero_input) + type_embs[8],
-                self.pizero_proj(taun_pizero_input) + type_embs[9],
+                self._pizero_token(x, self.taup_pizero_idx, self.taup_npizero_idx) + type_embs[8],
+                self._pizero_token(x, self.taun_pizero_idx, self.taun_npizero_idx) + type_embs[9],
                 self.met_proj(x[:, self.met_idx]) + type_embs[10],
                 self.sv_proj(x[:, self.taup_sv_idx]) + type_embs[11],
                 self.sv_proj(x[:, self.taun_sv_idx]) + type_embs[12],
@@ -261,9 +275,6 @@ class ParticleTransformerCondition(nn.Module):
             lep_input = torch.cat(
                 [x[:, self.tau1_lep_idx], x[:, self.tau1_ismuon_idx].unsqueeze(-1)], dim=-1
             )
-            tau2_pizero_input = torch.cat(
-                [x[:, self.tau2_pizero_idx], x[:, self.tau2_npizero_idx].unsqueeze(-1)], dim=-1
-            )
             tokens = torch.stack([
                 self.lep_proj(lep_input) + type_embs[0],  # tau1 lepton
                 self.ip_proj(x[:, self.tau1_lep_ip_idx]) + type_embs[1], # tau1 lep IP
@@ -271,7 +282,7 @@ class ParticleTransformerCondition(nn.Module):
                 self.ip_proj(x[:, self.tau2_charged_ip_idx]) + type_embs[3], # tau2 IP
                 self.pi_proj(x[:, self.tau2_pi2_idx]) + type_embs[4],  # tau2 pi2
                 self.pi_proj(x[:, self.tau2_pi3_idx]) + type_embs[5],  # tau2 pi3
-                self.pizero_proj(tau2_pizero_input) + type_embs[6],  # tau2 pi0
+                self._pizero_token(x, self.tau2_pizero_idx, self.tau2_npizero_idx) + type_embs[6],  # tau2 pi0
                 self.met_proj(x[:, self.met_idx]) + type_embs[7],  # MET
                 self.sv_proj(x[:, self.tau2_sv_idx]) + type_embs[8],  # tau2 SV
             ], dim=1)
@@ -293,12 +304,6 @@ class ParticleTransformerCondition(nn.Module):
             taun_lep_input = torch.cat(
                 [x[:, self.taun_lep_idx], x[:, self.taun_ismuon_idx].unsqueeze(-1)], dim=-1
             )
-            taup_pizero_input = torch.cat(
-                [x[:, self.taup_pizero_idx], x[:, self.taup_npizero_idx].unsqueeze(-1)], dim=-1
-            )
-            taun_pizero_input = torch.cat(
-                [x[:, self.taun_pizero_idx], x[:, self.taun_npizero_idx].unsqueeze(-1)], dim=-1
-            )
 
             tokens = torch.stack([
                 self.pi_proj(x[:, self.taup_pi1_idx]) + type_embs[0],
@@ -309,8 +314,8 @@ class ParticleTransformerCondition(nn.Module):
                 self.pi_proj(x[:, self.taun_pi2_idx]) + type_embs[5],
                 self.pi_proj(x[:, self.taup_pi3_idx]) + type_embs[6],
                 self.pi_proj(x[:, self.taun_pi3_idx]) + type_embs[7],
-                self.pizero_proj(taup_pizero_input) + type_embs[8],
-                self.pizero_proj(taun_pizero_input) + type_embs[9],
+                self._pizero_token(x, self.taup_pizero_idx, self.taup_npizero_idx) + type_embs[8],
+                self._pizero_token(x, self.taun_pizero_idx, self.taun_npizero_idx) + type_embs[9],
                 self.met_proj(x[:, self.met_idx]) + type_embs[10],
                 self.sv_proj(x[:, self.taup_sv_idx]) + type_embs[11],
                 self.sv_proj(x[:, self.taun_sv_idx]) + type_embs[12],
@@ -389,6 +394,7 @@ class ConditionalFlow(nn.Module):
                  nhead=4,
                  num_transformer_layers=3,
                  dropout=0.0,
+                 legacy_pizero_proj=False,
                  **flow_kwargs
     ):
         super().__init__()
@@ -400,6 +406,7 @@ class ConditionalFlow(nn.Module):
                 leptonic_mode=leptonic_mode,
                 context_dim=context_dim, d_model=d_model,
                 nhead=nhead, num_layers=num_transformer_layers, dropout=dropout,
+                legacy_pizero_proj=legacy_pizero_proj,
             )
         elif cond_num_blocks == 0:
             print("!! INFO: No conditioning network")
