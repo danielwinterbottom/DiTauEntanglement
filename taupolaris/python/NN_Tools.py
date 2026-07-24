@@ -10,7 +10,53 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0):
+def _unpack_batch(batch, device):
+    """RegressionDataset yields (X, y) normally, or (X, y, w) when a per-event
+    training weight was configured (see get_train_val_test_datasets). Handle both."""
+    if len(batch) == 3:
+        X, y, w = batch
+        w = w.to(device)
+    else:
+        X, y = batch
+        w = None
+    return X.to(device), y.to(device), w
+
+
+def _compute_loss(model, X, y, w, useMLP, mlp_loss_fn):
+    """Weighted or unweighted loss, for either the flow (NLL) or MLP (MSE) baseline.
+    Weighted loss is a weighted mean (sum(w*loss_i)/sum(w)), i.e. the weights rescale
+    each event's contribution rather than acting like extra/fewer effective events."""
+    if not useMLP:
+        log_p = model.log_prob(inputs=y, context=X)
+        if w is not None:
+            return -(w * log_p).sum() / w.sum()
+        return -log_p.mean()
+    else:
+        predictions = model(X)
+        if w is not None:
+            per_event_loss = ((predictions - y) ** 2).mean(dim=1)
+            return (w * per_event_loss).sum() / w.sum()
+        return mlp_loss_fn(predictions, y)
+
+
+def get_device():
+    """Select the best available compute device: CUDA GPU, Apple Silicon GPU (MPS), or CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def is_legacy_pizero_proj_checkpoint(state_dict):
+    """True if state_dict predates commit 2a901355 ('add Npizero'), which added
+    condition_net.pizero_proj and the transformer's final LayerNorm to
+    ParticleTransformerCondition. Pass the result as legacy_pizero_proj= to
+    load_model so the constructed architecture matches the checkpoint."""
+    return not any(k.endswith('condition_net.pizero_proj.weight') for k in state_dict)
+
+
+def load_model(hp, input_features, output_features, batch_norm=False, useMLP=False, useTransformer=False, useTransformerMLP=False, leptonic_mode=0, legacy_pizero_proj=False):
     if useMLP:
         model = MLP(input_size=len(input_features), output_size=len(output_features), num_blocks=hp['num_blocks'],
                     hidden_size=hp['hidden_size'], activation=nn.GELU())
@@ -33,6 +79,7 @@ def load_model(hp, input_features, output_features, batch_norm=False, useMLP=Fal
                                 d_model=hp['d_model'], nhead=hp['nhead'],
                                 num_transformer_layers=hp['num_transformer_layers'],
                                 dropout=hp['dropout'],
+                                legacy_pizero_proj=legacy_pizero_proj,
                                 num_layers=hp['num_layers'], num_bins=hp['num_bins'],
                                 tail_bound=hp['tail_bound'], hidden_size=hp['hidden_size'],
                                 num_blocks=hp['num_blocks'], activation=nn.GELU())
@@ -136,7 +183,7 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
     initial_history = None
 
     if reload:
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = get_device()
         partial_model_path = f'{output_plots_dir}/partial_model.pth'
         if os.path.exists(partial_model_path):
             model_path = partial_model_path
@@ -176,7 +223,9 @@ def setup_model_and_training(hp, train_dataset, test_dataset, input_features, ou
 def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=10, device="cpu", verbose=True, output_plots_dir=None,
     save_every_N=None, recompute_train_loss=True, scheduler=None, early_stopper=None, useMLP=False, optuna_trial=None,
     start_epoch=0, initial_history=None):
-    model.to(device)
+    # nflows' StandardNormal distribution registers a float64 buffer (_log_z)
+    # internally; MPS doesn't support float64, so cast to float32 before moving device.
+    model.float().to(device)
     history = initial_history if initial_history is not None else {"train_loss": [], "val_loss": []}
     best_val_loss = min(history["val_loss"]) if history["val_loss"] else float("inf")
 
@@ -186,15 +235,10 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         model.train() # need to set model back to train mode, otherise dropout (and batchnorm if used) will not work
         running_loss=0
         mlp_loss_fn = nn.MSELoss()
-        for batch, (X, y) in enumerate(train_dataloader):
-            X, y = X.to(device), y.to(device)
+        for batch, batch_data in enumerate(train_dataloader):
+            X, y, w = _unpack_batch(batch_data, device)
             optimizer.zero_grad()
-            if not useMLP:
-                loss = -model.log_prob(inputs=y, context=X).mean()
-            else:
-                # for MLP use MSE loss
-                predictions = model(X)
-                loss = mlp_loss_fn(predictions, y)
+            loss = _compute_loss(model, X, y, w, useMLP, mlp_loss_fn)
             loss.backward()
             # Lucas experimented here
             # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -217,15 +261,11 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
             n_batches = len(test_dataloader)
             sum_train_loss = 0
             with torch.no_grad():
-                for i, (X_train, y_train) in enumerate(train_dataloader):
+                for i, batch_data in enumerate(train_dataloader):
                     if i >= n_batches:
                         break
-                    X_train, y_train = X_train.to(device), y_train.to(device)
-                    if not useMLP:
-                        train_loss = -model.log_prob(inputs=y_train, context=X_train).mean()
-                    else:
-                        predictions = model(X_train)
-                        train_loss = mlp_loss_fn(predictions, y_train)
+                    X_train, y_train, w_train = _unpack_batch(batch_data, device)
+                    train_loss = _compute_loss(model, X_train, y_train, w_train, useMLP, mlp_loss_fn)
                     sum_train_loss += train_loss.item()
             train_loss = sum_train_loss / n_batches
 
@@ -234,13 +274,9 @@ def train_model(model, optimizer, train_dataloader, test_dataloader, num_epochs=
         # validation phase
         val_running_loss = 0
         with torch.no_grad():
-            for X_val, y_val in test_dataloader:
-                X_val, y_val = X_val.to(device), y_val.to(device)
-                if not useMLP:
-                    val_loss = -model.log_prob(inputs=y_val, context=X_val).mean()
-                else:
-                    predictions = model(X_val)
-                    val_loss = mlp_loss_fn(predictions, y_val)
+            for batch_data in test_dataloader:
+                X_val, y_val, w_val = _unpack_batch(batch_data, device)
+                val_loss = _compute_loss(model, X_val, y_val, w_val, useMLP, mlp_loss_fn)
                 val_running_loss += val_loss.item()
         val_loss = val_running_loss / len(test_dataloader)
         history["val_loss"].append(val_loss)

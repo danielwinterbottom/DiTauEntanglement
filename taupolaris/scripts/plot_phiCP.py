@@ -24,16 +24,16 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPEven.parquet',
-'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPOdd.parquet',
-'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPMix.parquet',
-'Zprime': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_Zprime.parquet',
-'sl_even': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPEven.parquet',
-'sl_odd': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPOdd.parquet',
-'sl_mix': None,
-'sl_Zprime': None,
-# 'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet', # has fastmtt added
-# 'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet', # has fastmtt added
+'even': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPEven.parquet',
+'odd': 'outputs_TransformerFlows_originalHP_June/outputs_model_LHC_TransformerFlow_Hadronic_AllDMs_25e_June7/output_results_CPOdd.parquet',
+'sl_even': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPEven.parquet',
+'sl_odd': '/vols/cms/lcr119/offline/HiggsCP/DiTauEntanglement/outputs_model_LHC_TransformerFlow_Semileptonic_AllDMs_25e_June8/output_results_CPOdd.parquet',
+'mix': None,
+# single TauSpinner-reweightable ("uncorrelated") sample, used with --uncorrelated instead
+# of separate even/odd/mix files -- e.g. an evaluate_polvec.py output parquet, which carries
+# tauspinner_wt_alpha0/45/90 weight columns
+'uncorr': 'outputs_model_LHC_TransformerFlow_PolVecDirect_Hadronic_Weighted_onorm_July13/polvec_eval_results_output_results_UnCorr_large.parquet',
+'sl_uncorr': None,
 },
     'gen': {
         'label': 'Generator Neutrino',
@@ -58,6 +58,10 @@ options = {
     'recoNu_hybrid': {
         'label': 'Regressed Neutrino (Hybrid)',
         'tag':   'RecoNu_Smeared_Hybrid',
+    },
+    'recoPolvec': {
+        'label': 'Polarimetric Vector (Flow, direct)',
+        'tag':   'PolVecDirect',
     },
 }
 
@@ -279,6 +283,9 @@ def compute_phicp_all(df, option, use_map=True, output_dir='.'):
         phiCPmain = compute_aco_classic(R1, P1, R2, P2, leg1_is_dp, leg2_is_dp)
         phiCPa1a1 = compute_aco_classic_a1a1(df)
         phiCP = np.where((df['taup_DM'] == 10) & (df['taun_DM'] == 10), phiCPa1a1, phiCPmain)
+    elif option == 'recoPolvec':
+        # phiCP already computed by evaluate_polvec.py -- just read it, no calculateHH needed
+        phiCP = df['pred_phiCP'].values
     df['phiCP'] = np.array(phiCP)
     return df
 
@@ -298,23 +305,57 @@ def add_DM(df, dm_prefix='reco'):
                                                         np.where(tau_is_lep, 100, -1))))))
     return df
 
-def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False):
+def add_or_get_DM(df, dm_prefix='reco'):
+    """Sets df['taup_DM']/df['taun_DM']. evaluate_polvec.py's output parquets (used with
+    --option recoPolvec and/or --uncorrelated) already carry precomputed DM codes as
+    '{gen,reco}_taup_DM'/'{gen,reco}_taun_DM' (note: 'gen' not 'true' for the truth-level
+    prefix, unlike this script's own raw-flag convention) -- use those directly if present,
+    otherwise fall back to computing from raw ishadronic/npizero/is3prong flags as before."""
+    alt_prefix = {'true': 'gen', 'gen': 'true'}.get(dm_prefix, dm_prefix)
+    for pfx in (dm_prefix, alt_prefix):
+        taup_col, taun_col = f'{pfx}_taup_DM', f'{pfx}_taun_DM'
+        if taup_col in df.columns and taun_col in df.columns:
+            df['taup_DM'] = df[taup_col]
+            df['taun_DM'] = df[taun_col]
+            return df
+    return add_DM(df, dm_prefix=dm_prefix)
+
+def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_errors=False, weights=None):
     bin_width = bin_edges[1] - bin_edges[0]
     step_x = np.repeat(bin_edges, 2)[1:-1]
-    raw, _ = np.histogram(data[variable], bins=bin_edges)
+    raw, _ = np.histogram(data[variable], bins=bin_edges, weights=weights)
     counts = raw / (raw.sum() * bin_width)
     ax.hist(data[variable], bins=bin_edges, histtype='step', label=label,
-            density=True, linewidth=2, color=color)
+            density=True, linewidth=2, color=color, weights=weights)
     if not hide_errors:
-        err = np.sqrt(raw) / (raw.sum() * bin_width)
+        # for weighted histograms this is an approximate (unweighted-count-based) error band
+        raw_unweighted, _ = np.histogram(data[variable], bins=bin_edges)
+        err = np.sqrt(raw_unweighted) / (raw.sum() * bin_width) if weights is not None else np.sqrt(raw) / (raw.sum() * bin_width)
         ax.fill_between(step_x, np.repeat(counts - err, 2),
                         np.repeat(counts + err, 2), alpha=0.25, color=color)
     return counts
 
 
-def load_data(prefix='',extra_pt_cut=-1):
+def compute_vis_pt(df, prefix):
+    taup_px = df[f'reco_taup_charged_px'] + df[f'reco_taup_pizero1_px']
+    taun_px = df[f'reco_taun_charged_px'] + df[f'reco_taun_pizero1_px']
+    taup_py = df[f'reco_taup_charged_py'] + df[f'reco_taup_pizero1_py']
+    taun_py = df[f'reco_taun_charged_py'] + df[f'reco_taun_pizero1_py']
+    return np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
+
+
+def load_data(prefix='', extra_pt_cut=-1, uncorrelated=False):
     cfg = options['files']
     read = pd.read_parquet
+
+    if uncorrelated:
+        uncorr_df = read(cfg[f'{prefix}uncorr'])
+        print(f'UNCORRELATED File: {cfg[f"{prefix}uncorr"]}')
+        if extra_pt_cut > 0:
+            uncorr_df['vis_pt'] = compute_vis_pt(uncorr_df, prefix)
+            uncorr_df = uncorr_df[uncorr_df['vis_pt'] > extra_pt_cut]
+        return uncorr_df
+
     mix_df = read(cfg[f'{prefix}mix']) if cfg.get(f'{prefix}mix') is not None else None
     zprime_df = read(cfg[f'{prefix}Zprime']) if cfg.get(f'{prefix}Zprime') is not None else None
     even_df = read(cfg[f'{prefix}even'])
@@ -327,14 +368,6 @@ def load_data(prefix='',extra_pt_cut=-1):
         print(f'ZPRIME File: {cfg[f"{prefix}Zprime"]}')
     # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
-        def compute_vis_pt(df, prefix):
-            taup_px = df[f'reco_taup_charged_px'] + df[f'reco_taup_pizero1_px']
-            taun_px = df[f'reco_taun_charged_px'] + df[f'reco_taun_pizero1_px']
-            taup_py = df[f'reco_taup_charged_py'] + df[f'reco_taup_pizero1_py']
-            taun_py = df[f'reco_taun_charged_py'] + df[f'reco_taun_pizero1_py']
-            taup_pt = np.sqrt(taup_px**2 + taup_py**2)
-            taun_pt = np.sqrt(taun_px**2 + taun_py**2)
-            return np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
         even_df['vis_pt'] = compute_vis_pt(even_df, prefix)
         odd_df['vis_pt'] = compute_vis_pt(odd_df, prefix)
         even_df = even_df[even_df['vis_pt'] > extra_pt_cut]
@@ -346,12 +379,11 @@ def load_data(prefix='',extra_pt_cut=-1):
             zprime_df['vis_pt'] = compute_vis_pt(zprime_df, prefix)
             zprime_df = zprime_df[zprime_df['vis_pt'] > extra_pt_cut]
     return even_df, odd_df, mix_df, zprime_df
-    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df, zprime_df
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', '--option', choices=['gen', 'gen_ts', 'recoRun3', 'recoNu', 'recoNu_ts', 'recoNu_hybrid'],
+    parser.add_argument('-o', '--option', choices=['gen', 'gen_ts', 'recoRun3', 'recoNu', 'recoNu_ts', 'recoNu_hybrid', 'recoPolvec'],
                         default='gen', help="Reconstruction method to use.")
     parser.add_argument('--output-dir', default='.', help="Directory for output PDFs.")
     parser.add_argument('--useMLP', action='store_true')
@@ -361,6 +393,10 @@ def main():
                         help="Hide Poisson error bands on the bins (shown by default).")
     parser.add_argument('--leptonic_mode', default=0, type=int, choices=[0,1,2],
                         help="If 0 use hadronic decay modes, for 1 use semileptonic, for 2 use fully leptonic (not currently supported).")
+    parser.add_argument('--uncorrelated', action='store_true',
+                        help="Load a single TauSpinner-reweightable ('uncorr') sample instead of "
+                             "separate even/odd/mix files, and use tauspinner_wt_alpha0/90/45 as "
+                             "histogram weights for the CP-even/CP-odd/CP-mix curves.")
 
     args = parser.parse_args()
 
@@ -374,21 +410,28 @@ def main():
     os.makedirs(f"{args.output_dir}/logs", exist_ok=True)
     os.makedirs(f"{args.output_dir}/{args.option}", exist_ok=True)
 
-    even_df, odd_df, mix_df, zprime_df = load_data(prefix='sl_' if args.leptonic_mode == 1 else '')
-
-
+    prefix = 'sl_' if args.leptonic_mode == 1 else ''
     use_map = not args.useMLP
     dm_pfx = 'true' if args.GENfilter else 'reco'
-    even_df = add_DM(even_df, dm_prefix=dm_pfx)
-    odd_df = add_DM(odd_df, dm_prefix=dm_pfx)
-    even_df = compute_phicp_all(even_df, args.option, use_map=use_map, output_dir=args.output_dir)
-    odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map, output_dir=args.output_dir)
-    if mix_df is not None:
-        mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
-        mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map, output_dir=args.output_dir)
-    if zprime_df is not None:
-        zprime_df = add_DM(zprime_df, dm_prefix=dm_pfx)
-        zprime_df = compute_phicp_all(zprime_df, args.option, use_map=use_map)
+
+    if args.uncorrelated:
+        uncorr_df = load_data(prefix=prefix, uncorrelated=True)
+        uncorr_df = add_or_get_DM(uncorr_df, dm_prefix=dm_pfx)
+        uncorr_df = compute_phicp_all(uncorr_df, args.option, use_map=use_map, output_dir=args.output_dir)
+        even_df = odd_df = mix_df = uncorr_df
+        zprime_df = None
+    else:
+        even_df, odd_df, mix_df, zprime_df = load_data(prefix=prefix)
+        even_df = add_or_get_DM(even_df, dm_prefix=dm_pfx)
+        odd_df = add_or_get_DM(odd_df, dm_prefix=dm_pfx)
+        even_df = compute_phicp_all(even_df, args.option, use_map=use_map, output_dir=args.output_dir)
+        odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map, output_dir=args.output_dir)
+        if mix_df is not None:
+            mix_df = add_or_get_DM(mix_df, dm_prefix=dm_pfx)
+            mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map, output_dir=args.output_dir)
+        if zprime_df is not None:
+            zprime_df = add_or_get_DM(zprime_df, dm_prefix=dm_pfx)
+            zprime_df = compute_phicp_all(zprime_df, args.option, use_map=use_map)
 
     if args.leptonic_mode == 1:
         dm_combs = [[100, 0], [100,1], [100,2], [100,10]]
@@ -410,11 +453,21 @@ def main():
         fig, ax = plt.subplots(figsize=(8, 6))
         bin_edges = np.linspace(0, 2 * np.pi, 21)
         hide = args.hide_errors
-        even_counts = plot_phicp_histogram(ax, even, bin_edges, 'phiCP', 'CP-even', 'red',   hide)
-        odd_counts  = plot_phicp_histogram(ax, odd,  bin_edges, 'phiCP', 'CP-odd',  'blue',  hide)
-        if mix_df is not None:
-            mix = mix_df[dm_mask(mix_df)]
-            plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
+        if args.uncorrelated:
+            # even/odd/mix are all the same reweightable sample here -- apply the TauSpinner
+            # weight for each CP hypothesis instead of using separately-generated samples
+            even_counts = plot_phicp_histogram(ax, even, bin_edges, 'phiCP', 'CP-even', 'red',
+                                                hide, weights=even['tauspinner_wt_alpha0'].values)
+            odd_counts  = plot_phicp_histogram(ax, odd,  bin_edges, 'phiCP', 'CP-odd',  'blue',
+                                                hide, weights=odd['tauspinner_wt_alpha90'].values)
+            plot_phicp_histogram(ax, even, bin_edges, 'phiCP', 'CP-mix', 'green',
+                                 hide, weights=even['tauspinner_wt_alpha45'].values)
+        else:
+            even_counts = plot_phicp_histogram(ax, even, bin_edges, 'phiCP', 'CP-even', 'red',   hide)
+            odd_counts  = plot_phicp_histogram(ax, odd,  bin_edges, 'phiCP', 'CP-odd',  'blue',  hide)
+            if mix_df is not None:
+                mix = mix_df[dm_mask(mix_df)]
+                plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
         if zprime_df is not None:
             zprime = zprime_df[dm_mask(zprime_df)]
             plot_phicp_histogram(ax, zprime, bin_edges, 'phiCP', 'Zprime', 'black', hide)

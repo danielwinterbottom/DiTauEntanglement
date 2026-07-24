@@ -3,7 +3,7 @@ import argparse
 import yaml
 import os
 import numpy as np
-from taupolaris.python.NN_Tools import load_model
+from taupolaris.python.NN_Tools import load_model, get_device
 from taupolaris.python.DataProcessing import get_test_dataset
 from taupolaris.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
 import matplotlib.pyplot as plt
@@ -34,7 +34,7 @@ def main():
     data_config = config['Data']
     nn_config = config['SetupNN']
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() and not args.useCPU else 'cpu')
+    device = torch.device('cpu') if args.useCPU else get_device()
 
     output_dir = f"outputs_{nn_config['model_name']}"
     output_plots_dir = f"{output_dir}/plots"
@@ -58,7 +58,7 @@ def main():
     except Exception:
         model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     model.eval()
-    model = model.to(device)
+    model = model.float().to(device)  # nflows' StandardNormal buffer is float64; MPS needs float32
     print(">> Successfully loaded model")
 
     norm_data = np.load(f'{output_dir}/normalization_params.npz')
