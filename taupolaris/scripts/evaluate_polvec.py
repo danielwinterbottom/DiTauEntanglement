@@ -40,7 +40,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from taupolaris.python.DataProcessing import RegressionDataset, get_test_dataset
-from taupolaris.python.NN_Tools import load_model, get_device
+from taupolaris.python.NN_Tools import load_model, get_device, is_legacy_pizero_proj_checkpoint
 from taupolaris.python.Evaluation_Tools import flow_map_predict, plot_spin_density_matrix
 from taupolaris.utils.coordinate_conversions import (
     ConvertFromOrthonormalNRK_Predictions_PolVec,
@@ -83,6 +83,23 @@ def angular_output_order(tau_labels):
     ]
 
 
+def hh_native_prefix(output_features, tau_label):
+    """Return the ts_hh_* column prefix ('ts_hh_' or 'ts_hh_approx_') that
+    output_features actually uses for this tau's native (onorm/onorm_angular)
+    polarimetric-vector output. 'Approx' models substitute ts_hh_approx_ for the
+    leptonically-decaying tau's leg (see DataProcessing._approx_leptonic_polvec),
+    while the other leg still uses the full ts_hh_ truth -- so t1 and t2 can
+    resolve to different prefixes and both must be looked up per-tau rather than
+    assumed. The prepared dataframe carries both ts_hh_{tau}_* and
+    ts_hh_approx_{tau}_* columns, so this same prefix is valid for indexing the
+    true df as well as pred_native_df/samples_native_df."""
+    for suffix in (f'{tau_label}_n', f'{tau_label}_costheta'):
+        for col in output_features:
+            if col.startswith('ts_hh') and col.endswith(suffix):
+                return col[:-len(suffix)]
+    raise ValueError(f"No ts_hh_* output feature found for tau '{tau_label}' in {output_features}")
+
+
 def unit(v):
     return v / np.linalg.norm(v, axis=1, keepdims=True)
 
@@ -116,6 +133,31 @@ def tau_directions_com(tau1_p3, tau2_p3, tau1_E, tau2_E):
     tau1_4_com = boost(tau1_4, -com_boost)
     kx = unit(tau1_4_com[:, 1:])
     return kx, -kx  # tau1 direction, tau2 direction
+
+
+def leptonic_polvec_from_tau_and_lepton(tau4, other_tau4, lep4):
+    """Approximate leptonic-tau polarimetric vector derived analytically from an
+    arbitrary tau 4-momentum (e.g. the model's own *predicted* undecayed-tau
+    output) and the charged-lepton 4-momentum, as an alternative to reading the
+    model's directly-predicted native h -- lets us compare "predict h directly"
+    vs. "predict the tau momentum, then derive h analytically from tau+lepton"
+    from the same trained model. Same closed-form definition as
+    DataProcessing._approx_leptonic_polvec / acoplanarity_tools.polarimetric_vec_leptonic
+    (times_by_bl=False): the charged-lepton direction in the tau rest frame,
+    sign-flipped (boosted lab -> ditau rest frame -> tau rest frame, matching the
+    two-step boost used everywhere else ts_hh is defined in this codebase).
+
+    tau4, other_tau4, lep4: (N,4) arrays [E, px, py, pz] (kinematic_helpers
+    convention -- matches tau_directions_com above, NOT DataProcessing's
+    [px,py,pz,E]).
+    """
+    higgs4 = tau4 + other_tau4
+    higgs_bv = boost_vector(higgs4)
+    lep_hf = boost(lep4, -higgs_bv)
+    tau_hf = boost(tau4, -higgs_bv)
+    tau_hf_bv = boost_vector(tau_hf)
+    lep_trf = boost(lep_hf, -tau_hf_bv)
+    return unit(-lep_trf[:, 1:])
 
 
 def circular_std(angles, axis=-1):
@@ -278,8 +320,6 @@ def main():
     norm_data = np.load(f'{output_dir}/normalization_params.npz')
 
     # --- load model (same for every test_dataset below) ---
-    model = load_model(nn_config['hyperparams'], input_features, output_features,
-                        useTransformer=nn_config.get('use_transformer', True), leptonic_mode=leptonic_mode)
     # prefer the final saved model (written once training completes); fall back to
     # the best/partial checkpoints under plots/ (same convention as evaluate.py) so
     # this also works against a still-training or interrupted run.
@@ -290,10 +330,18 @@ def main():
     if not os.path.exists(model_path):
         model_path = os.path.join(output_plots_dir, 'partial_model.pth')
     print(f">> Loading model weights from {model_path}")
-    try:
-        model.load_state_dict(torch.load(model_path))
-    except Exception:
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    # map_location='cpu' always works regardless of what device the checkpoint was
+    # saved on (and regardless of whether a GPU is available here); the model is
+    # moved to the target device separately below.
+    state_dict = torch.load(model_path, map_location=torch.device('cpu'))
+    legacy_pizero_proj = is_legacy_pizero_proj_checkpoint(state_dict)
+    if legacy_pizero_proj:
+        print(">> Checkpoint predates the pizero_proj/final-LayerNorm architecture change; "
+              "building the matching (older) model architecture.")
+    model = load_model(nn_config['hyperparams'], input_features, output_features,
+                        useTransformer=nn_config.get('use_transformer', True), leptonic_mode=leptonic_mode,
+                        legacy_pizero_proj=legacy_pizero_proj)
+    model.load_state_dict(state_dict)
     model.float().to(device)
     model.eval()
 
@@ -347,8 +395,17 @@ def main():
         pred_native_df = pd.DataFrame(predictions_native, columns=output_features)
 
         cartesian_cols = cartesian_output_order(tau_labels)
-        onorm_cols = onorm_output_order(tau_labels)
-        angular_cols = angular_output_order(tau_labels)
+        # onorm_cols/angular_cols must match the actual column names of
+        # pred_native_df/samples_native_df (built with columns=output_features
+        # above), not a generic hardcoded naming -- for "Approx" models the
+        # config substitutes ts_hh_approx_{t1}_* for the leptonic tau's leg
+        # (see DataProcessing._approx_leptonic_polvec), which the generic
+        # onorm_output_order()/angular_output_order() helpers don't know about.
+        # output_features is already in the right order for both the native
+        # predictions and (after convert_semileptonic_df's substring-based
+        # taup_/taun_ -> tau1_/tau2_ rename) the true df's matching columns.
+        onorm_cols = output_features if coordinates == 'onorm' else onorm_output_order(tau_labels)
+        angular_cols = output_features if coordinates == 'onorm_angular' else angular_output_order(tau_labels)
 
         # --- convert predictions to Cartesian (true values are already Cartesian in df) ---
         # kept as named arrays (not just inlined into the conversion call) so they can be
@@ -527,6 +584,55 @@ def main():
         true_phiCP = get_phiCP(true_cart_df, true_E_t1, true_E_t2)
         pred_phiCP = get_phiCP(pred_cart_df, pred_E_t1, pred_E_t2)
 
+        # === 3'. leptonic-leg alternatives to the model's native h_t1 prediction --
+        # only meaningful for the leptonically-decaying leg (t1 in semileptonic
+        # training), and only stored/plotted alongside (not instead of) the model's
+        # direct native prediction above. The hadronic leg (h_t2, direction n_t2)
+        # is shared and unchanged (still the existing pol-vec method) across both.
+        pred_h_t1_derived, pred_phiCP_derived = None, None
+        pred_R_t1_run3lep, pred_phiCP_run3lep = None, None
+        if leptonic_mode == 1:
+            lep_cols = [f'reco_{t1}_lep_e', f'reco_{t1}_lep_px', f'reco_{t1}_lep_py', f'reco_{t1}_lep_pz']
+            if all(c in df.columns for c in lep_cols):
+                reco_lep4 = df[lep_cols].values.astype(float)
+                pred_tau1_4 = np.column_stack([pred_E_t1, pred_p_t1])
+                pred_tau2_4 = np.column_stack([pred_E_t2, pred_p_t2])
+                pred_h_t2_native = pred_cart_df[[f'ts_hh_{t2}_x', f'ts_hh_{t2}_y', f'ts_hh_{t2}_z']].values
+                n2_dir, n1_dir = tau_directions_com(pred_p_t1, pred_p_t2, pred_E_t1, pred_E_t2)
+
+                # 3'a. regressed tau + lepton, via the same closed-form leptonic
+                # polvec approximation as ts_hh_approx (see
+                # leptonic_polvec_from_tau_and_lepton's docstring).
+                pred_h_t1_derived = leptonic_polvec_from_tau_and_lepton(pred_tau1_4, pred_tau2_4, reco_lep4)
+                pred_phiCP_derived = compute_phiCP(pred_h_t2_native, n1_dir, pred_h_t1_derived, n2_dir)
+
+                # 3'b. "Run3 classic" lepton-side (R, P) definition, i.e. what
+                # acoplanarity_tools.get_R_P_vectors_all/plot_phiCP.py's 'recoRun3'
+                # option uses for a leptonic leg: R = the lepton track's impact
+                # parameter, P = the lepton's own momentum (NOT the regressed tau
+                # momentum). Unlike 'recoRun3' (which boosts into the visible-momenta
+                # sum's rest frame before projecting, since it never reconstructs the
+                # full tau), here R/P are boosted into the same ditau (tau1+tau2)
+                # rest frame the hadronic leg's (h_t2, n_t2) already live in, so both
+                # legs can be combined self-consistently in one compute_phiCP call --
+                # this only changes how the lepton leg's observable is defined, the
+                # hadronic leg still uses the existing pol-vec method unchanged.
+                ip_cols = [f'reco_{t1}_lep_ipx', f'reco_{t1}_lep_ipy', f'reco_{t1}_lep_ipz']
+                if all(c in df.columns for c in ip_cols):
+                    lep_ip3 = df[ip_cols].values.astype(float)
+                    com_boost = boost_vector(pred_tau1_4 + pred_tau2_4)
+                    lep_ip4 = np.concatenate([np.zeros((len(df), 1)), lep_ip3], axis=1)
+                    R_lep_com = boost(lep_ip4, -com_boost)[:, 1:]
+                    P_lep_com = boost(reco_lep4, -com_boost)[:, 1:]
+                    pred_phiCP_run3lep = compute_phiCP(pred_h_t2_native, n1_dir, R_lep_com, P_lep_com)
+                    pred_R_t1_run3lep = R_lep_com
+                else:
+                    print(f">> WARNING: {ip_cols} not all found in test dataframe -- "
+                          "skipping Run3-classic lepton-side (R, P) polarimetric variable.")
+            else:
+                print(f">> WARNING: {lep_cols} not all found in test dataframe -- "
+                      "skipping leptonic-leg (regressed-tau/Run3) polarimetric variables.")
+
         # === 3a. phiCP uncertainty, from repeated flow sampling ===
         # MAP gives a single point estimate; sampling the flow n_flow_samples times per
         # event and taking the (circular) spread of the resulting phiCP gives a per-event
@@ -541,11 +647,28 @@ def main():
         print(f">> Estimating pred_phiCP uncertainty from {n_fs} flow samples/event "
               f"(chunk size {err_chunk_size} events, {err_chunk_size * n_fs} rows/call)...")
         pred_phiCP_err = np.empty(len(df))
+        n_sample_failures = 0
         for start in tqdm(range(0, len(df), err_chunk_size), desc="Processing chunks (phiCP uncertainty)"):
             end = min(start + err_chunk_size, len(df))
             C = end - start
-            with torch.no_grad():
-                samples_norm = model.sample(num_samples=n_fs, context=X[start:end])  # [C, n_fs, F]
+            # model.sample() occasionally hits a rare, non-reproducible numerical
+            # instability in nflows's rational-quadratic spline inverse (an assertion
+            # on a negative discriminant, from FP32 precision near bin-boundary
+            # derivatives for an unlucky random draw) -- not tied to any particular
+            # input event, confirmed by retrying the exact same chunk with fresh
+            # random noise. Retry a few times before giving up on the chunk.
+            samples_norm = None
+            for attempt in range(5):
+                try:
+                    with torch.no_grad():
+                        samples_norm = model.sample(num_samples=n_fs, context=X[start:end])  # [C, n_fs, F]
+                    break
+                except AssertionError:
+                    continue
+            if samples_norm is None:
+                n_sample_failures += 1
+                pred_phiCP_err[start:end] = np.nan
+                continue
             samples_native = dataset.destandardize_outputs(samples_norm).cpu().numpy().reshape(C * n_fs, -1)
             samples_native_df = pd.DataFrame(samples_native, columns=output_features)
 
@@ -561,6 +684,10 @@ def main():
             phiCP_samples = get_phiCP(sample_cart_df, E_t1_s, E_t2_s).reshape(C, n_fs)
             pred_phiCP_err[start:end] = circular_std(phiCP_samples, axis=1)
 
+        if n_sample_failures > 0:
+            print(f"  WARNING: flow sampling failed on 5 retries for {n_sample_failures} chunk(s) "
+                  f"({n_sample_failures * err_chunk_size} events, upper bound); pred_phiCP_err set to NaN for those events.")
+
         # Reweight the (single, UnCorr) sample to CP-even/CP-odd hypotheses using
         # TauSpinner's own per-event weights, and compare true vs. predicted phiCP
         # under each hypothesis -- this tests whether the model's *predicted*
@@ -571,32 +698,36 @@ def main():
         if have_weights:
             w_cpeven = df['tauspinner_wt_alpha0'].values
             w_cpodd = df['tauspinner_wt_alpha90'].values
-            plot_phiCP_cp_comparison(true_phiCP, pred_phiCP, w_cpeven, w_cpodd,
-                                      'All events', os.path.join(outdir, 'phiCP.pdf'), PHICP_BINS)
-        else:
-            print(">> WARNING: tauspinner_wt_alpha0/90 not found in test dataframe -- "
-                  "falling back to unweighted true-vs-predicted phiCP.")
-            fig, ax = plt.subplots(figsize=(6, 5))
-            bins = np.linspace(0, 2 * np.pi, PHICP_BINS + 1)
-            ax.hist(true_phiCP, bins=bins, density=True, histtype='step', linewidth=1.5, label='true')
-            ax.hist(pred_phiCP, bins=bins, density=True, histtype='step', linewidth=1.5, label='predicted')
-            ax.set_xlabel(r'$\phi_{CP}$ [rad]')
-            ax.set_ylabel('a.u.')
-            ax.legend()
-            fig.tight_layout()
-            fig.savefig(os.path.join(outdir, 'phiCP.pdf'), dpi=130)
-            plt.close(fig)
 
-        # === 3b. phiCP per decay-mode combination (same style as plot_phiCP.py) ===
-        if have_weights:
-            print(">> Plotting phiCP per decay-mode combination...")
+        def _plot_phiCP_suite(pred_phiCP_variant, filename_stem, dm_subdir):
+            """Factored out so the same 'All events' + per-decay-mode phiCP plot suite
+            can be produced both for the model's native prediction and (if computed)
+            the derived regressed-tau+lepton alternative, without duplicating the
+            plotting logic or overwriting either set of files."""
+            if have_weights:
+                plot_phiCP_cp_comparison(true_phiCP, pred_phiCP_variant, w_cpeven, w_cpodd,
+                                          'All events', os.path.join(outdir, f'{filename_stem}.pdf'), PHICP_BINS)
+            else:
+                fig, ax = plt.subplots(figsize=(6, 5))
+                bins = np.linspace(0, 2 * np.pi, PHICP_BINS + 1)
+                ax.hist(true_phiCP, bins=bins, density=True, histtype='step', linewidth=1.5, label='true')
+                ax.hist(pred_phiCP_variant, bins=bins, density=True, histtype='step', linewidth=1.5, label='predicted')
+                ax.set_xlabel(r'$\phi_{CP}$ [rad]')
+                ax.set_ylabel('a.u.')
+                ax.legend()
+                fig.tight_layout()
+                fig.savefig(os.path.join(outdir, f'{filename_stem}.pdf'), dpi=130)
+                plt.close(fig)
+
+            if not have_weights:
+                return
             dm_t1, dm_t2 = reco_dm_t1, reco_dm_t2
             dm_combs = [
                 [0, 0], [0, 1], [1, 1], [2, 2], [1, 2], [0, 2], [10, 10], [0, 10], [1, 10], [2, 10],
                 [0, 11], [1, 11], [2, 11], [10, 11], [11, 11],
                 [100, 0], [100, 1], [100, 2], [100, 10], [100, 11], [100, 100],
             ]
-            dm_outdir = os.path.join(outdir, 'phiCP_by_dm')
+            dm_outdir = os.path.join(outdir, dm_subdir)
             os.makedirs(dm_outdir, exist_ok=True)
             min_events = 20
             for dm_p, dm_n in dm_combs:
@@ -605,11 +736,27 @@ def main():
                 if n_events < min_events:
                     continue
                 plot_phiCP_cp_comparison(
-                    true_phiCP[mask], pred_phiCP[mask], w_cpeven[mask], w_cpodd[mask],
+                    true_phiCP[mask], pred_phiCP_variant[mask], w_cpeven[mask], w_cpodd[mask],
                     f'DM{dm_p} - DM{dm_n} ({n_events} events)',
-                    os.path.join(dm_outdir, f'phiCP_DM{dm_p}_DM{dm_n}.pdf'), PHICP_BINS,
+                    os.path.join(dm_outdir, f'{filename_stem}_DM{dm_p}_DM{dm_n}.pdf'), PHICP_BINS,
                 )
-            print(f">> Saved per-DM phiCP plots to {dm_outdir}")
+
+        if not have_weights:
+            print(">> WARNING: tauspinner_wt_alpha0/90 not found in test dataframe -- "
+                  "falling back to unweighted true-vs-predicted phiCP.")
+        print(">> Plotting phiCP (all events + per decay-mode combination)...")
+        _plot_phiCP_suite(pred_phiCP, 'phiCP', 'phiCP_by_dm')
+        print(f">> Saved phiCP plots to {outdir}")
+
+        if pred_h_t1_derived is not None:
+            print(">> Plotting derived (regressed-tau + lepton) phiCP (all events + per decay-mode combination)...")
+            _plot_phiCP_suite(pred_phiCP_derived, 'phiCP_derivedApproxLep', 'phiCP_by_dm_derivedApproxLep')
+            print(f">> Saved derived phiCP plots to {outdir}")
+
+        if pred_R_t1_run3lep is not None:
+            print(">> Plotting Run3-classic lepton-side (R, P) phiCP (all events + per decay-mode combination)...")
+            _plot_phiCP_suite(pred_phiCP_run3lep, 'phiCP_run3lep', 'phiCP_by_dm_run3lep')
+            print(f">> Saved Run3-classic lepton-side phiCP plots to {outdir}")
 
         # === 3c. ditau (boson candidate) invariant mass ===
         print(">> Plotting ditau invariant mass...")
@@ -665,17 +812,20 @@ def main():
             # data -- see calculate_hh.py. The prediction, by contrast, only ever
             # exists as (costheta, phi) in onorm_angular mode (that's the model's
             # actual output), so it has to be decoded.
-            true_n_p, true_r_p, true_k_p = df[f'ts_hh_{t1}_n'].values, df[f'ts_hh_{t1}_r'].values, df[f'ts_hh_{t1}_k'].values
-            true_n_m, true_r_m, true_k_m = df[f'ts_hh_{t2}_n'].values, df[f'ts_hh_{t2}_r'].values, df[f'ts_hh_{t2}_k'].values
+            # resolved per-tau since 'Approx' models substitute ts_hh_approx_ for
+            # only the leptonically-decaying tau's leg (see hh_native_prefix)
+            hh_p1, hh_p2 = hh_native_prefix(output_features, t1), hh_native_prefix(output_features, t2)
+            true_n_p, true_r_p, true_k_p = df[f'{hh_p1}{t1}_n'].values, df[f'{hh_p1}{t1}_r'].values, df[f'{hh_p1}{t1}_k'].values
+            true_n_m, true_r_m, true_k_m = df[f'{hh_p2}{t2}_n'].values, df[f'{hh_p2}{t2}_r'].values, df[f'{hh_p2}{t2}_k'].values
             if coordinates == 'onorm':
-                pred_n_p, pred_r_p, pred_k_p = pred_native_df[f'ts_hh_{t1}_n'].values, pred_native_df[f'ts_hh_{t1}_r'].values, pred_native_df[f'ts_hh_{t1}_k'].values
-                pred_n_m, pred_r_m, pred_k_m = pred_native_df[f'ts_hh_{t2}_n'].values, pred_native_df[f'ts_hh_{t2}_r'].values, pred_native_df[f'ts_hh_{t2}_k'].values
+                pred_n_p, pred_r_p, pred_k_p = pred_native_df[f'{hh_p1}{t1}_n'].values, pred_native_df[f'{hh_p1}{t1}_r'].values, pred_native_df[f'{hh_p1}{t1}_k'].values
+                pred_n_m, pred_r_m, pred_k_m = pred_native_df[f'{hh_p2}{t2}_n'].values, pred_native_df[f'{hh_p2}{t2}_r'].values, pred_native_df[f'{hh_p2}{t2}_k'].values
             else:  # onorm_angular: model only outputs (costheta, phi) -> decode to (n, r, k)
                 def _angular_to_nrk(costheta, phi):
                     sintheta = np.sqrt(np.clip(1.0 - costheta ** 2, 0.0, None))
                     return sintheta * np.cos(phi), sintheta * np.sin(phi), costheta
-                pred_n_p, pred_r_p, pred_k_p = _angular_to_nrk(pred_native_df[f'ts_hh_{t1}_costheta'].values, pred_native_df[f'ts_hh_{t1}_phi'].values)
-                pred_n_m, pred_r_m, pred_k_m = _angular_to_nrk(pred_native_df[f'ts_hh_{t2}_costheta'].values, pred_native_df[f'ts_hh_{t2}_phi'].values)
+                pred_n_p, pred_r_p, pred_k_p = _angular_to_nrk(pred_native_df[f'{hh_p1}{t1}_costheta'].values, pred_native_df[f'{hh_p1}{t1}_phi'].values)
+                pred_n_m, pred_r_m, pred_k_m = _angular_to_nrk(pred_native_df[f'{hh_p2}{t2}_costheta'].values, pred_native_df[f'{hh_p2}{t2}_phi'].values)
 
             ent_df = pd.DataFrame({
                 'true_cosn_plus': true_n_p, 'true_cosr_plus': true_r_p, 'true_cosk_plus': true_k_p,
@@ -747,6 +897,26 @@ def main():
             f'reco_{t1}_DM': reco_dm_t1,
             f'reco_{t2}_DM': reco_dm_t2,
         })
+
+        # derived (regressed tau + lepton) alternative to the model's native h_t1
+        # prediction above -- stored under its own column names so it doesn't
+        # overwrite pred_ts_hh_{t1}_*/pred_phiCP.
+        if pred_h_t1_derived is not None:
+            results_df[f'pred_ts_hh_derivedApproxLep_{t1}_x'] = pred_h_t1_derived[:, 0]
+            results_df[f'pred_ts_hh_derivedApproxLep_{t1}_y'] = pred_h_t1_derived[:, 1]
+            results_df[f'pred_ts_hh_derivedApproxLep_{t1}_z'] = pred_h_t1_derived[:, 2]
+            results_df['pred_phiCP_derivedApproxLep'] = pred_phiCP_derived
+
+        # Run3-classic lepton-side (R, P) alternative -- also its own column names,
+        # doesn't overwrite pred_ts_hh_{t1}_*/pred_ts_hh_derivedApproxLep_{t1}_*.
+        # Note R is the (ditau-frame-boosted) lepton impact parameter, not a unit
+        # polarimetric vector -- kept unnormalised to match get_R_P_vectors_all's
+        # own R_lep_ip convention.
+        if pred_R_t1_run3lep is not None:
+            results_df[f'pred_R_run3lep_{t1}_x'] = pred_R_t1_run3lep[:, 0]
+            results_df[f'pred_R_run3lep_{t1}_y'] = pred_R_t1_run3lep[:, 1]
+            results_df[f'pred_R_run3lep_{t1}_z'] = pred_R_t1_run3lep[:, 2]
+            results_df['pred_phiCP_run3lep'] = pred_phiCP_run3lep
 
         # cos_n/r/k projections (true + predicted) that the entanglement/spin-density
         # matrix (compute_spin_density_vars) is built from -- saved so the C_ij matrix
