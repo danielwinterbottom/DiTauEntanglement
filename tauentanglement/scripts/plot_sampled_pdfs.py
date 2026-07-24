@@ -3,6 +3,7 @@ import argparse
 import yaml
 import os
 import numpy as np
+import pandas as pd
 from tauentanglement.python.NN_Tools import load_model
 from tauentanglement.python.DataProcessing import get_test_dataset
 from tauentanglement.python.Evaluation_Tools import save_sampled_pdfs_LHC, flow_map_predict
@@ -24,6 +25,12 @@ def main():
     argparser.add_argument('--bins', type=int, default=100)
     argparser.add_argument('--no_map', action='store_true',
                            help='skip MAP estimate overlay')
+    argparser.add_argument('--stochastic_map', action='store_true',
+                           help='also compute and overlay the stochastic MAP estimate, in addition to the gradient MAP')
+    argparser.add_argument('--transformer_input', type=str, default=None,
+                           help='path to a parquet file with transformer predictions (same pred_nu_*/pred_nubar_* '
+                                'column naming as evaluate.py output, row-aligned with the test dataset); '
+                                'overlaid as a green line on the regressed-neutrino plots if given')
     argparser.add_argument('--useCPU', action='store_true')
     argparser.add_argument('--scan_pdf', action='store_true')
     args = argparser.parse_args()
@@ -77,6 +84,11 @@ def main():
     map_method  = nn_config.get('map_method', 'gradient')
     map_num_draws = nn_config.get('map_num_draws', 100)
 
+    transformer_df = None
+    if args.transformer_input:
+        transformer_df = pd.read_parquet(args.transformer_input)
+        print(f">> Loaded transformer predictions from {args.transformer_input}")
+
     # Compute MAP estimates for all requested events in a single batched call
     # instead of looping event-by-event: the gradient optimisation (200 Adam
     # steps through the flow) is the dominant cost, and batching lets every
@@ -97,14 +109,15 @@ def main():
         for event_number, log_prob_z in zip(args.events, log_prob_z_all):
             print(f"  event {event_number}: found likelihood {log_prob_z:.4f}")
 
-        print(f"Computing alternative MAP estimates for {len(args.events)} event(s) (batched, method='stochastic')...")
-        _, map_pred_all_stochastic = flow_map_predict(
-            model, X_events,
-            test_dataset=test_dataset,
-            num_draws=map_num_draws,
-            chunk_size=len(args.events),
-            method='stochastic',
-        )
+        if args.stochastic_map:
+            print(f"Computing alternative MAP estimates for {len(args.events)} event(s) (batched, method='stochastic')...")
+            _, map_pred_all_stochastic = flow_map_predict(
+                model, X_events,
+                test_dataset=test_dataset,
+                num_draws=map_num_draws,
+                chunk_size=len(args.events),
+                method='stochastic',
+            )
 
     for i, event_number in enumerate(args.events):
         print(f"  Sampling event {event_number}...")
@@ -113,7 +126,8 @@ def main():
         map_value2 = None
         if not args.no_map:
             map_value = map_pred_all[i]
-            map_value2 = map_pred_all_stochastic[i]
+            if map_pred_all_stochastic is not None:
+                map_value2 = map_pred_all_stochastic[i]
             X_event = X_events[i:i + 1]
             map_norm = map_norm_all[i:i + 1]
             log_prob_z = log_prob_z_all[i]
@@ -123,6 +137,10 @@ def main():
                     model, X_event, map_norm[0], log_prob_z,
                     event_number, test_dataset, scan_outdir, device
                 )
+
+        transformer_value = None
+        if transformer_df is not None:
+            transformer_value = _transformer_nu_momenta(transformer_df, event_number)
 
         save_sampled_pdfs_LHC(
             model=model,
@@ -135,11 +153,23 @@ def main():
             outdir=outdir,
             map_value=map_value,
             map_value2=map_value2,
+            transformer_value=transformer_value,
             df=test_df,
             coordinates=data_config['coordinates']
         )
 
     print("Done.")
+
+
+def _transformer_nu_momenta(transformer_df, event_number):
+    """Extract [taup_nu_px, taup_nu_py, taup_nu_pz, taun_nu_px, taun_nu_py, taun_nu_pz]
+    for one event from a transformer predictions parquet using evaluate.py's
+    pred_nubar_*/pred_nu_* column naming (taup_nu <-> nubar, taun_nu <-> nu)."""
+    row = transformer_df.iloc[event_number]
+    return np.array([
+        row['pred_nubar_px'], row['pred_nubar_py'], row['pred_nubar_pz'],
+        row['pred_nu_px'], row['pred_nu_py'], row['pred_nu_pz'],
+    ])
 
 
 def _plot_likelihood_scan(model, X_event, map_norm, log_prob_z, event_number, test_dataset, outdir, device):

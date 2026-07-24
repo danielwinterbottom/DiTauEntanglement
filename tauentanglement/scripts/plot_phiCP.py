@@ -21,14 +21,14 @@ plt.rcParams.update({"font.size": 16})
 
 options = {
     'files':{  # set files here (ones from eval have all info we need)
-'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPEven.parquet',
-'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPOdd.parquet',
-'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_CPMix.parquet',
-'Zprime': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_June22_TRIAL2/output_results_Zprime.parquet',
+'even': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_July15_RERUN/output_results_CPEven.parquet',
+'odd': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_July15_RERUN/output_results_CPOdd.parquet',
+'mix': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_July15_RERUN/output_results_CPMix.parquet',
+'Z': 'outputs_model_LHC_TransformerFlow_Hadronic_25e_July15_RERUN/output_results_Z.parquet',
 'sl_even': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPEven.parquet',
 'sl_odd': 'outputs_model_LHC_TransformerFlow_SemiLeptonic_25e_June23_TRIAL2/output_results_CPOdd.parquet',
 'sl_mix': None,
-'sl_Zprime': None,
+'sl_Z': None,
 # 'even': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPEven.parquet', # has fastmtt added
 # 'odd': 'outputs_NoFlows_June/outputs_Run3_withFastMTT_June24/output_results_CPOdd.parquet', # has fastmtt added
 },
@@ -46,29 +46,23 @@ options = {
     },
 }
 
-# def replace_low_pred_map(df):
-#     df = df.copy()
 
-#     mask_plus = df['map_pred_nu_E'] < 5
-#     mask_minus = df['map_pred_nubar_E'] < 5
-#     n_plus = mask_plus.sum()
-#     n_minus = mask_minus.sum()
-#     print(f"replace_low_pred_map: replacing {n_plus}/{len(df)} tau+ entries, {n_minus}/{len(df)} tau- entries")
+def replace_failed_map(df, threshold=1.0):
+    """Replace map_pred_* values with the sampled pred_* prediction for events where
+    the MAP optimiser failed (spike at 0 GeV)."""
+    df = df.copy()
+    nu_failed = df["map_pred_nu_E"] < threshold if "map_pred_nu_E" in df.columns else pd.Series(False, index=df.index)
+    nubar_failed = df["map_pred_nubar_E"] < threshold if "map_pred_nubar_E" in df.columns else pd.Series(False, index=df.index)
+    failed = nu_failed | nubar_failed
+    frac_failed = failed.sum() / len(df) if len(df) > 0 else 0.0
+    print(f">> replaceFailed: {failed.sum()}/{len(df)} ({frac_failed:.2%}) events had failed MAP estimates, replacing with sampled predictions")
 
-#     df['map_pred_tau_plus_E'] = np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_E'], df['map_pred_tau_plus_E'])
-#     df['map_pred_tau_plus_px'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_px'], df['map_pred_tau_plus_px'])
-#     df['map_pred_tau_plus_py'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_py'], df['map_pred_tau_plus_py'])
-#     df['map_pred_tau_plus_pz'] =  np.where(df['map_pred_nu_E']<5, df['pred_tau_plus_pz'], df['map_pred_tau_plus_pz'])
-
-#     df['map_pred_tau_minus_E'] = np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_E'], df['map_pred_tau_minus_E'])
-#     df['map_pred_tau_minus_px'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_px'], df['map_pred_tau_minus_px'])
-#     df['map_pred_tau_minus_py'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_py'], df['map_pred_tau_minus_py'])
-#     df['map_pred_tau_minus_pz'] =  np.where(df['map_pred_nubar_E']<5, df['pred_tau_minus_pz'], df['map_pred_tau_minus_pz'])
-
-#     return df
-
-
-
+    map_cols = [c for c in df.columns if c.startswith("map_pred_")]
+    for map_col in map_cols:
+        pred_col = "pred_" + map_col[len("map_pred_"):]
+        if pred_col in df.columns:
+            df[map_col] = np.where(failed, df[pred_col], df[map_col])
+    return df
 
 
 def compute_phicp_all(df, option, use_map=True):
@@ -120,41 +114,43 @@ def plot_phicp_histogram(ax, data, bin_edges, variable, label, color, hide_error
     return counts
 
 
-def load_data(prefix='',extra_pt_cut=-1):
-    cfg = options['files']
-    read = pd.read_parquet
-    mix_df = read(cfg[f'{prefix}mix']) if cfg.get(f'{prefix}mix') is not None else None
-    zprime_df = read(cfg[f'{prefix}Zprime']) if cfg.get(f'{prefix}Zprime') is not None else None
-    even_df = read(cfg[f'{prefix}even'])
-    print(f'EVEN File: {cfg[f"{prefix}even"]}')
-    odd_df = read(cfg[f'{prefix}odd'])
-    print(f'ODD File: {cfg[f"{prefix}odd"]}')
-    if mix_df is not None:
-        print(f'MIX File: {cfg[f"{prefix}mix"]}')
-    if zprime_df is not None:
-        print(f'ZPRIME File: {cfg[f"{prefix}Zprime"]}')
-    # estimate visible pT from sum of true_taun_charged_px true_taun_pizero1_px, etc and apply cut if extra_pt_cut>0
+def _load_and_process_one(path, name, option, use_map, dm_pfx, replace_failed, extra_pt_cut=-1):
+    """Read a single parquet file, run it through the full pipeline (pt cut, MAP
+    failure replacement, DM tagging, phiCP), then immediately drop everything except
+    the few columns the plotting loop needs - so only one raw dataframe is ever
+    resident in memory at a time, instead of all of even/odd/mix/Z at once."""
+    if path is None:
+        return None
+    print(f'{name} File: {path}')
+    df = pd.read_parquet(path)
+
+    # estimate visible pT from sum of reco charged/pizero momenta and apply cut if extra_pt_cut>0
     if extra_pt_cut > 0:
-        def compute_vis_pt(df, prefix):
-            taup_px = df[f'reco_taup_charged_px'] + df[f'reco_taup_pizero1_px']
-            taun_px = df[f'reco_taun_charged_px'] + df[f'reco_taun_pizero1_px']
-            taup_py = df[f'reco_taup_charged_py'] + df[f'reco_taup_pizero1_py']
-            taun_py = df[f'reco_taun_charged_py'] + df[f'reco_taun_pizero1_py']
-            taup_pt = np.sqrt(taup_px**2 + taup_py**2)
-            taun_pt = np.sqrt(taun_px**2 + taun_py**2)
-            return np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
-        even_df['vis_pt'] = compute_vis_pt(even_df, prefix)
-        odd_df['vis_pt'] = compute_vis_pt(odd_df, prefix)
-        even_df = even_df[even_df['vis_pt'] > extra_pt_cut]
-        odd_df = odd_df[odd_df['vis_pt'] > extra_pt_cut]
-        if mix_df is not None:
-            mix_df['vis_pt'] = compute_vis_pt(mix_df, prefix)
-            mix_df = mix_df[mix_df['vis_pt'] > extra_pt_cut]
-        if zprime_df is not None:
-            zprime_df['vis_pt'] = compute_vis_pt(zprime_df, prefix)
-            zprime_df = zprime_df[zprime_df['vis_pt'] > extra_pt_cut]
-    return even_df, odd_df, mix_df, zprime_df
-    #return read(cfg[f'{prefix}even']), read(cfg[f'{prefix}odd']), mix_df, zprime_df
+        taup_px = df['reco_taup_charged_px'] + df['reco_taup_pizero1_px']
+        taun_px = df['reco_taun_charged_px'] + df['reco_taun_pizero1_px']
+        taup_py = df['reco_taup_charged_py'] + df['reco_taup_pizero1_py']
+        taun_py = df['reco_taun_charged_py'] + df['reco_taun_pizero1_py']
+        vis_pt = np.sqrt((taup_px + taun_px)**2 + (taup_py + taun_py)**2)
+        df = df[vis_pt > extra_pt_cut]
+
+    if replace_failed:
+        if use_map:
+            df = replace_failed_map(df)
+        else:
+            print(">> Warning: --replaceFailed has no effect when not using MAP estimates")
+
+    df = add_DM(df, dm_prefix=dm_pfx)
+    df = compute_phicp_all(df, option, use_map=use_map)
+    return df[['taup_DM', 'taun_DM', 'phiCP']].copy()
+
+
+def load_data(prefix, option, use_map, dm_pfx, replace_failed, extra_pt_cut=-1):
+    cfg = options['files']
+    even_df = _load_and_process_one(cfg[f'{prefix}even'], 'EVEN', option, use_map, dm_pfx, replace_failed, extra_pt_cut)
+    odd_df  = _load_and_process_one(cfg[f'{prefix}odd'],  'ODD',  option, use_map, dm_pfx, replace_failed, extra_pt_cut)
+    mix_df  = _load_and_process_one(cfg.get(f'{prefix}mix', None), 'MIX', option, use_map, dm_pfx, replace_failed, extra_pt_cut)
+    Z_df    = _load_and_process_one(cfg.get(f'{prefix}Z', None),   'Z',   option, use_map, dm_pfx, replace_failed, extra_pt_cut)
+    return even_df, odd_df, mix_df, Z_df
 
 
 def main():
@@ -163,6 +159,8 @@ def main():
                         default='recoRun3', help="Reconstruction method to use.")
     parser.add_argument('--output-dir', default='.', help="Directory for output PDFs.")
     parser.add_argument('--useMLP', action='store_true')
+    parser.add_argument('--replaceFailed', action='store_true',
+                        help="If using MAP estimate, replace failed MAP predictions with the sampled prediction")
     parser.add_argument('--GENfilter', action='store_true',
                         help="Use true_ prefix for DM/prong masks instead of reco_.")
     parser.add_argument('--hide-errors', action='store_true',
@@ -182,21 +180,14 @@ def main():
     os.makedirs(f"{args.output_dir}/logs", exist_ok=True)
     os.makedirs(f"{args.output_dir}/{args.option}", exist_ok=True)
 
-    even_df, odd_df, mix_df, zprime_df = load_data(prefix='sl_' if args.leptonic_mode == 1 else '')
-
-
     use_map = not args.useMLP
     dm_pfx = 'true' if args.GENfilter else 'reco'
-    even_df = add_DM(even_df, dm_prefix=dm_pfx)
-    odd_df = add_DM(odd_df, dm_prefix=dm_pfx)
-    even_df = compute_phicp_all(even_df, args.option, use_map=use_map)
-    odd_df  = compute_phicp_all(odd_df,  args.option, use_map=use_map)
-    if mix_df is not None:
-        mix_df = add_DM(mix_df, dm_prefix=dm_pfx)
-        mix_df = compute_phicp_all(mix_df, args.option, use_map=use_map)
-    if zprime_df is not None:
-        zprime_df = add_DM(zprime_df, dm_prefix=dm_pfx)
-        zprime_df = compute_phicp_all(zprime_df, args.option, use_map=use_map)
+
+    even_df, odd_df, mix_df, Z_df = load_data(
+        prefix='sl_' if args.leptonic_mode == 1 else '',
+        option=args.option, use_map=use_map, dm_pfx=dm_pfx,
+        replace_failed=args.replaceFailed,
+    )
 
     if args.leptonic_mode == 1:
         dm_combs = [[100, 0], [100,1], [100,2], [100,10]]
@@ -219,9 +210,9 @@ def main():
         if mix_df is not None:
             mix = mix_df[dm_mask(mix_df)]
             plot_phicp_histogram(ax, mix, bin_edges, 'phiCP', 'CP-mix', 'green', hide)
-        if zprime_df is not None:
-            zprime = zprime_df[dm_mask(zprime_df)]
-            plot_phicp_histogram(ax, zprime, bin_edges, 'phiCP', 'Zprime', 'black', hide)
+        if Z_df is not None:
+            Z = Z_df[dm_mask(Z_df)]
+            plot_phicp_histogram(ax, Z, bin_edges, 'phiCP', 'Z', 'black', hide)
         avg = 0.5 * (even_counts + odd_counts)
         asymmetry = np.mean(np.abs(even_counts - odd_counts) / avg)
 

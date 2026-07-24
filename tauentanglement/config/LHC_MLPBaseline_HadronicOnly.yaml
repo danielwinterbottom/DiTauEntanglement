@@ -6,14 +6,13 @@ SetupNN:
   reload_scheduler: False # whether to reload the scheduler state when reloading a model
   n_epochs: 100
   MLP_hyperparams: { # for MLP baseline
-              'batch_size': 8192,
+              'batch_size': 4096,
               'num_blocks': 6,
-              'hidden_size': 512,
+              'hidden_size': 256,
               'lr': 0.0005,
               'weight_decay': !!float 1e-05}
   map_method: gradient
   map_num_draws: 100
-
 
 Data:
   datasets: ['ppToHToTauTau_AllDM_CPEven_May22','ppToHToTauTau_AllDM_CPOdd_May22','ppToHToTauTau_AllDM_CPEven_May22_ext1','ppToHToTauTau_AllDM_CPOdd_May22_ext1', 'ppToHToTauTau_AllDM_CPEven_May22_ext2', 'ppToHToTauTau_AllDM_CPOdd_May22_ext2','ppToHToTauTau_AllDM_CPEven_May22_ext3', 'ppToHToTauTau_AllDM_CPOdd_May22_ext3', 'ppToHToTauTau_DM0and1_CPEven_May22','ppToHToTauTau_DM0and1_CPOdd_May22', 'ppToHToTauTau_DM0and1_CPEven_May22_ext1', 'ppToHToTauTau_DM0and1_CPOdd_May22_ext1']  # name of dataset to use, has to be one of the keys in the available_files dictionary below
